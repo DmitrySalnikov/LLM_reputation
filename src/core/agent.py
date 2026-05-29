@@ -67,10 +67,14 @@ class Agent:
         self.parse_failures = 0
         self._window = context_window
 
+    def system_prompt(self, rules: str = "") -> str:
+        system = f"You are agent {self.id}.\n\n{self.setup.persona}"
+        if rules:
+            system = f"{system}\n\n{rules}"
+        return system
+
     async def act(self, phase: Phase) -> ActResult:
-        system = self.setup.persona
-        if phase.rules:
-            system = f"{system}\n\n{phase.rules}"
+        system = self.system_prompt(phase.rules)
         base = self.memory.render(self._window) + [Message("user", phase.context)]
         cfg = self.setup.provider_cfg
 

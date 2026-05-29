@@ -34,9 +34,10 @@ def test_single_entry_content():
     assert msg.role == "user"
     text = msg.content
     assert "Round 3" in text and "A5" in text
-    assert "I chose 4" in text and "agreed on 4" in text
-    assert "A5 chose 4" in text
-    assert "Outcome: CC" in text and "Payoff: 3" in text
+    assert "me: let us both take 4" in text   # my own line relabeled "me"
+    assert "A5: ok, 4" in text                # partner line keeps the partner id
+    assert "me=4" in text and "A5=4" in text and "agreed on 4" in text
+    assert "Outcome: CC" in text and "Payoff to me: 3" in text
     assert "ready=false" in text and "ready=true" in text
 
 

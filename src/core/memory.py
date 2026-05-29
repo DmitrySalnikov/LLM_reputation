@@ -40,16 +40,17 @@ class Memory:
 
 
 def _render_entry(e: MemoryEntry) -> str:
-    lines = [f"[Round {e.round} · vs {e.partner_id}]"]
+    lines = [f"[Round {e.round} · partner {e.partner_id}]"]
     if e.transcript:
         lines.append("Talk:")
         for turn in e.transcript:
+            # the transcript holds only the two players; relabel my own lines as "me".
+            speaker = e.partner_id if turn.get("speaker") == e.partner_id else "me"
             ready = str(bool(turn.get("ready"))).lower()
-            lines.append(f"  {turn.get('speaker', '?')}: {turn.get('text', '')} (ready={ready})")
+            lines.append(f"  {speaker}: {turn.get('text', '')} (ready={ready})")
     reason = f" (reason: {e.my_rationale})" if e.my_rationale else ""
     lines.append(
-        f"Decision: I chose {e.my_number}{reason}. "
-        f"{e.partner_id} chose {e.partner_number}. "
-        f"Outcome: {e.outcome}. Payoff: {e.payoff:g}."
+        f"Choices: me={e.my_number}{reason}, {e.partner_id}={e.partner_number}. "
+        f"Outcome: {e.outcome}. Payoff to me: {e.payoff:g}."
     )
     return "\n".join(lines)
