@@ -3,6 +3,6 @@
 
 Команда:  
 [Андрей Серяков](https://github.com/AndreySeryakov])  
-Крупкина Екатерина  
+[Крупкина Екатерина](https://github.com/ktchka)  
 [Быстров Андрей](https://github.com/Shougakusei)  
-Сальников Дима  
+[Сальников Дима](https://github.com/DmitrySalnikov)
