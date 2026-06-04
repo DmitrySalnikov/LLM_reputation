@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import random
-
 import httpx
 import pytest
 
@@ -29,7 +27,7 @@ async def test_pairing_against_ollama():
     b = Agent("A2", AgentSetup("You are a cautious player.", cfg), make_provider(cfg))
     game = ReputationPD(GameCfg(max_talk_turns=4))
     try:
-        rec = await game.play_pairing(a, b, 1, random.Random(0))
+        rec = await game.play_pairing(a, b, 1)
     finally:
         await a.provider.aclose()
         await b.provider.aclose()

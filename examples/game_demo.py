@@ -7,7 +7,6 @@ Run from the repo root so `src` is importable:
 """
 
 import asyncio
-import random
 
 from src.core.agent import Agent, AgentSetup
 from src.core.config import GameCfg, ProviderCfg
@@ -79,9 +78,8 @@ async def main():
     # memory holds the round-1 diary, which is fed into its round-2 prompts
     # (history / reputation carry-over).
     try:
-        rng = random.Random(7)
         for n in (1, 2):
-            rec = await game.play_pairing(a, b, round=n, rng=rng)
+            rec = await game.play_pairing(a, b, round=n)
             _print_round(n, rec, a, b)
     finally:
         await a.provider.aclose()

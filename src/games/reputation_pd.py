@@ -24,8 +24,9 @@ class ReputationPD:
             return ("CD", p.S, p.T)  # y betrayed x
         return ("DD", p.P, p.P)
 
-    async def play_pairing(self, a: Agent, b: Agent, round: int, rng) -> PairingRecord:
-        transcript = await self._cheap_talk(a, b, round, rng)
+    async def play_pairing(self, a: Agent, b: Agent, round: int) -> PairingRecord:
+        # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
+        transcript = await self._cheap_talk(a, b, round)
         feed = _render_feed(transcript)
         ra = await a.act(Phase(PhaseKind.DECIDE, _decide_context(b.id, round, feed), rules=self._rules))
         rb = await b.act(Phase(PhaseKind.DECIDE, _decide_context(a.id, round, feed), rules=self._rules))
@@ -45,10 +46,10 @@ class ReputationPD:
             outcome=outcome, a_payoff=pa, b_payoff=pb, usage=usage,
         )
 
-    async def _cheap_talk(self, a: Agent, b: Agent, round: int, rng) -> list[dict]:
+    async def _cheap_talk(self, a: Agent, b: Agent, round: int) -> list[dict]:
         transcript: list[dict] = []
         ready = {a.id: False, b.id: False}
-        order = [a, b] if rng.random() < 0.5 else [b, a]  # first speaker by seed
+        order = [a, b]  # a opens; the matcher sets orientation via pairing order
         i = 0
         while len(transcript) < self.cfg.max_talk_turns:
             cur, oth = order[i % 2], order[(i + 1) % 2]
