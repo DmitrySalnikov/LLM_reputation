@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import random
+from typing import Awaitable, Callable, Optional
+
+from src.core.config import EpisodeCfg
+from src.games.base import PairingRecord
+from src.games.reputation_pd import ReputationPD
+from src.matchmaking import RoundPlan, make_matchmaker
+from src.population import Population
+
+# Called at the end of each round; sync or async. This is the orchestrator's ONLY
+# output channel — the Logger layer will implement it to persist each round.
+Observer = Callable[[int, RoundPlan, list[PairingRecord]], Optional[Awaitable[None]]]
+
+
+async def _guarded(coro, sem: asyncio.Semaphore):
+    async with sem:
+        return await coro
+
+
+async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | None = None) -> None:
+    """Drive one episode over a caller-owned population.
+
+    Side effects only: mutates agents (score / memory) and emits each round to
+    `observer`. Returns nothing — final state lives on `pop`, which the caller builds,
+    inspects (scores / memory) and closes (`aclose`). `pop` must come from
+    `cfg.population`, e.g. make_population(cfg.population, ...).build(Random(cfg.seed)).
+    """
+    game = ReputationPD(cfg.game)
+    mm = make_matchmaker(cfg.matchmaker)
+    mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: matcher's own rng
+    sem = asyncio.Semaphore(cfg.max_concurrency)
+    for r in range(cfg.rounds):
+        plan = await mm.plan_round(pop.ids(), r, actor=None)
+        recs = await asyncio.gather(*[                                  # fail-fast (C2)
+            _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)
+            for a, b in plan.pairings
+        ])
+        for c in plan.idle:
+            pop.get(c).score += cfg.idle_payoff                        # C3
+        if observer is not None:                                       # the only output channel
+            res = observer(r, plan, recs)
+            if inspect.isawaitable(res):
+                await res

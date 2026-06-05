@@ -1,0 +1,27 @@
+# One episode = one config file. Run it via the example entry point:
+#   PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+seed: 42
+rounds: 6                     # small demo defaults; scale up for real runs
+matchmaker: random
+context_window: null          # null = unbounded memory
+idle_payoff: 1                # C3: an idle agent (odd N) scores P
+max_concurrency: 4
+
+game:
+  payoffs: {R: 3, T: 5, P: 1, S: 0}
+  max_talk_turns: 8
+
+# A provider block reused by every agent via the &default / *default YAML anchor.
+provider_default: &default
+  base_url: http://localhost:11434/v1   # local Ollama
+  api_key_env: OLLAMA_KEY               # placeholder for a local server
+  model: llama3:8b
+  temperature: 0.7
+  max_tokens: 1000
+
+population:
+  kind: roster
+  n_agents: 4
+  agents:                     # shorter than n_agents -> cycled at build time
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
+    - {persona: "You are a cautious player who values trust.", provider: *default}
