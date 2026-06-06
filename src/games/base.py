@@ -20,6 +20,8 @@ class PairingRecord:
     a_payoff: float
     b_payoff: float
     usage: dict                     # {"prompt_tokens", "completion_tokens", "calls"}
+    a_predicted: int | None = None  # стратегия prediction; None для direct
+    b_predicted: int | None = None
 
 
 class Game(Protocol):

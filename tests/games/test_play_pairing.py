@@ -128,3 +128,33 @@ async def test_decide_context_contains_feed_and_ids():
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx and "take 4 plz" in ctx
     assert "0 to 9" in system  # rules went into the system prompt
+
+
+# ---- Task 6: strategy delegation + prediction persistence ----
+
+async def test_direct_strategy_leaves_predicted_none():
+    g = ReputationPD(GameCfg(max_talk_turns=0))   # default DirectStrategy
+    a = _agent("A1", [_decide(4)])
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.a_predicted is None and rec.b_predicted is None
+    assert a.memory.entries[0].my_predicted is None
+
+
+async def test_prediction_strategy_records_and_remembers_predictions():
+    from src.strategy.mappings import get_mapping
+    from src.strategy.prediction import PredictionStrategy
+
+    g = ReputationPD(GameCfg(max_talk_turns=0),
+                     strategy=PredictionStrategy(get_mapping("one_above")))
+    a = _agent("A1", ['{"number": 4, "rationale": "pa"}'])   # predicts 4 -> chooses 5
+    b = _agent("A2", ['{"number": 4, "rationale": "pb"}'])   # predicts 4 -> chooses 5
+    rec = await g.play_pairing(a, b, 1)
+    assert (rec.a_predicted, rec.b_predicted) == (4, 4)
+    assert (rec.a_number, rec.b_number) == (5, 5)
+    assert rec.outcome == "CC"
+    # private scratchpad: the predicted value lives in the acting agent's memory
+    assert a.memory.entries[0].my_predicted == 4
+    assert "pa" in str(a.memory.entries[0])
+    # the partner's prediction reasoning never leaks into a's memory entry
+    assert "pb" not in str(a.memory.entries[0])
