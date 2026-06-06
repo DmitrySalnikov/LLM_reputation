@@ -4,6 +4,7 @@ from src.core.agent import Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry
 from src.games.base import PairingRecord
+from src.games.prompts import decide_context, rules_text, talk_context
 
 # Outcome from A's perspective -> outcome from B's perspective.
 _FLIP = {"CC": "CC", "DD": "DD", "DC": "CD", "CD": "DC"}
@@ -12,7 +13,7 @@ _FLIP = {"CC": "CC", "DD": "DD", "DC": "CD", "CD": "DC"}
 class ReputationPD:
     def __init__(self, cfg: GameCfg, rules: str | None = None):
         self.cfg = cfg
-        self._rules = rules if rules is not None else _rules_text(cfg)
+        self._rules = rules if rules is not None else rules_text(cfg)
 
     def resolve(self, x: int, y: int) -> tuple[str, float, float]:
         p = self.cfg.payoffs
@@ -28,8 +29,8 @@ class ReputationPD:
         # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
         transcript = await self._cheap_talk(a, b, round)
         feed = _render_feed(transcript)
-        ra = await a.act(Phase(PhaseKind.DECIDE, _decide_context(b.id, round, feed), rules=self._rules))
-        rb = await b.act(Phase(PhaseKind.DECIDE, _decide_context(a.id, round, feed), rules=self._rules))
+        ra = await a.act(Phase(PhaseKind.DECIDE, decide_context(b.id, round, feed), rules=self._rules))
+        rb = await b.act(Phase(PhaseKind.DECIDE, decide_context(a.id, round, feed), rules=self._rules))
         x, y = ra.data["number"], rb.data["number"]
         outcome, pa, pb = self.resolve(x, y)
         a.score += pa
@@ -58,7 +59,7 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = _talk_context(oth.id, round, _render_feed(transcript))
+            ctx = talk_context(oth.id, round, _render_feed(transcript))
             res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
             transcript.append(
                 {
@@ -108,39 +109,4 @@ def _sum_usage(usages: list) -> dict:
 def _render_feed(transcript: list[dict]) -> str:
     return "\n".join(
         f"{t['speaker']}: {t['text']} (ready={str(bool(t['ready'])).lower()})" for t in transcript
-    )
-
-
-def _rules_text(cfg: GameCfg) -> str:
-    p = cfg.payoffs
-    return (
-        "You are playing a repeated game. Each round you face one partner.\n"
-        "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
-        f"- Equal numbers: you each score {p.R:g}.\n"
-        f"- Your number exactly one higher than your partner's (0 counts as following 9): "
-        f"you score {p.T:g}, your partner {p.S:g}.\n"
-        f"- Your partner's number exactly one higher than yours: they score {p.T:g}, you {p.S:g}.\n"
-        f"- Any other case: you each score {p.P:g}.\n"
-        "Before choosing you may exchange short messages. Messages are not binding; "
-        "the final choice is secret and simultaneous. Maximize your own total score."
-    )
-
-
-def _talk_context(partner: str, round: int, feed: str) -> str:
-    feed_block = feed if feed else "(no messages yet)"
-    return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation so far:\n{feed_block}\n\n"
-        'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
-        'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
-    )
-
-
-def _decide_context(partner: str, round: int, feed: str) -> str:
-    feed_block = feed if feed else "(no messages were exchanged)"
-    return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation:\n{feed_block}\n\n"
-        "Now secretly choose your number from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
     )
