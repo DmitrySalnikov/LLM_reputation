@@ -62,3 +62,15 @@ def test_window_zero_returns_nothing():
     m = Memory()
     m.add(_entry())
     assert m.render(0) == []
+
+
+def test_render_includes_prediction_line_when_present():
+    from src.core.memory import Memory, MemoryEntry
+
+    m = Memory()
+    m.add(MemoryEntry(round=1, partner_id="A2", transcript=[], my_number=5,
+                      my_rationale="r", partner_number=5, outcome="CC", payoff=3.0,
+                      my_predicted=4))
+    rendered = m.render(None)[0].content
+    assert "predict" in rendered.lower()
+    assert "4" in rendered

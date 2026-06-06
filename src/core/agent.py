@@ -16,6 +16,7 @@ _MAX_PARSE_RETRIES = 2
 class PhaseKind(Enum):
     TALK = "talk"
     DECIDE = "decide"
+    PREDICT = "predict"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,10 @@ _CORRECTION = {
     PhaseKind.TALK: (
         "Respond with ONLY valid JSON, nothing else: "
         '{"message": "<your message>", "ready": <true|false>}'
+    ),
+    PhaseKind.PREDICT: (
+        "Respond with ONLY valid JSON, nothing else: "
+        '{"number": <integer 0-9>, "rationale": "<short reason>"}'
     ),
 }
 
@@ -109,7 +114,7 @@ def _parse(kind: PhaseKind, text: str) -> dict | None:
     obj = _extract_json_obj(text)
     if obj is None:
         return None
-    if kind is PhaseKind.DECIDE:
+    if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
         return _validate_decide(obj)
     if kind is PhaseKind.TALK:
         return _validate_talk(obj)
@@ -155,7 +160,7 @@ def _coerce_bool(value) -> bool:
 
 
 def _fallback(kind: PhaseKind) -> dict:
-    if kind is PhaseKind.DECIDE:
+    if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
         return {"number": random.randint(0, 9), "rationale": "(unparsed)"}
     return {"message": "", "ready": True}
 

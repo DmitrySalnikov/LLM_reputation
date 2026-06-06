@@ -42,14 +42,15 @@ class Population:
         self._counter += 1            # only grows -> ids are never reused
         return f"A{self._counter}"
 
-    def add(self, setup: AgentSetup) -> Agent:
+    def add(self, setup: AgentSetup, *, agent_id: str | None = None) -> Agent:
         cfg = setup.provider_cfg
         key = (cfg.base_url, cfg.model)
         provider = self._providers.get(key)
         if provider is None:
             provider = make_provider(cfg)
             self._providers[key] = provider
-        agent = Agent(self.next_id(), setup, provider, context_window=self._window)
+        aid = agent_id if agent_id is not None else self.next_id()
+        agent = Agent(aid, setup, provider, context_window=self._window)
         self._agents.append(agent)
         self._by_id[agent.id] = agent
         return agent

@@ -1,17 +1,22 @@
-# One episode = one config file. Run it via the example entry point:
-#   PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+# Эпизод со стратегией prediction: агент предсказывает число партнёра, затем
+# отображает его в собственный выбор через prediction_mapping.
+#   PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
 seed: 42
-rounds: 6                     # small demo defaults; scale up for real runs
+rounds: 6
 matchmaker: random
-context_window: null          # null = unbounded memory
-idle_payoff: 1                # C3: an idle agent (odd N) scores P
+context_window: null
+idle_payoff: 1
 max_concurrency: 4
+
+# one_above — рациональный best-response: сыграть на единицу выше предсказанного
+# числа партнёра (off-by-one даёт выигрыш T).
+play_strategy: prediction
+prediction_mapping: one_above
 
 game:
   payoffs: {R: 3, T: 5, P: 1, S: 0}
   max_talk_turns: 3
 
-# A provider block reused by every agent via the &default / *default YAML anchor.
 provider_default: &default
   base_url: https://api.together.xyz/v1   # Together.ai (OpenAI-совместимый)
   api_key_env: TOGETHER_API_KEY           # ключ берётся из .env (см. .gitignore)
@@ -27,6 +32,6 @@ population:
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  agents:                     # shorter than n_agents -> cycled at build time
+  agents:
     - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
     - {persona: "You are a cautious player who values trust.", provider: *default}
