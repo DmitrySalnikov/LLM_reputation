@@ -10,6 +10,7 @@ from src.games.base import PairingRecord
 from src.games.reputation_pd import ReputationPD
 from src.matchmaking import RoundPlan, make_matchmaker
 from src.population import Population
+from src.strategy.base import make_strategy
 
 # Called at the end of each round; sync or async. This is the orchestrator's ONLY
 # output channel — the Logger layer will implement it to persist each round.
@@ -29,7 +30,7 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
     inspects (scores / memory) and closes (`aclose`). `pop` must come from
     `cfg.population`, e.g. make_population(cfg.population, ...).build(Random(cfg.seed)).
     """
-    game = ReputationPD(cfg.game)
+    game = ReputationPD(cfg.game, strategy=make_strategy(cfg))
     mm = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: matcher's own rng
     sem = asyncio.Semaphore(cfg.max_concurrency)
