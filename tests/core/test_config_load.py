@@ -31,9 +31,9 @@ def test_yaml_anchor_shared_provider():
     p0 = cfg.population.agents[0].provider
     p1 = cfg.population.agents[1].provider
     assert p0 == p1                                  # &default / *default -> identical provider cfg
-    assert p0.model == "llama3:8b"
+    assert p0.model == "Qwen/Qwen2.5-7B-Instruct-Turbo"
     assert p0.base_url.endswith("/v1")
-    assert p0.api_key_env == "OLLAMA_KEY"
+    assert p0.api_key_env == "TOGETHER_API_KEY"
 
 
 def test_defaults_applied(tmp_path):

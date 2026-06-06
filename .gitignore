@@ -8,3 +8,6 @@ runs/
 *.db-wal
 *.db-shm
 .ipynb_checkpoints/
+
+# Секреты окружения (ключи API)
+.env
