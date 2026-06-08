@@ -22,7 +22,7 @@ def test_load_example():
     assert len(cfg.population.agents) == 2          # cycled up to n_agents at build time
     assert isinstance(cfg.game, GameCfg)
     assert cfg.game.payoffs.T == 5
-    assert cfg.game.max_talk_turns == 3
+    assert cfg.game.max_talk_turns == 8
     assert not hasattr(cfg, "db_path")              # persistence belongs to the Logger layer
 
 
