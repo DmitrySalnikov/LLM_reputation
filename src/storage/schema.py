@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     a_outcome   TEXT NOT NULL,
     a_payoff    REAL NOT NULL,
     b_payoff    REAL NOT NULL,
+    a_predicted INTEGER,                    -- prediction strategy: a's guess of b's number (NULL for direct)
+    b_predicted INTEGER,
     usage_prompt_tokens     INTEGER NOT NULL,
     usage_completion_tokens INTEGER NOT NULL,
     usage_calls             INTEGER NOT NULL,

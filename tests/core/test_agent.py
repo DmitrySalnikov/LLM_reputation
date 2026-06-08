@@ -135,6 +135,14 @@ async def test_talk_persistent_failure_fallback():
     assert a.parse_failures == 1
 
 
+async def test_predict_phase_parses_number_and_rationale():
+    p = ScriptedProvider(['{"number": 7, "rationale": "mid is safe"}'])
+    r = await _agent(p).act(Phase(PhaseKind.PREDICT, "predict your partner", rules="R"))
+    assert r.data["number"] == 7
+    assert r.data["rationale"] == "mid is safe"
+    assert r.public_text is None  # PREDICT produces no public message
+
+
 async def test_memory_diary_precedes_situation_in_prompt():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     a = _agent(p)

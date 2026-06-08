@@ -116,12 +116,12 @@ def replay(conn, run_id, show_config=False):
 
         pairings = conn.execute(
             """SELECT pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
-                      a_outcome, a_payoff, b_payoff, usage_calls
+                      a_outcome, a_payoff, b_payoff, a_predicted, b_predicted, usage_calls
                FROM pairings WHERE run_id=? AND round_idx=? ORDER BY pair_idx""",
             (run_id, r),
         ).fetchall()
         for (pi, a_id, b_id, a_num, b_num, a_rat, b_rat,
-             outcome, a_pay, b_pay, calls) in pairings:
+             outcome, a_pay, b_pay, a_pred, b_pred, calls) in pairings:
             print(f"\n  {a_id} vs {b_id}  ({a_id} opens):")
             msgs = conn.execute(
                 """SELECT speaker, text, ready FROM messages
@@ -137,6 +137,8 @@ def replay(conn, run_id, show_config=False):
                 f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}   "
                 f"(payoffs {a_id}={a_pay:g}, {b_id}={b_pay:g})  [{calls} llm calls]"
             )
+            if a_pred is not None or b_pred is not None:   # prediction strategy: guess of partner's number
+                print(f"    predictions: {a_id} guessed {b_id}={a_pred}, {b_id} guessed {a_id}={b_pred}")
             print(f"      {a_id} reason: {a_rat}")
             print(f"      {b_id} reason: {b_rat}")
 

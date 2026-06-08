@@ -6,20 +6,25 @@ run_episode returns nothing: the caller owns the population (reads scores from i
 closes it) and collects per-round data via the observer — the same seam the Logger
 layer will use to persist rounds.
 
-There is no CLI — this script IS the entry point. Run from the repo root (needs a local
-Ollama serving the model in config/example.yaml):
+Run from the repo root (needs API-доступ к провайдеру из конфигурации; ключ берётся из
+.env). Путь к конфигурации можно передать первым аргументом, иначе берётся example.yaml:
 
-    PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+    PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py [config/episode.yaml]
 """
 
 import asyncio
 import random
+import sys
+
+from dotenv import load_dotenv
 
 from src.core.config import load_episode
 from src.core.orchestrator import run_episode
 from src.population import make_population
 
-CONFIG = "config/example.yaml"
+load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
+
+CONFIG = sys.argv[1] if len(sys.argv) > 1 else "config/example.yaml"
 
 
 def narrate_round(r, plan, recs):
@@ -33,6 +38,11 @@ def narrate_round(r, plan, recs):
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
+        if rec.a_predicted is not None or rec.b_predicted is not None:
+            print(
+                f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "
+                f"{rec.b_id} guessed {rec.a_id}={rec.b_predicted}"
+            )
         print(
             f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
             f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})"

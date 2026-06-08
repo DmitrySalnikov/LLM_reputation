@@ -79,3 +79,38 @@ def test_make_population_unknown_kind_raises():
     cfg = PopulationCfg(kind="nope", agents=[_spec("p")])
     with pytest.raises(ValueError):
         make_population(cfg)
+
+
+def _pop_cfg_named(specs, firsts, lasts):
+    return PopulationCfg(kind="roster", agents=specs,
+                         first_name_pool=firsts, last_name_pool=lasts)
+
+
+def test_names_replace_ids_unique_first_and_last(created):
+    firsts = ["Kurisu", "Mayuri", "Itaru", "Moeka"]
+    lasts = ["Makise", "Shiina", "Hashida", "Kiryuu"]
+    pop = make_population(_pop_cfg_named([_spec("p", count=3)], firsts, lasts)).build(random.Random(0))
+    ids = pop.ids()
+    assert len(ids) == 3
+    first_parts = [i.split(" ")[0] for i in ids]
+    last_parts = [i.split(" ")[1] for i in ids]
+    assert len(set(first_parts)) == 3   # all first names unique
+    assert len(set(last_parts)) == 3    # all last names unique
+    assert all(f in firsts and l in lasts for f, l in zip(first_parts, last_parts))
+
+
+def test_name_assignment_is_deterministic_per_seed(created):
+    firsts = ["Kurisu", "Mayuri", "Itaru", "Moeka"]
+    lasts = ["Makise", "Shiina", "Hashida", "Kiryuu"]
+    cfg = _pop_cfg_named([_spec("p", count=3)], firsts, lasts)
+    ids1 = make_population(cfg).build(random.Random(7)).ids()
+    ids2 = make_population(cfg).build(random.Random(7)).ids()
+    ids3 = make_population(cfg).build(random.Random(99)).ids()
+    assert ids1 == ids2          # same seed -> same assignment
+    assert ids1 != ids3          # different seed -> different assignment
+
+
+def test_empty_pools_fall_back_to_a_ids(created):
+    # No pools provided -> A1.. ids (keeps programmatic construction working).
+    pop = make_population(_pop_cfg([_spec("p", count=2)])).build(random.Random(0))
+    assert pop.ids() == ["A1", "A2"]
