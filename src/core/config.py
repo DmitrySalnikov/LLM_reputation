@@ -24,24 +24,61 @@ class Payoffs:
     # invariants: T > R > P > S and 2R > T + S (strict PD)
 
 
+# Prompt templates. These were hardcoded in src/games/reputation_pd.py; they now live
+# here as editable config defaults so an experiment can swap them and so the exact text
+# is persisted into the run's stored config. Placeholders are substituted by literal
+# string replacement (NOT str.format — the JSON examples contain real braces):
+#   rules:        {R} {T} {P} {S}        <- payoff values
+#   talk_prompt:  {partner} {round} {feed}
+#   decide_prompt:{partner} {round} {feed}
+DEFAULT_RULES = (
+    "You are playing a repeated game. Each round you face one partner.\n"
+    "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
+    "- Equal numbers: you each score {R}.\n"
+    "- Your number exactly one higher than your partner's (0 counts as following 9): "
+    "you score {T}, your partner {S}.\n"
+    "- Your partner's number exactly one higher than yours: they score {T}, you {S}.\n"
+    "- Any other case: you each score {P}.\n"
+    "Before choosing you may exchange short messages. Messages are not binding; "
+    "the final choice is secret and simultaneous. Maximize your own total score."
+)
+
+DEFAULT_TALK_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation so far:\n{feed}\n\n"
+    'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+)
+
+DEFAULT_DECIDE_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
+    "Now secretly choose your number from 0 to 9.\n"
+    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+)
+
+
 @dataclass(frozen=True)
 class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
+    rules: str = DEFAULT_RULES               # system-prompt game rules ({R}/{T}/{P}/{S})
+    talk_prompt: str = DEFAULT_TALK_PROMPT    # cheap-talk turn ({partner}/{round}/{feed})
+    decide_prompt: str = DEFAULT_DECIDE_PROMPT  # decision turn ({partner}/{round}/{feed})
 
 
 @dataclass(frozen=True)
 class AgentSpec:
     persona: str
     provider: ProviderCfg
+    count: int = 1                   # how many agents of this type to build
 
 
 @dataclass(frozen=True)
 class PopulationCfg:
     kind: str
-    n_agents: int
-    agents: list[AgentSpec]          # shorter than n_agents -> cycled at build time
+    agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
 
 
 @dataclass(frozen=True)
@@ -69,10 +106,11 @@ def _game_cfg(d: dict) -> GameCfg:
 
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]))
+        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]),
+                  count=a.get("count", 1))
         for a in d["agents"]
     ]
-    return PopulationCfg(kind=d["kind"], n_agents=d["n_agents"], agents=agents)
+    return PopulationCfg(kind=d["kind"], agents=agents)
 
 
 def load_episode(path: str) -> EpisodeCfg:

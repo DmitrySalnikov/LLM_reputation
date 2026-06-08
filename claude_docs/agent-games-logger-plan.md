@@ -93,6 +93,7 @@ PRAGMA foreign_keys=ON;
 
 CREATE TABLE runs (
     run_id      TEXT PRIMARY KEY,      -- sha256(каноничный конфиг)[:16]
+    name        TEXT,                  -- опциональная человекочитаемая метка (не входит в run_id)
     config      TEXT NOT NULL,         -- JSON: полный resolved EpisodeCfg
     seed        INTEGER NOT NULL,      -- денормализованная копия (частый фильтр)
     created_at  TEXT NOT NULL,         -- ISO; Шаг 0
@@ -171,9 +172,10 @@ CREATE TABLE messages (
 # src/storage/store.py
 class Storage:
     def __init__(self, db_path: str): ...            # connect; WAL; FK pragma; init_schema
-    def begin(self, cfg: EpisodeCfg, pop: Population) -> str: ...
-    #   run_id=sha256(canon(cfg)); INSERT runs (config JSON, seed, created_at);
+    def begin(self, cfg: EpisodeCfg, pop: Population, name: str | None = None) -> str: ...
+    #   run_id=sha256(canon(cfg)); INSERT runs (name, config JSON, seed, created_at);
     #   INSERT agents (persona, provider JSON) для каждого; запомнить run_id; вернуть его
+    #   name — опциональная метка, в run_id НЕ входит
     def observe(self, round: int, plan: RoundPlan, recs: list[PairingRecord]) -> None: ...
     #   ОДНА транзакция: rounds + idle + pairings + messages (это и есть observer)
     def finish(self, pop: Population) -> None: ...    # UPDATE runs.finished_at; agents.final_score
@@ -212,6 +214,18 @@ finally:
 **Срез 3 — интеграция (пример/end-to-end).**
 - Прогнать оркестратор со `Storage` на `ScriptedProvider` (и опц. live-smoke на Ollama),
   проверить, что счётчики строк совпадают с `recs`/транскриптами.
+- Корневые инструменты: `experiment.py` (ТОЛЬКО конфиг + точка входа: правишь `CONFIG`,
+  опц. имя рана первым аргументом) и `replay.py <run_id>` (read-only: поднимает всю
+  историю из нормализованной схемы; `--config` дампит конфиг + читаемую секцию `prompts:`
+  с `rules`/`talk_prompt`/`decide_prompt`). Вся логика прогона (build pop → `run_episode`
+  → persist+narrate → score) вынесена в `src/runner.py` (`run`/`run_experiment`/
+  `narrate_round`) — `experiment.py` импортирует её, не наоборот; `src/` ничего не знает
+  про конкретный конфиг. Дедуп по `run_id`. `examples/logger_demo.py` — sweep-демо «one
+  DB, many runs».
+- Промпты игры (`rules`/`talk_prompt`/`decide_prompt`) — поля `GameCfg` (дефолты в
+  `config.py`: `DEFAULT_RULES`/`DEFAULT_TALK_PROMPT`/`DEFAULT_DECIDE_PROMPT`), значит они
+  попадают в config-JSON рана и хранятся в БД. Старые раны до этой правки добиты дефолтными
+  промптами прямо в `runs.config` (run_id не трогали).
 - **DoD:** Логгер реально пишет эпизод; движок не тронут.
 
 **Срез R — resume (отдельный шаг, отложен).**

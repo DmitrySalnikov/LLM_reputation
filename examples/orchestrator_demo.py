@@ -43,8 +43,9 @@ def narrate_round(r, plan, recs):
 
 async def main():
     cfg = load_episode(CONFIG)
+    n_agents = sum(a.count for a in cfg.population.agents)
     print(
-        f"Running {cfg.rounds} rounds, {cfg.population.n_agents} agents, "
+        f"Running {cfg.rounds} rounds, {n_agents} agents, "
         f"matchmaker={cfg.matchmaker}, seed={cfg.seed}"
     )
     pop = make_population(cfg.population, context_window=cfg.context_window).build(

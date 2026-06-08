@@ -20,8 +20,7 @@ provider_default: &default
   max_tokens: 1000
 
 population:
-  kind: roster
-  n_agents: 4
-  agents:                     # shorter than n_agents -> cycled at build time
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
-    - {persona: "You are a cautious player who values trust.", provider: *default}
+  kind: roster                # each type's `count` agents are built; total = sum(counts)
+  agents:
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}

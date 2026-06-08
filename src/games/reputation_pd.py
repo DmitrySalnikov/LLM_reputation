@@ -28,8 +28,8 @@ class ReputationPD:
         # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
         transcript = await self._cheap_talk(a, b, round)
         feed = _render_feed(transcript)
-        ra = await a.act(Phase(PhaseKind.DECIDE, _decide_context(b.id, round, feed), rules=self._rules))
-        rb = await b.act(Phase(PhaseKind.DECIDE, _decide_context(a.id, round, feed), rules=self._rules))
+        ra = await a.act(Phase(PhaseKind.DECIDE, _decide_context(self.cfg, b.id, round, feed), rules=self._rules))
+        rb = await b.act(Phase(PhaseKind.DECIDE, _decide_context(self.cfg, a.id, round, feed), rules=self._rules))
         x, y = ra.data["number"], rb.data["number"]
         outcome, pa, pb = self.resolve(x, y)
         a.score += pa
@@ -58,7 +58,7 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = _talk_context(oth.id, round, _render_feed(transcript))
+            ctx = _talk_context(self.cfg, oth.id, round, _render_feed(transcript))
             res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
             transcript.append(
                 {
@@ -112,35 +112,30 @@ def _render_feed(transcript: list[dict]) -> str:
 
 
 def _rules_text(cfg: GameCfg) -> str:
+    # The template lives in cfg.rules (config layer); fill the payoff placeholders.
     p = cfg.payoffs
     return (
-        "You are playing a repeated game. Each round you face one partner.\n"
-        "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
-        f"- Equal numbers: you each score {p.R:g}.\n"
-        f"- Your number exactly one higher than your partner's (0 counts as following 9): "
-        f"you score {p.T:g}, your partner {p.S:g}.\n"
-        f"- Your partner's number exactly one higher than yours: they score {p.T:g}, you {p.S:g}.\n"
-        f"- Any other case: you each score {p.P:g}.\n"
-        "Before choosing you may exchange short messages. Messages are not binding; "
-        "the final choice is secret and simultaneous. Maximize your own total score."
+        cfg.rules
+        .replace("{R}", f"{p.R:g}").replace("{T}", f"{p.T:g}")
+        .replace("{P}", f"{p.P:g}").replace("{S}", f"{p.S:g}")
     )
 
 
-def _talk_context(partner: str, round: int, feed: str) -> str:
+def _talk_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
     feed_block = feed if feed else "(no messages yet)"
-    return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation so far:\n{feed_block}\n\n"
-        'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
-        'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
-    )
+    return _fill(cfg.talk_prompt, partner, round, feed_block)
 
 
-def _decide_context(partner: str, round: int, feed: str) -> str:
+def _decide_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
     feed_block = feed if feed else "(no messages were exchanged)"
+    return _fill(cfg.decide_prompt, partner, round, feed_block)
+
+
+def _fill(template: str, partner: str, round: int, feed: str) -> str:
+    # Literal replacement, not str.format: the templates contain real JSON braces.
     return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation:\n{feed_block}\n\n"
-        "Now secretly choose your number from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+        template
+        .replace("{partner}", partner)
+        .replace("{round}", str(round))
+        .replace("{feed}", feed)
     )

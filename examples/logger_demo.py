@@ -29,11 +29,12 @@ CAUTIOUS = "You are a cautious player who values trust."
 
 
 def _cfg(personas):
+    count = 4 // len(personas)        # split 4 agents evenly across the given personas
     return EpisodeCfg(
         seed=1, rounds=2, matchmaker="random",
         population=PopulationCfg(
-            kind="roster", n_agents=4,
-            agents=[AgentSpec(persona=p, provider=PROVIDER) for p in personas],
+            kind="roster",
+            agents=[AgentSpec(persona=p, provider=PROVIDER, count=count) for p in personas],
         ),
         game=GameCfg(max_talk_turns=2),
     )
@@ -71,7 +72,8 @@ async def main():
 
     print(f"Sweeping {len(CONFIGS)} configs into {DB} (one DB, many runs):")
     for label, cfg in CONFIGS:
-        print(f"  - {label}: {cfg.population.n_agents} agents, {cfg.rounds} rounds")
+        n = sum(a.count for a in cfg.population.agents)
+        print(f"  - {label}: {n} agents, {cfg.rounds} rounds")
     print()
     ids = {label: await run_one(label, cfg, DB) for label, cfg in CONFIGS}
 

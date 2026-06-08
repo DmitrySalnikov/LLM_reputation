@@ -1,111 +1,112 @@
-"""Run a reputation experiment end to end and persist it to SQLite.
+"""One reputation experiment — the config you edit, then run.
 
-Edit the CONFIG block below, then run from the repo root (needs a local Ollama).
-An optional first argument names the run (stored in runs.name as a human label):
+This file is ONLY configuration plus a one-line call into the runner. All the run logic
+(build population → drive episode → persist + narrate → score) lives in src/runner.py.
+
+Run from the repo root (needs a local Ollama). An optional first argument names the run
+(stored in runs.name as a human label):
 
     PYTHONPATH=. .venv/bin/python experiment.py ["run name"]
 
-Every run is appended to one DB ("one DB, many runs"). A run is keyed by a hash of
-its config (run_id): re-running an identical config is skipped, so the DB de-dups.
-To force a fresh run, change the seed (or delete the DB file).
+Every run is appended to one DB ("one DB, many runs"). A run is keyed by a hash of its
+config (run_id): re-running an identical config is skipped, so the DB de-dups. To force a
+fresh run, change the seed (or anything else in the config).
 
-Read the stored run back, round by round, with:
+Read a stored run back, round by round, with:
 
     PYTHONPATH=. .venv/bin/python replay.py <run_id>
 """
 
 import asyncio
-import os
-import random
-import sqlite3
 import sys
 
-from src.core.config import AgentSpec, EpisodeCfg, GameCfg, PopulationCfg, ProviderCfg
-from src.core.orchestrator import run_episode
-from src.population import make_population
-from src.storage import Storage
+from src.core.config import (
+    AgentSpec,
+    EpisodeCfg,
+    GameCfg,
+    Payoffs,
+    PopulationCfg,
+    ProviderCfg,
+)
+from src.runner import run
 
 # ============================== CONFIG — EDIT HERE ==============================
-DB = "experiment.db"
+DB = "experiment.db"            # one DB, many runs; appended to on every run
 
+# --- LLM provider (shared by every agent below) -------------------------------
 PROVIDER = ProviderCfg(
     base_url="http://localhost:11434/v1",
     model="llama3.1:8b",
     temperature=0.7,
     max_tokens=256,
+    timeout_s=120.0,
 )
 
+# --- Personas (one string per agent type) -------------------------------------
 PRAGMATIC = "You are a pragmatic, self-interested player who tries to win."
 CAUTIOUS = "You are a cautious player who values trust."
 
-# The single experiment to run. `agents` personas are cycled to fill `n_agents`.
+# --- Payoffs (R both-cooperate, T betrayal, P miscoordinate, S betrayed) -------
+# invariants: T > R > P > S and 2R > T + S
+PAYOFFS = Payoffs(R=3.0, T=5.0, P=1.0, S=0.0)
+
+# --- Game prompts — what every agent is told. Stored verbatim in the run's config.
+# RULES is concrete: the payoff numbers come straight from PAYOFFS (no placeholders).
+# talk/decide keep the runtime placeholders {partner}/{round}/{feed} — those values
+# aren't known until a turn is played, so the runner fills them in then.
+RULES = (
+    "You are playing a repeated game. Each round you face one partner.\n"
+    "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
+    f"- Equal numbers: you each score {PAYOFFS.R:g}.\n"
+    f"- Your number exactly one higher than your partner's (0 counts as following 9): "
+    f"you score {PAYOFFS.T:g}, your partner {PAYOFFS.S:g}.\n"
+    f"- Your partner's number exactly one higher than yours: they score {PAYOFFS.T:g}, you {PAYOFFS.S:g}.\n"
+    f"- Any other case: you each score {PAYOFFS.P:g}.\n"
+    "Before choosing you may exchange short messages. Messages are not binding; "
+    "the final choice is secret and simultaneous. Maximize your own total score."
+)
+
+TALK_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation so far:\n{feed}\n\n"
+    'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+)
+
+DECIDE_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
+    "Now secretly choose your number from 0 to 9.\n"
+    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+)
+
+# --- The single experiment to run ---------------------------------------------
+# Each AgentSpec builds `count` agents of that type; population size = sum(counts).
 CONFIG = EpisodeCfg(
     seed=1,
-    rounds=2,
+    rounds=3,
     matchmaker="random",
     population=PopulationCfg(
         kind="roster",
-        n_agents=3,
         agents=[
-            AgentSpec(persona=PRAGMATIC, provider=PROVIDER),
-            AgentSpec(persona=CAUTIOUS, provider=PROVIDER),
+            AgentSpec(persona=PRAGMATIC, provider=PROVIDER, count=2),
+            AgentSpec(persona=CAUTIOUS, provider=PROVIDER, count=1),
         ],
     ),
-    game=GameCfg(max_talk_turns=2),
+    game=GameCfg(
+        payoffs=PAYOFFS,
+        max_talk_turns=3,
+        rules=RULES,
+        talk_prompt=TALK_PROMPT,
+        decide_prompt=DECIDE_PROMPT,
+    ),
+    context_window=None,        # None = each agent sees its whole memory; int = last N entries
+    idle_payoff=1.0,            # what an agent scores in a round it sits out
+    max_concurrency=4,          # pairings played in parallel per round
 )
 # ===============================================================================
 
 
-async def run_experiment(cfg, db_path, name=None):
-    pop = make_population(cfg.population, context_window=cfg.context_window).build(
-        random.Random(cfg.seed)
-    )
-    st = Storage(db_path)
-    try:
-        try:
-            run_id = st.begin(cfg, pop, name)    # INSERT runs+agents; fails if already stored
-        except sqlite3.IntegrityError:
-            print("identical config already in DB — nothing to do "
-                  "(change seed or delete the DB to re-run)")
-            return None
-        await run_episode(cfg, pop, observer=st.observe)
-        st.finish(pop)
-    finally:
-        st.close()
-        await pop.aclose()
-    return run_id
-
-
-async def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else None    # optional human label for the run
-    os.makedirs(os.path.dirname(DB) or ".", exist_ok=True)
-    print(f"Running experiment{f' {name!r}' if name else ''} into {DB}: "
-          f"{CONFIG.population.n_agents} agents, {CONFIG.rounds} rounds, "
-          f"matchmaker={CONFIG.matchmaker}, seed={CONFIG.seed}\n")
-
-    run_id = await run_experiment(CONFIG, DB, name)
-    if run_id is None:
-        return
-    print(f"run_id={run_id}")
-
-    # --- quick summary read-back (full history: `replay.py <run_id>`) ---
-    conn = sqlite3.connect(DB)
-    dist = dict(conn.execute(
-        "SELECT a_outcome, COUNT(*) FROM pairings WHERE run_id=? GROUP BY a_outcome", (run_id,)
-    ).fetchall())
-    total = sum(dist.values())
-    cc = f"{dist.get('CC', 0) / total * 100:.0f}%" if total else "n/a"
-    scores = conn.execute(
-        "SELECT agent_id, final_score FROM agents WHERE run_id=? ORDER BY final_score DESC", (run_id,)
-    ).fetchall()
-    conn.close()
-
-    bar = "=" * 60
-    print(f"\n{bar}\n  SUMMARY (read back from SQLite)\n{bar}")
-    print(f"outcomes={dist}  CC={cc}")
-    print("scores: " + ", ".join(f"{a}={s:g}" for a, s in scores))
-    print(f"\nReplay in full:  PYTHONPATH=. .venv/bin/python replay.py {run_id}")
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    name = sys.argv[1] if len(sys.argv) > 1 else None    # optional human label for the run
+    asyncio.run(run(CONFIG, DB, name))

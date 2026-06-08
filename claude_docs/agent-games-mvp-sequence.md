@@ -69,7 +69,7 @@ sequenceDiagram
     G-->>O: PairingRecord
     deactivate G
 
-    O->>DB: write_round(plan, records) — одна транзакция
+    O->>DB: observe(r, plan, records) — одна транзакция (через observer)
     activate DB
     DB-->>O: ok
     deactivate DB

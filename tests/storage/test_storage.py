@@ -32,10 +32,10 @@ def _fake_providers(monkeypatch):
 
 
 def _cfg(seed=0, n=3, rounds=2):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"))
+    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
     return EpisodeCfg(
         seed=seed, rounds=rounds, matchmaker="random",
-        population=PopulationCfg(kind="roster", n_agents=n, agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec]),
         game=GameCfg(max_talk_turns=0),
     )
 

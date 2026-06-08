@@ -116,6 +116,14 @@ class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6            # жёсткий потолок ВСЕХ реплик в партии (сумма по обоим)
     talk_stop_rule: str = "both_ready_latch"   # MVP — единственное значение
+    # Промпты — раньше были захардкожены в reputation_pd.py, теперь это поля конфига
+    # (дефолты в config.py: DEFAULT_RULES/DEFAULT_TALK_PROMPT/DEFAULT_DECIDE_PROMPT).
+    # Подстановка — литеральной заменой (НЕ str.format: в шаблонах живые JSON-скобки):
+    #   rules:        {R}/{T}/{P}/{S} ← payoffs;  talk/decide: {partner}/{round}/{feed}
+    # Текст промптов уходит в config-JSON рана, т.е. каждый ран хранит свои промпты.
+    rules: str = DEFAULT_RULES
+    talk_prompt: str = DEFAULT_TALK_PROMPT
+    decide_prompt: str = DEFAULT_DECIDE_PROMPT
 
 # games/base.py
 @dataclass

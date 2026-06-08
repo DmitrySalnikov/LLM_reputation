@@ -218,8 +218,10 @@ async def plan_round(self, agent_ids, round, actor):
 
 ---
 
-После этого слоя остаётся **слой 5 — Оркестратор** (самый большой): пакет
-`population/` (мутабельный ростер + `make_population`), `core/orchestrator.py`
-(`run_episode`: цикл раундов, `gather` пар, `idle_payoff`, resume), `core/storage.py`
-(SQLite + resume), `core/metrics.py`, `cli.py`, `config/example.yaml` + `EpisodeCfg`.
-Ему — отдельный per-layer план.
+После этого слоя шёл **слой 5 — Оркестратор**: пакет `population/` (мутабельный ростер +
+`make_population`), `core/orchestrator.py` (`run_episode(cfg, pop, *, observer)`: цикл
+раундов, `gather` пар, `idle_payoff`, шов `observer`), `config/example.yaml` + `EpisodeCfg`.
+Затем **слой L1 — Логгер**: пакет `src/storage/` (`schema.py` + `store.py`,
+begin/observe/finish), раннер `src/runner.py` и корневые инструменты `experiment.py` /
+`replay.py`. Метрики/`analysis` и `resume` — пост-MVP. (Оба слоя сделаны; см. их per-layer
+планы.)

@@ -18,8 +18,9 @@ def test_load_example():
     assert cfg.idle_payoff == 1
     assert cfg.max_concurrency == 4
     assert cfg.population.kind == "roster"
-    assert cfg.population.n_agents == 4
-    assert len(cfg.population.agents) == 2          # cycled up to n_agents at build time
+    assert len(cfg.population.agents) == 2          # two agent types
+    assert [a.count for a in cfg.population.agents] == [2, 2]
+    assert sum(a.count for a in cfg.population.agents) == 4   # derived population size
     assert isinstance(cfg.game, GameCfg)
     assert cfg.game.payoffs.T == 5
     assert cfg.game.max_talk_turns == 8
@@ -45,7 +46,6 @@ def test_defaults_applied(tmp_path):
         matchmaker: random
         population:
           kind: roster
-          n_agents: 2
           agents:
             - persona: "p"
               provider: {base_url: "http://x/v1", model: "m"}
@@ -55,6 +55,7 @@ def test_defaults_applied(tmp_path):
     assert cfg.idle_payoff == 1.0                    # default
     assert cfg.max_concurrency == 4                  # default
     assert cfg.context_window is None               # default
+    assert cfg.population.agents[0].count == 1       # default count when omitted
     assert isinstance(cfg.game, GameCfg)            # default GameCfg when omitted
     assert cfg.game.payoffs.R == 3.0
 

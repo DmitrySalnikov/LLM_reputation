@@ -7,33 +7,61 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    PYTHONPATH=. .venv/bin/python replay.py <run_id> [db_path]
+    PYTHONPATH=. .venv/bin/python replay.py <run_id> [db_path] [--config]
 
-With no run_id it lists the runs in the DB and exits.
+With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also
+dump the full episode config.
 """
 
 import json
+import re
 import sqlite3
 import sys
+from datetime import datetime
 
 DB_DEFAULT = "experiment.db"
 
 
+def _trim_ms(ts):
+    """Drop fractional seconds and the tz offset from an ISO timestamp."""
+    if not ts:
+        return ts
+    ts = re.sub(r"\.\d+", "", ts)                  # strip fractional seconds
+    return re.sub(r"[+-]\d{2}:\d{2}$", "", ts)     # strip tz offset
+
+
+def _duration(created, finished):
+    """Wall-clock length of a run, computed from its two timestamps. '—' if unfinished."""
+    if not (created and finished):
+        return "—"
+    try:
+        secs = int((datetime.fromisoformat(finished) - datetime.fromisoformat(created)).total_seconds())
+    except ValueError:
+        return "?"
+    h, rem = divmod(secs, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}h{m}m{s}s" if h else f"{m}m{s}s" if m else f"{s}s"
+
+
 def list_runs(conn):
     rows = conn.execute(
-        "SELECT run_id, name, seed, created_at, finished_at FROM runs ORDER BY created_at"
+        "SELECT run_id, name, config, created_at, finished_at FROM runs ORDER BY created_at"
     ).fetchall()
     if not rows:
         print("(no runs in this DB)")
         return
     print(f"{len(rows)} run(s):")
-    for run_id, name, seed, created, finished in rows:
+    for run_id, name, config, created, finished in rows:
+        cfg = json.loads(config)
+        n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])
         state = "done" if finished else "unfinished"
         label = f"  {name!r}" if name else ""
-        print(f"  {run_id}{label}  seed={seed}  {created}  [{state}]")
+        print(f"  {run_id}  {_trim_ms(created)}  "
+              f"{n_agents} agents, {cfg['rounds']} rounds, {_duration(created, finished)}  "
+              f"[{state}]{label}")
 
 
-def replay(conn, run_id):
+def replay(conn, run_id, show_config=False):
     run = conn.execute(
         "SELECT name, config, seed, created_at, finished_at FROM runs WHERE run_id=?", (run_id,)
     ).fetchone()
@@ -44,27 +72,33 @@ def replay(conn, run_id):
     name, config, seed, created, finished = run
     cfg = json.loads(config)
 
+    n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])  # derived from counts
+
     bar = "=" * 64
     title = f"{run_id}  ({name})" if name else run_id
     print(f"{bar}\n  REPLAY run_id={title}\n{bar}")
-    print(
-        f"seed={seed}  rounds={cfg['rounds']}  matchmaker={cfg['matchmaker']}  "
-        f"agents={cfg['population']['n_agents']}"
-    )
-    print(f"created={created}  finished={finished or '(unfinished)'}")
+    print(f"{n_agents} agents, {cfg['rounds']} rounds, "
+          f"max_talk_turns={cfg['game']['max_talk_turns']}")
+    print(f"created={_trim_ms(created)}  finished={_trim_ms(finished) or '(unfinished)'}")
 
-    print("\nconfig (full):")
-    print("  " + json.dumps(cfg, indent=2, sort_keys=True).replace("\n", "\n  "))
+    if show_config:
+        game = cfg.get("game", {})
+        print("\nprompts:")
+        for key in ("rules", "talk_prompt", "decide_prompt"):
+            text = game.get(key)
+            print(f"  [{key}]")
+            if text is None:
+                print("    (not recorded — run predates configurable prompts)")
+            else:
+                print("    " + text.replace("\n", "\n    "))
+        print("\nconfig:")
+        print("  " + json.dumps(cfg, indent=2, sort_keys=True).replace("\n", "\n  "))
 
-    agents = conn.execute(
-        "SELECT agent_id, persona, provider, final_score FROM agents WHERE run_id=? ORDER BY agent_id",
-        (run_id,),
-    ).fetchall()
-    print("\nroster:")
-    for aid, persona, provider, score in agents:
-        p = json.loads(provider)
-        print(f"  {aid}: {persona}")
-        print(f"       provider: model={p['model']} base_url={p['base_url']} "
+    print(f"\nroster ({n_agents} agents):")
+    for spec in cfg["population"]["agents"]:        # one line per type, as in the config
+        p = spec["provider"]
+        print(f"  {spec.get('count', 1)}x {spec['persona']}")
+        print(f"       provider: model={p['model']} "
               f"temp={p['temperature']} max_tokens={p['max_tokens']}")
 
     rounds = [
@@ -131,14 +165,17 @@ def replay(conn, run_id):
 
 
 def main():
-    db = sys.argv[2] if len(sys.argv) > 2 else DB_DEFAULT
+    args = sys.argv[1:]
+    show_config = any(a in ("--config", "-c") for a in args)
+    pos = [a for a in args if a not in ("--config", "-c")]   # positional args only
+    db = pos[1] if len(pos) > 1 else DB_DEFAULT
     conn = sqlite3.connect(db)
     try:
-        if len(sys.argv) < 2:
-            print(f"usage: replay_run.py <run_id> [db_path={DB_DEFAULT}]\n")
+        if not pos:
+            print(f"usage: replay.py <run_id> [db_path={DB_DEFAULT}] [--config]\n")
             list_runs(conn)
         else:
-            replay(conn, sys.argv[1])
+            replay(conn, pos[0], show_config=show_config)
     finally:
         conn.close()
 
