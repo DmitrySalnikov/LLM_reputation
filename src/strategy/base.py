@@ -51,7 +51,7 @@ def make_strategy(cfg) -> PlayStrategy:
     from src.strategy.prediction import PredictionStrategy
 
     if cfg.play_strategy == "direct":
-        return DirectStrategy()
+        return DirectStrategy(cfg.game)
     if cfg.play_strategy == "prediction":
-        return PredictionStrategy(get_mapping(cfg.prediction_mapping))
+        return PredictionStrategy(get_mapping(cfg.prediction_mapping), cfg.game)
     raise ValueError(f"неизвестная стратегия игры: {cfg.play_strategy!r}")

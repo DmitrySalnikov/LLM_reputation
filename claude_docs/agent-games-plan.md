@@ -65,7 +65,7 @@
 - **PopulationGenerator** (pluggable, как `Matchmaker`): стратегия «как собрать
   стартовый состав» — `build(rng) -> Population`, выбирается по `population.kind`
   (свип-ось, §9). Реализации: `roster` (явный список персон/провайдеров,
-  циклически до N) / `homogeneous` / `mixed`. Живёт в пакете `population/` (§14).
+  каждая специя множится на свой `count`) / `homogeneous` / `mixed`. Живёт в пакете `population/` (§14).
   В плоском прогоне (`num_epochs=1`) состав не меняется после генерации.
 - **Memory**: список записей о прошлых раундах (с кем играл, полный cheap-talk,
   собственное решение + приватное обоснование, действие партнёра, платёж).
@@ -243,9 +243,10 @@
 - **Состав популяции — отдельная свип-ось (`PopulationGenerator`, `population.kind`):**
   как собран стартовый ростер. Сюда сходятся оси «модели агентов», «вариант
   персоны», «размер N» из пункта выше.
-  - `roster` — явный список персон/провайдеров, циклически до N (подпараметры
-    `n_agents`, `agents[]`).
-  - `homogeneous` — N идентичных слотов из одной персоны+модели (`n_agents`).
+  - `roster` — явный список персон/провайдеров, каждый раскрыт по `count`; размер
+    популяции = `sum(count)` (подпараметр `agents[]` с `count` на тип).
+  - `homogeneous` — N идентичных слотов из одной персоны+модели (один `agents[]` с
+    `count: N`).
   - `mixed` — тянуть персону/модель из пулов по правилу (`even` / `random`); сид фиксирует выбор.
 - **Схема матчинга — отдельная (ключевая) свип-ось:**
   - `random` — случайная разбивка каждый раунд.
@@ -316,9 +317,9 @@
 
 - Параллельны: пары внутри раунда; эпизоды внутри свипа (оба под общим семафором).
 - Rate-limit: `max_concurrency` + backoff-ретраи в провайдере.
-- Возобновляемость: пропуск эпизодов со `status='done'` в таблице `runs`; внутри
-  эпизода — продолжение с `MAX(round_idx)+1` из `rounds` (память реконструируется
-  реплеем `pairings` до этой точки).
+- Возобновляемость (пост-MVP, срез R): пропуск завершённых эпизодов по
+  `runs.finished_at IS NOT NULL`; внутри эпизода — продолжение с `MAX(round_idx)+1` из
+  `rounds` (память реконструируется реплеем `pairings`+`idle` до этой точки).
 
 ## 14. Дерево файлов проекта
 
@@ -326,19 +327,23 @@
 /home/d/LLM_reputation/          # этот репозиторий (ветка game)
   pyproject.toml                 # deps + конфиг pytest (httpx, pyyaml; dev: pytest, pytest-asyncio)
   config/example.yaml
+  experiment.py                  # КОРЕНЬ: только CONFIG + точка входа (зовёт src.runner.run)
+  replay.py                      # КОРЕНЬ: read-only просмотр истории рана из БД
   src/                           # движок — сам по себе пакет; импорт `from src.…`
     __init__.py
+    runner.py                    # run/run_experiment/narrate_round (build pop → episode → persist+narrate)
     providers/{base,openai_compat}.py            # +anthropic (нативный, prompt caching) — пост-MVP
     games/{base,reputation_pd}.py
-    matchmaking/{base,random,scheduled,choice}.py   # Matchmaker + 3 реализации
-    population/{base,roster,homogeneous,mixed,selection}.py  # PopulationGenerator + реализации + SelectionPolicy
-    core/{agent,memory,orchestrator,sweep,storage,metrics,config}.py
-    cli.py                       # команды: run / resume / status / estimate
-  analysis/                      # аналитика — ОТДЕЛЬНО от движка (импортит src, читает БД прогонов)
+    matchmaking/{base,random_mm}.py              # +scheduled,choice — пост-MVP
+    population/{base,roster}.py                  # +homogeneous,mixed,selection — пост-MVP
+    storage/{schema,store}.py                    # L1-Логгер: DDL + Storage (begin/observe/finish)
+    core/{agent,memory,orchestrator,config}.py   # +sweep,metrics — пост-MVP
+    # cli.py (run/resume/status/estimate) — пост-MVP
+  analysis/                      # аналитика — ОТДЕЛЬНО от движка (импортит src, читает БД прогонов); пост-MVP
     reputation.py                # заглушка (отложено)
     notebooks/                   # разведка/графики
   tests/                         # тесты движка, зеркалят src/ (tests/providers/ …)
-  runs/                          # SQLite БД с прогонами (в .gitignore)
+  runs/                          # SQLite БД с прогонами (в .gitignore); либо корневой experiment.db
 ```
 
 ## 15. Порядок реализации (этапы) + runbook

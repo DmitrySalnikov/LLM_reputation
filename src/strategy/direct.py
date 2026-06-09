@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from src.core.agent import Agent, Phase, PhaseKind
+from src.core.config import GameCfg
 from src.games.prompts import decide_context
 from src.strategy.base import Decision
 
 
 class DirectStrategy:
     """Стратегия прямого выбора числа без шага предсказания."""
+
+    def __init__(self, game_cfg: GameCfg):
+        self._game = game_cfg            # держит шаблоны промптов (decide_prompt)
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, rules: str) -> Decision:
@@ -25,7 +29,7 @@ class DirectStrategy:
             Решение с выбранным числом и обоснованием (без предсказания).
         """
         res = await agent.act(
-            Phase(PhaseKind.DECIDE, decide_context(partner_id, round, feed), rules=rules)
+            Phase(PhaseKind.DECIDE, decide_context(self._game, partner_id, round, feed), rules=rules)
         )
         return Decision(
             number=res.data["number"],

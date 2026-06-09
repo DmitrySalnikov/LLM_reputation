@@ -18,7 +18,7 @@ class ReputationPD:
         self._rules = rules if rules is not None else rules_text(cfg)
         if strategy is None:
             from src.strategy.direct import DirectStrategy  # ленивый импорт: разрывает цикл games<->strategy
-            strategy = DirectStrategy()
+            strategy = DirectStrategy(cfg)
         self._strategy = strategy
 
     def resolve(self, x: int, y: int) -> tuple[str, float, float]:
@@ -66,7 +66,7 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = talk_context(oth.id, round, _render_feed(transcript))
+            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript))
             res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
             transcript.append(
                 {

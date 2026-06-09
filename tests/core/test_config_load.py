@@ -18,11 +18,12 @@ def test_load_example():
     assert cfg.idle_payoff == 1
     assert cfg.max_concurrency == 4
     assert cfg.population.kind == "roster"
-    assert cfg.population.n_agents == 4
-    assert len(cfg.population.agents) == 2          # cycled up to n_agents at build time
+    assert len(cfg.population.agents) == 2          # two agent types
+    assert [a.count for a in cfg.population.agents] == [2, 2]
+    assert sum(a.count for a in cfg.population.agents) == 4   # derived population size
     assert isinstance(cfg.game, GameCfg)
     assert cfg.game.payoffs.T == 5
-    assert cfg.game.max_talk_turns == 3
+    assert cfg.game.max_talk_turns == 8
     assert not hasattr(cfg, "db_path")              # persistence belongs to the Logger layer
 
 
@@ -45,9 +46,6 @@ def test_defaults_applied(tmp_path):
         matchmaker: random
         population:
           kind: roster
-          n_agents: 2
-          first_name_pool: [Kurisu, Mayuri]
-          last_name_pool: [Makise, Shiina]
           agents:
             - persona: "p"
               provider: {base_url: "http://x/v1", model: "m"}
@@ -57,6 +55,8 @@ def test_defaults_applied(tmp_path):
     assert cfg.idle_payoff == 1.0                    # default
     assert cfg.max_concurrency == 4                  # default
     assert cfg.context_window is None               # default
+    assert cfg.population.agents[0].count == 1       # default count when omitted
+    assert cfg.population.first_name_pool == []      # pools optional -> empty by default
     assert isinstance(cfg.game, GameCfg)            # default GameCfg when omitted
     assert cfg.game.payoffs.R == 3.0
 
@@ -70,8 +70,9 @@ def test_missing_required_raises(tmp_path):
 
 def test_load_example_has_name_pools():
     cfg = load_episode(EXAMPLE)
-    assert len(cfg.population.first_name_pool) >= cfg.population.n_agents
-    assert len(cfg.population.last_name_pool) >= cfg.population.n_agents
+    total = sum(a.count for a in cfg.population.agents)
+    assert len(cfg.population.first_name_pool) >= total
+    assert len(cfg.population.last_name_pool) >= total
 
 
 def test_default_play_strategy_is_direct():
@@ -91,11 +92,11 @@ def test_prediction_config_loads(tmp_path):
         prediction_mapping: one_above
         population:
           kind: roster
-          n_agents: 2
           first_name_pool: [Kurisu, Mayuri, Itaru]
           last_name_pool: [Makise, Shiina, Hashida]
           agents:
             - persona: "p"
+              count: 2
               provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
@@ -105,7 +106,7 @@ def test_prediction_config_loads(tmp_path):
 
 
 def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
-                    firsts="[Kurisu, Mayuri]", lasts="[Makise, Shiina]", n=2):
+                    firsts="[Kurisu, Mayuri]", lasts="[Makise, Shiina]", count=2):
     f = tmp_path / "c.yaml"
     f.write_text(textwrap.dedent(
         f"""
@@ -116,11 +117,11 @@ def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
         prediction_mapping: {mapping}
         population:
           kind: roster
-          n_agents: {n}
           first_name_pool: {firsts}
           last_name_pool: {lasts}
           agents:
             - persona: "p"
+              count: {count}
               provider: {{base_url: "http://x/v1", model: "m"}}
         """
     ))
@@ -137,7 +138,8 @@ def test_unknown_prediction_mapping_raises(tmp_path):
         load_episode(_write_pop_yaml(tmp_path, strategy="prediction", mapping="bogus"))
 
 
-def test_pool_smaller_than_n_agents_raises(tmp_path):
+def test_pool_smaller_than_agent_count_raises(tmp_path):
+    # firsts has 1 name but the population has 2 agents -> invalid
     with pytest.raises(ValueError):
         load_episode(_write_pop_yaml(tmp_path, firsts="[Only]", lasts="[Makise, Shiina]"))
 
@@ -147,7 +149,8 @@ def test_duplicate_pool_entries_raise(tmp_path):
         load_episode(_write_pop_yaml(tmp_path, firsts="[Kurisu, Kurisu]"))
 
 
-def test_missing_pools_raise(tmp_path):
+def test_missing_pools_fall_back(tmp_path):
+    # pools are OPTIONAL: omitting them is valid and the roster falls back to A1..An ids
     f = tmp_path / "nopools.yaml"
     f.write_text(textwrap.dedent(
         """
@@ -156,11 +159,12 @@ def test_missing_pools_raise(tmp_path):
         matchmaker: random
         population:
           kind: roster
-          n_agents: 2
           agents:
             - persona: "p"
+              count: 2
               provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
-    with pytest.raises(ValueError):
-        load_episode(str(f))
+    cfg = load_episode(str(f))                       # must NOT raise
+    assert cfg.population.first_name_pool == []
+    assert cfg.population.last_name_pool == []

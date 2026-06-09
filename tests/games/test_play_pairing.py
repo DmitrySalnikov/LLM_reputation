@@ -146,7 +146,7 @@ async def test_prediction_strategy_records_and_remembers_predictions():
     from src.strategy.prediction import PredictionStrategy
 
     g = ReputationPD(GameCfg(max_talk_turns=0),
-                     strategy=PredictionStrategy(get_mapping("one_above")))
+                     strategy=PredictionStrategy(get_mapping("one_above"), GameCfg(max_talk_turns=0)))
     a = _agent("A1", ['{"number": 4, "rationale": "pa"}'])   # predicts 4 -> chooses 5
     b = _agent("A2", ['{"number": 4, "rationale": "pb"}'])   # predicts 4 -> chooses 5
     rec = await g.play_pairing(a, b, 1)

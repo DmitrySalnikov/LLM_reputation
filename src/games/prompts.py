@@ -1,6 +1,11 @@
-"""Построители контекста (промптов) для игры — общие для игры и стратегий.
+"""Context (prompt) builders for the game — shared by the game and the strategies.
 
-Не импортирует ни игру, ни стратегии, чтобы исключить циклические импорты."""
+Imports neither the game nor the strategies, to avoid import cycles. The prompt TEXT lives
+in GameCfg (config layer); these builders just fill placeholders by literal replacement
+(NOT str.format — the templates contain real JSON braces):
+    rules:                {R} {T} {P} {S}        <- payoff values
+    talk/decide/predict:  {partner} {round} {feed}
+"""
 
 from __future__ import annotations
 
@@ -8,83 +13,37 @@ from src.core.config import GameCfg
 
 
 def rules_text(cfg: GameCfg) -> str:
-    """Статический текст правил игры (идёт в системный промпт после персоны).
-
-    Args:
-        cfg: Конфигурация игры с матрицей выигрышей.
-
-    Returns:
-        Текст правил на английском языке для системного промпта.
-    """
+    """Static game-rules text (goes into the system prompt after the persona)."""
     p = cfg.payoffs
     return (
-        "You are playing a repeated game. Each round you face one partner.\n"
-        "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
-        f"- Equal numbers: you each score {p.R:g}.\n"
-        f"- Your number exactly one higher than your partner's (0 counts as following 9): "
-        f"you score {p.T:g}, your partner {p.S:g}.\n"
-        f"- Your partner's number exactly one higher than yours: they score {p.T:g}, you {p.S:g}.\n"
-        f"- Any other case: you each score {p.P:g}.\n"
-        "Before choosing you may exchange short messages. Messages are not binding; "
-        "the final choice is secret and simultaneous. Maximize your own total score."
+        cfg.rules
+        .replace("{R}", f"{p.R:g}").replace("{T}", f"{p.T:g}")
+        .replace("{P}", f"{p.P:g}").replace("{S}", f"{p.S:g}")
     )
 
 
-def talk_context(partner: str, round: int, feed: str) -> str:
-    """Контекст хода переговоров (cheap-talk).
-
-    Args:
-        partner: Идентификатор партнёра в текущем раунде.
-        round: Номер раунда.
-        feed: Отрендеренная история переговоров.
-
-    Returns:
-        Текст контекста на английском языке для хода переговоров.
-    """
+def talk_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+    """Cheap-talk turn context."""
     feed_block = feed if feed else "(no messages yet)"
-    return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation so far:\n{feed_block}\n\n"
-        'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
-        'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
-    )
+    return _fill(cfg.talk_prompt, partner, round, feed_block)
 
 
-def decide_context(partner: str, round: int, feed: str) -> str:
-    """Контекст финального выбора числа (стратегия direct).
-
-    Args:
-        partner: Идентификатор партнёра в текущем раунде.
-        round: Номер раунда.
-        feed: Отрендеренная история переговоров.
-
-    Returns:
-        Текст контекста на английском языке для выбора числа.
-    """
+def decide_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+    """Final number-choice context (direct strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation:\n{feed_block}\n\n"
-        "Now secretly choose your number from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
-    )
+    return _fill(cfg.decide_prompt, partner, round, feed_block)
 
 
-def predict_context(partner: str, round: int, feed: str) -> str:
-    """Контекст предсказания числа партнёра (стратегия prediction).
-
-    Args:
-        partner: Идентификатор партнёра в текущем раунде.
-        round: Номер раунда.
-        feed: Отрендеренная история переговоров.
-
-    Returns:
-        Текст контекста на английском языке для предсказания числа партнёра.
-    """
+def predict_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+    """Partner-number prediction context (prediction strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
+    return _fill(cfg.predict_prompt, partner, round, feed_block)
+
+
+def _fill(template: str, partner: str, round: int, feed: str) -> str:
     return (
-        f"Your partner this round is {partner}. Round {round}.\n"
-        f"Negotiation:\n{feed_block}\n\n"
-        "Predict the number your partner will secretly choose, from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+        template
+        .replace("{partner}", partner)
+        .replace("{round}", str(round))
+        .replace("{feed}", feed)
     )

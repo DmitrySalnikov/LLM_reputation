@@ -3,8 +3,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
-runs/
-*.db
 *.db-wal
 *.db-shm
 .ipynb_checkpoints/

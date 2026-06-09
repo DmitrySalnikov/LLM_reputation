@@ -3,7 +3,7 @@ from __future__ import annotations
 from conftest import ScriptedProvider
 
 from src.core.agent import Agent, AgentSetup
-from src.core.config import ProviderCfg
+from src.core.config import GameCfg, ProviderCfg
 from src.strategy.direct import DirectStrategy
 
 
@@ -14,7 +14,7 @@ def _agent(replies):
 
 async def test_direct_returns_parsed_number_no_prediction():
     agent = _agent(['{"number": 6, "rationale": "because"}'])
-    d = await DirectStrategy().decide(agent, "A2", round=1, feed="", rules="R")
+    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="", rules="R")
     assert d.number == 6
     assert d.rationale == "because"
     assert d.predicted is None

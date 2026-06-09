@@ -26,12 +26,11 @@ provider_default: &default
 
 population:
   kind: roster
-  n_agents: 4
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
   agents:
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
-    - {persona: "You are a cautious player who values trust.", provider: *default}
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}

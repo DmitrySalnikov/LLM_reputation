@@ -9,7 +9,7 @@ max_concurrency: 4
 
 game:
   payoffs: {R: 3, T: 5, P: 1, S: 0}
-  max_talk_turns: 3
+  max_talk_turns: 8
 
 # A provider block reused by every agent via the &default / *default YAML anchor.
 provider_default: &default
@@ -20,13 +20,13 @@ provider_default: &default
   max_tokens: 1000
 
 population:
-  kind: roster
-  n_agents: 4
+  kind: roster                # each type's `count` agents are built; total = sum(counts)
+  # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  agents:                     # shorter than n_agents -> cycled at build time
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
-    - {persona: "You are a cautious player who values trust.", provider: *default}
+  agents:
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}

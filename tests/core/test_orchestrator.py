@@ -35,12 +35,12 @@ def providers(monkeypatch):
 
 
 def _cfg(n=3, rounds=2, seed=0):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"))
+    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", n_agents=n, agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec]),
         game=GameCfg(max_talk_turns=0),     # decision-only -> deterministic CC for all
     )
 
@@ -111,12 +111,12 @@ async def test_fail_fast_propagates(monkeypatch):
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"))
+    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", n_agents=n, agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec]),
         game=GameCfg(max_talk_turns=0),
         play_strategy="prediction",
         prediction_mapping="one_above",

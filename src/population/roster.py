@@ -5,7 +5,7 @@ from src.population.base import Population
 
 
 class RosterGenerator:
-    """MVP population generator: an explicit list of specs, cycled up to n_agents."""
+    """MVP population generator: an explicit list of specs, each expanded by its `count`."""
 
     def __init__(self, pop_cfg, *, context_window: int | None = None):
         self._cfg = pop_cfg
@@ -23,11 +23,12 @@ class RosterGenerator:
             Заполненную популяцию агентов.
         """
         pop = Population(context_window=self._window)
-        specs = self._cfg.agents
-        names = _sample_names(self._cfg, rng)
-        for i in range(self._cfg.n_agents):
-            spec = specs[i % len(specs)]              # shorter than n_agents -> cycle
-            pop.add(AgentSetup(spec.persona, spec.provider), agent_id=names[i])
+        names = _sample_names(self._cfg, rng)        # length = sum(count); names or A{n} fallback
+        i = 0
+        for spec in self._cfg.agents:                # build `count` agents of each type, in order
+            for _ in range(spec.count):
+                pop.add(AgentSetup(spec.persona, spec.provider), agent_id=names[i])
+                i += 1
         return pop
 
 
@@ -39,10 +40,11 @@ def _sample_names(cfg, rng) -> list[str | None]:
         rng: Генератор случайных чисел.
 
     Returns:
-        Список строк 'Имя Фамилия' длиной n_agents; список None при пустых пулах.
+        Список строк 'Имя Фамилия' длиной sum(count); список None при пустых пулах.
     """
+    total = sum(spec.count for spec in cfg.agents)
     if not cfg.first_name_pool or not cfg.last_name_pool:
-        return [None] * cfg.n_agents
-    firsts = rng.sample(cfg.first_name_pool, cfg.n_agents)
-    lasts = rng.sample(cfg.last_name_pool, cfg.n_agents)
+        return [None] * total
+    firsts = rng.sample(cfg.first_name_pool, total)
+    lasts = rng.sample(cfg.last_name_pool, total)
     return [f"{f} {l}" for f, l in zip(firsts, lasts)]
