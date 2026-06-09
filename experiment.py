@@ -30,13 +30,21 @@ from src.core.config import (
 )
 from src.runner import run
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ============================== CONFIG — EDIT HERE ==============================
 DB = "experiment.db"            # one DB, many runs; appended to on every run
 
 # --- LLM provider (shared by every agent below) -------------------------------
 PROVIDER = ProviderCfg(
-    base_url="http://localhost:11434/v1",
-    model="llama3.1:8b",
+    # base_url="http://localhost:11434/v1",
+    # model="llama3.1:8b",
+    base_url="https://api.together.xyz/v1",   # Together.ai (OpenAI-совместимый)
+    api_key_env=os.getenv("TOGETHER_API_KEY"),           # ключ берётся из .env (см. .gitignore)
+    model="Qwen/Qwen2.5-7B-Instruct-Turbo",
     temperature=0.7,
     max_tokens=256,
     timeout_s=120.0,
@@ -83,19 +91,19 @@ DECIDE_PROMPT = (
 # --- The single experiment to run ---------------------------------------------
 # Each AgentSpec builds `count` agents of that type; population size = sum(counts).
 CONFIG = EpisodeCfg(
-    seed=1,
-    rounds=3,
+    seed=2,
+    rounds=2,
     matchmaker="random",
     population=PopulationCfg(
         kind="roster",
         agents=[
-            AgentSpec(persona=PRAGMATIC, provider=PROVIDER, count=2),
+            AgentSpec(persona=PRAGMATIC, provider=PROVIDER, count=1),
             AgentSpec(persona=CAUTIOUS, provider=PROVIDER, count=1),
         ],
     ),
     game=GameCfg(
         payoffs=PAYOFFS,
-        max_talk_turns=3,
+        max_talk_turns=1,
         rules=RULES,
         talk_prompt=TALK_PROMPT,
         decide_prompt=DECIDE_PROMPT,
