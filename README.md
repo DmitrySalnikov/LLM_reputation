@@ -50,7 +50,7 @@ PYTHONPATH=. uv run python experiment.py config/example.yaml   # другой э
 PYTHONPATH=. uv run python experiment.py config/experiment.yaml "имя запуска"
 PYTHONPATH=. uv run python replay.py                # список запусков в базе
 PYTHONPATH=. uv run python replay.py <run_id>       # воспроизвести запуск
-PYTHONPATH=. uv run python replay.py <run_id> -c    # + дамп конфига и промптов
+PYTHONPATH=. uv run python replay.py <run_id> -c    # + промпты, ростер и параметры конфига
 ```
 
 Для отладки можно включить трассировку точного входа LLM перед выбором числа

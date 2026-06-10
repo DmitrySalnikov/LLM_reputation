@@ -9,8 +9,9 @@ Run from the repo root:
 
     PYTHONPATH=. .venv/bin/python replay.py <run_id> [--config]
 
-With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also
-dump the full episode config.
+With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
+the episode config: the prompts in full, then the roster, then the remaining scalar knobs
+(prompts / agents / name pools are stripped from that last dump to avoid repetition).
 """
 
 import json
@@ -20,6 +21,12 @@ import sys
 from datetime import datetime
 
 DB_DEFAULT = "experiment.db"
+
+# Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
+# секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
+_PROMPT_KEYS = ("rules", "talk_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
+# Из дампа конфига выкидываем и эти ключи population — ростер печатается отдельной секцией.
+_POP_DROP = ("agents", "first_name_pool", "last_name_pool")
 
 
 def _trim_ms(ts):
@@ -83,16 +90,14 @@ def replay(conn, run_id, show_config=False):
 
     if show_config:
         game = cfg.get("game", {})
+        present = [k for k in _PROMPT_KEYS if k in game]
         print("\nprompts:")
-        for key in ("rules", "talk_prompt", "decide_prompt"):
-            text = game.get(key)
+        if not present:
+            print("  (not recorded — run predates configurable prompts)")
+        for key in present:
+            text = game[key]
             print(f"  [{key}]")
-            if text is None:
-                print("    (not recorded — run predates configurable prompts)")
-            else:
-                print("    " + text.replace("\n", "\n    "))
-        print("\nconfig:")
-        print("  " + json.dumps(cfg, indent=2, sort_keys=True).replace("\n", "\n  "))
+            print("    " + (text.replace("\n", "\n    ") if text else "(empty)"))
 
     print(f"\nroster ({n_agents} agents):")
     for spec in cfg["population"]["agents"]:        # one line per type, as in the config
@@ -100,6 +105,17 @@ def replay(conn, run_id, show_config=False):
         print(f"  {spec.get('count', 1)}x {spec['persona']}")
         print(f"       provider: model={p['model']} "
               f"temp={p['temperature']} max_tokens={p['max_tokens']}")
+
+    if show_config:
+        # config dump AFTER prompts + roster (both shown above) and WITHOUT them: drop the
+        # prompt strings, the agents list and the name pools — keep it to the scalar knobs.
+        game = cfg.get("game", {})
+        pop = cfg.get("population", {})
+        slim = dict(cfg)
+        slim["game"] = {k: v for k, v in game.items() if k not in _PROMPT_KEYS}
+        slim["population"] = {k: v for k, v in pop.items() if k not in _POP_DROP}
+        print("\nconfig (prompts + roster shown above):")
+        print("  " + json.dumps(slim, indent=2, sort_keys=True).replace("\n", "\n  "))
 
     rounds = [
         r for (r,) in conn.execute(
