@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import re
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from src.core.memory import Memory
 from src.providers.base import LLMProvider, Message
 
 _MAX_PARSE_RETRIES = 2
+
+_log = logging.getLogger(__name__)
 
 
 class PhaseKind(Enum):
@@ -86,8 +89,10 @@ class Agent:
         prompt_toks = 0
         comp_toks = 0
         correction: str | None = None
-        for _ in range(_MAX_PARSE_RETRIES + 1):
+        for attempt in range(1, _MAX_PARSE_RETRIES + 2):
             messages = base if correction is None else base + [Message("user", correction)]
+            if phase.kind in (PhaseKind.DECIDE, PhaseKind.PREDICT) and _log.isEnabledFor(logging.DEBUG):
+                _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))
             comp = await self.provider.complete(
                 system=system,
                 messages=messages,
@@ -163,6 +168,28 @@ def _fallback(kind: PhaseKind) -> dict:
     if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
         return {"number": random.randint(0, 9), "rationale": "(unparsed)"}
     return {"message": "", "ready": True}
+
+
+def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,
+                  system: str, messages: list[Message]) -> str:
+    """Отрендерить точный вход LLM (system + все сообщения) для записи в лог.
+
+    Args:
+        agent_id: Идентификатор агента, делающего запрос.
+        kind: Фаза запроса (DECIDE или PREDICT).
+        attempt: Номер попытки запроса (1..3, повторы из-за ошибок парсинга).
+        system: Полный системный промпт (персона + правила).
+        messages: Сообщения запроса (дневник памяти, контекст фазы, поправка).
+
+    Returns:
+        Многострочный текст записи лога.
+    """
+    parts = [
+        f"LLM-вход: агент {agent_id}, фаза {kind.value}, попытка {attempt}",
+        f"--- system ---\n{system}",
+    ]
+    parts += [f"--- {m.role} ---\n{m.content}" for m in messages]
+    return "\n".join(parts)
 
 
 def _extract_json_obj(text: str) -> dict | None:
