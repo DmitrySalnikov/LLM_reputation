@@ -10,9 +10,13 @@ Run from the repo root (needs API-доступ к провайдеру из ко
 .env). Путь к конфигурации можно передать первым аргументом, иначе берётся example.yaml:
 
     PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py [config/episode.yaml]
+
+Трассировка LLM-входа перед выбором числа: LLM_TRACE=1 (флаг можно задать в .env).
 """
 
 import asyncio
+import logging
+import os
 import random
 import sys
 
@@ -23,6 +27,14 @@ from src.core.orchestrator import run_episode
 from src.population import make_population
 
 load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
+
+if os.environ.get("LLM_TRACE", "0") not in ("", "0"):
+    # Включить трассировку LLM-входа фаз DECIDE/PREDICT (см. src/core/agent.py)
+    _trace_handler = logging.StreamHandler()
+    _trace_handler.setFormatter(logging.Formatter("\n%(message)s"))
+    _trace_logger = logging.getLogger("src.core.agent")
+    _trace_logger.setLevel(logging.DEBUG)
+    _trace_logger.addHandler(_trace_handler)
 
 CONFIG = sys.argv[1] if len(sys.argv) > 1 else "config/example.yaml"
 
