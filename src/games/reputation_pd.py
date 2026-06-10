@@ -4,7 +4,7 @@ from src.core.agent import Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry
 from src.games.base import PairingRecord
-from src.games.prompts import rules_text, talk_context
+from src.games.prompts import reflect_context, rules_text, talk_context
 from src.strategy.base import PlayStrategy
 
 # Outcome from A's perspective -> outcome from B's perspective.
@@ -42,17 +42,48 @@ class ReputationPD:
         a.score += pa
         b.score += pb
 
+        ra = rb = None
+        usages = [t["usage"] for t in transcript] + [da.usage, db.usage]
+        if self.cfg.reflection:
+            # Рефлексия идёт до записи в память: факты раунда приходят через контекст,
+            # а дневник агента ещё показывает только прошлые раунды.
+            ra, ua = await self._reflect(a, b.id, round, feed, x, y, pa)
+            rb, ub = await self._reflect(b, a.id, round, feed, y, x, pb)
+            usages += [ua, ub]
+
         public = _public(transcript)
-        self._remember(a, b.id, round, public, da, y, outcome, pa)
-        self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb)
-        usage = _sum_usage([t["usage"] for t in transcript] + [da.usage, db.usage])
+        self._remember(a, b.id, round, public, da, y, outcome, pa, ra)
+        self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, rb)
         return PairingRecord(
             round=round, a_id=a.id, b_id=b.id, transcript=public,
             a_number=x, b_number=y,
             a_rationale=da.rationale, b_rationale=db.rationale,
-            outcome=outcome, a_payoff=pa, b_payoff=pb, usage=usage,
+            outcome=outcome, a_payoff=pa, b_payoff=pb, usage=_sum_usage(usages),
             a_predicted=da.predicted, b_predicted=db.predicted,
+            a_reflection=ra, b_reflection=rb,
         )
+
+    async def _reflect(self, agent: Agent, partner_id: str, round: int, feed: str,
+                       my_number: int, partner_number: int,
+                       payoff: float) -> tuple[str, tuple[int, int]]:
+        """Запросить у агента рефлексию по вскрытому исходу раунда.
+
+        Args:
+            agent: Агент, осмысляющий исход.
+            partner_id: Идентификатор партнёра в текущем раунде.
+            round: Номер раунда.
+            feed: Отрендеренная история переговоров.
+            my_number: Число, выбранное самим агентом.
+            partner_number: Число, выбранное партнёром.
+            payoff: Выигрыш агента в этом раунде.
+
+        Returns:
+            Пара (текст рефлексии, usage запроса).
+        """
+        ctx = reflect_context(partner_id, round, feed, my_number=my_number,
+                              partner_number=partner_number, payoff=payoff)
+        res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
+        return res.data["reflection"], res.usage
 
     async def _cheap_talk(self, a: Agent, b: Agent, round: int) -> list[dict]:
         transcript: list[dict] = []
@@ -83,7 +114,8 @@ class ReputationPD:
                 break
         return transcript
 
-    def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number, outcome, payoff):
+    def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
+                  outcome, payoff, reflection=None):
         agent.memory.add(
             MemoryEntry(
                 round=round,
@@ -95,6 +127,7 @@ class ReputationPD:
                 outcome=outcome,
                 payoff=payoff,
                 my_predicted=mine.predicted,
+                my_reflection=reflection,
             )
         )
 

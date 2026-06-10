@@ -69,8 +69,13 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 2. **Decide**: the configured `PlayStrategy.decide` is called for each agent with
    the public talk feed. This produces a `Decision` (final number + rationale,
    plus optional prediction).
-3. **Resolve + record**: scores mutate on the agents; a `PairingRecord`
-   (`src/games/base.py:9`) is returned and each agent's `Memory` gets an entry.
+3. **Resolve**: scores mutate on the agents.
+4. **Reflect** (optional, `game.reflection: true`): each agent makes one extra
+   `REFLECT` LLM call over the revealed result (both numbers + own payoff) and
+   returns a short reflection. It is private to its author, like the rationale.
+5. **Record**: a `PairingRecord` (`src/games/base.py:9`) is returned and each
+   agent's `Memory` gets an entry (including the reflection, which the diary
+   feeds back into the agent's future LLM inputs).
 
 ## Strategies (`src/strategy/`)
 
@@ -96,12 +101,14 @@ renders memory + a phase context into messages, calls the provider, and parses t
 reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total failure
 it falls back (random number / empty message) and bumps `parse_failures`.
 
-Three `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`. JSON extraction is lenient —
-raw, fenced, and balanced-brace candidates are all tried (`_extract_json_obj`).
+Four `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`. In DECIDE/PREDICT the
+JSON answer puts `rationale` before `number`, so reasoning tokens are generated
+before the choice is committed. JSON extraction is lenient — raw, fenced, and
+balanced-brace candidates are all tried (`_extract_json_obj`).
 
 ### LLM input trace
 
-For DECIDE/PREDICT calls, `Agent.act` logs the exact LLM input (system prompt,
+For DECIDE/PREDICT/REFLECT calls, `Agent.act` logs the exact LLM input (system prompt,
 memory diary, phase context, retry corrections) at DEBUG level via the
 `src.core.agent` logger — one record per provider attempt (`_render_trace`,
 `src/core/agent.py`). Silent unless the caller configures logging:

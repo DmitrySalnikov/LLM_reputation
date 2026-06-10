@@ -29,7 +29,7 @@ from src.population import make_population
 load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
 
 if os.environ.get("LLM_TRACE", "0") not in ("", "0"):
-    # Включить трассировку LLM-входа фаз DECIDE/PREDICT (см. src/core/agent.py)
+    # Включить трассировку LLM-входа фаз DECIDE/PREDICT/REFLECT (см. src/core/agent.py)
     _trace_handler = logging.StreamHandler()
     _trace_handler.setFormatter(logging.Formatter("\n%(message)s"))
     _trace_logger = logging.getLogger("src.core.agent")
@@ -50,6 +50,9 @@ def narrate_round(r, plan, recs):
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
+        # reasoning is shown before the choices it led to
+        print(f"    {rec.a_id} reason: {rec.a_rationale}")
+        print(f"    {rec.b_id} reason: {rec.b_rationale}")
         if rec.a_predicted is not None or rec.b_predicted is not None:
             print(
                 f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "
@@ -59,8 +62,10 @@ def narrate_round(r, plan, recs):
             f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
             f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})"
         )
-        print(f"      {rec.a_id} reason: {rec.a_rationale}")
-        print(f"      {rec.b_id} reason: {rec.b_rationale}")
+        if rec.a_reflection is not None:
+            print(f"      {rec.a_id} reflects: {rec.a_reflection}")
+        if rec.b_reflection is not None:
+            print(f"      {rec.b_id} reflects: {rec.b_reflection}")
 
 
 async def main():

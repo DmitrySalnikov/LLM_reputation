@@ -82,6 +82,36 @@ async def test_decide_rejects_bool_number():
     assert len(p.calls) == 2
 
 
+def _reflect(context="Reflect on the outcome.", rules="RULES"):
+    return Phase(PhaseKind.REFLECT, context, rules=rules)
+
+
+async def test_reflect_clean_json():
+    p = ScriptedProvider(['{"reflection": "partner kept the deal"}'])
+    r = await _agent(p).act(_reflect())
+    assert r.data == {"reflection": "partner kept the deal"}
+    assert r.public_text is None
+    assert len(p.calls) == 1
+
+
+async def test_reflect_invalid_then_valid_retries_with_correction():
+    p = ScriptedProvider(["nope", '{"reflection": "ok"}'])
+    r = await _agent(p).act(_reflect())
+    assert r.data["reflection"] == "ok"
+    assert len(p.calls) == 2
+    _, messages = p.calls[1]
+    assert "reflection" in messages[-1].content  # correction names the expected key
+
+
+async def test_reflect_persistent_failure_fallback():
+    p = ScriptedProvider(["no", "no", "no"])
+    a = _agent(p)
+    r = await a.act(_reflect())
+    assert r.data == {"reflection": ""}
+    assert a.parse_failures == 1
+    assert len(p.calls) == 3
+
+
 async def test_system_and_messages_assembly():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     await _agent(p, persona="PERSONA").act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))

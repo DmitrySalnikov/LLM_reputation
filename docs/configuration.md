@@ -35,7 +35,7 @@ DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
 | `max_concurrency` | semaphore size for concurrent pairings |
 | `play_strategy` | `direct` (default) or `prediction` |
 | `prediction_mapping` | only used when `play_strategy: prediction`; `match` or `one_above` |
-| `game` | `GameCfg`: `payoffs {R,T,P,S}` and `max_talk_turns` |
+| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`) |
 | `population` | `PopulationCfg` (see below) |
 
 ## Provider blocks & YAML anchors

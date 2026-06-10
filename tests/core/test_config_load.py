@@ -26,6 +26,32 @@ def test_load_example():
     assert not hasattr(cfg, "db_path")              # persistence belongs to the Logger layer
 
 
+def test_reflection_defaults_to_false(tmp_path):
+    f = tmp_path / "min.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          n_agents: 2
+          first_name_pool: [Kurisu, Mayuri]
+          last_name_pool: [Makise, Shiina]
+          agents:
+            - persona: "p"
+              provider: {base_url: "http://x/v1", model: "m"}
+        """
+    ))
+    cfg = load_episode(str(f))
+    assert cfg.game.reflection is False
+
+
+def test_reflection_loaded_from_game_block():
+    cfg = load_episode(EXAMPLE)
+    assert cfg.game.reflection is True   # включено в примере конфигурации
+
+
 def test_yaml_anchor_shared_provider():
     cfg = load_episode(EXAMPLE)
     p0 = cfg.population.agents[0].provider

@@ -65,8 +65,8 @@ def decide_context(partner: str, round: int, feed: str) -> str:
     return (
         f"Your partner this round is {partner}. Round {round}.\n"
         f"Negotiation:\n{feed_block}\n\n"
-        "Now secretly choose your number from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+        "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
+        'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
     )
 
 
@@ -85,6 +85,34 @@ def predict_context(partner: str, round: int, feed: str) -> str:
     return (
         f"Your partner this round is {partner}. Round {round}.\n"
         f"Negotiation:\n{feed_block}\n\n"
-        "Predict the number your partner will secretly choose, from 0 to 9.\n"
-        'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+        "Predict the number your partner will secretly choose, from 0 to 9. "
+        "Reason first, then commit to a number.\n"
+        'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+    )
+
+
+def reflect_context(partner: str, round: int, feed: str, *,
+                    my_number: int, partner_number: int, payoff: float) -> str:
+    """Контекст пост-игровой рефлексии: осмысление вскрытого исхода раунда.
+
+    Args:
+        partner: Идентификатор партнёра в текущем раунде.
+        round: Номер раунда.
+        feed: Отрендеренная история переговоров.
+        my_number: Число, выбранное самим агентом.
+        partner_number: Число, выбранное партнёром (уже вскрыто).
+        payoff: Выигрыш агента в этом раунде.
+
+    Returns:
+        Текст контекста на английском языке для рефлексии по исходу.
+    """
+    feed_block = feed if feed else "(no messages were exchanged)"
+    return (
+        f"Your partner this round is {partner}. Round {round}.\n"
+        f"Negotiation:\n{feed_block}\n\n"
+        f"The round is over. You picked {my_number}, {partner} picked {partner_number}. "
+        f"You scored {payoff:g} points.\n"
+        "Reflect briefly on this outcome: what does it tell you about this partner, "
+        "and what should you do differently (or keep doing) in future rounds?\n"
+        'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
     )

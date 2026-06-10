@@ -130,6 +130,54 @@ async def test_decide_context_contains_feed_and_ids():
     assert "0 to 9" in system  # rules went into the system prompt
 
 
+# ---- Reflection after the outcome ----
+
+def _reflect(text):
+    return '{"reflection": "%s"}' % text
+
+
+async def test_reflection_off_by_default():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(4)])        # no reflect reply queued: an extra call would crash
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.a_reflection is None and rec.b_reflection is None
+    assert a.memory.entries[0].my_reflection is None
+    assert rec.usage["calls"] == 2
+
+
+async def test_reflection_stored_in_memory_and_record():
+    g = ReputationPD(GameCfg(max_talk_turns=0, reflection=True))
+    a = _agent("A1", [_decide(5), _reflect("betrayal worked")])
+    b = _agent("A2", [_decide(4), _reflect("A1 cannot be trusted")])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.a_reflection == "betrayal worked"
+    assert rec.b_reflection == "A1 cannot be trusted"
+    assert a.memory.entries[0].my_reflection == "betrayal worked"
+    assert b.memory.entries[0].my_reflection == "A1 cannot be trusted"
+    assert rec.usage["calls"] == 4  # 2 decide + 2 reflect
+
+
+async def test_reflection_context_reveals_round_result():
+    g = ReputationPD(GameCfg(max_talk_turns=0, reflection=True))
+    a = _agent("A1", [_decide(5), _reflect("ra")])
+    b = _agent("A2", [_decide(4), _reflect("rb")])
+    await g.play_pairing(a, b, 7)
+    _, messages = a.provider.calls[-1]   # a's REFLECT call
+    ctx = messages[-1].content
+    assert "A2" in ctx and "Round 7" in ctx
+    assert "5" in ctx and "4" in ctx     # both revealed numbers
+
+
+async def test_reflection_privacy():
+    g = ReputationPD(GameCfg(max_talk_turns=0, reflection=True))
+    a = _agent("A1", [_decide(4), _reflect("secret-ref-a")])
+    b = _agent("A2", [_decide(4), _reflect("secret-ref-b")])
+    await g.play_pairing(a, b, 1)
+    # b's reflection must not leak into a's memory entry
+    assert "secret-ref-b" not in str(a.memory.entries[0])
+
+
 # ---- Task 6: strategy delegation + prediction persistence ----
 
 async def test_direct_strategy_leaves_predicted_none():

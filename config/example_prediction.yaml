@@ -16,6 +16,7 @@ prediction_mapping: one_above
 game:
   payoffs: {R: 3, T: 5, P: 1, S: 0}
   max_talk_turns: 3
+  reflection: true            # пост-игровая рефлексия: доп. LLM-вызов после исхода
 
 provider_default: &default
   base_url: https://api.together.xyz/v1   # Together.ai (OpenAI-совместимый)
