@@ -139,6 +139,10 @@ CREATE TABLE pairings (
     a_outcome   TEXT NOT NULL,         -- CC/DC/CD/DD со стороны a (для b — зеркало)
     a_payoff    REAL NOT NULL,
     b_payoff    REAL NOT NULL,
+    a_predicted INTEGER,               -- стратегия prediction: догадка a о числе b (NULL для direct)
+    b_predicted INTEGER,
+    a_reflection TEXT,                 -- пост-игровая рефлексия (NULL при game.reflection=false)
+    b_reflection TEXT,
     usage_prompt_tokens     INTEGER NOT NULL,
     usage_completion_tokens INTEGER NOT NULL,
     usage_calls             INTEGER NOT NULL,

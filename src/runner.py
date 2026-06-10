@@ -24,16 +24,30 @@ def narrate_round(r, plan, recs) -> None:
     if plan.idle:
         print(f"  idle (sat out): {', '.join(plan.idle)}")
     for rec in recs:
-        print(f"\n  {rec.a_id} vs {rec.b_id}:")
+        print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
-        print(f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
-              f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})")
-        print(f"      {rec.a_id} reason: {rec.a_rationale}")
-        print(f"      {rec.b_id} reason: {rec.b_rationale}")
+        # reasoning is shown before the choices it led to (absent when game.rationale=false)
+        if rec.a_rationale:
+            print(f"    {rec.a_id} reason: {rec.a_rationale}")
+        if rec.b_rationale:
+            print(f"    {rec.b_id} reason: {rec.b_rationale}")
+        if rec.a_predicted is not None or rec.b_predicted is not None:
+            print(
+                f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "
+                f"{rec.b_id} guessed {rec.a_id}={rec.b_predicted}"
+            )
+        print(
+            f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
+            f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})"
+        )
+        if rec.a_reflection is not None:
+            print(f"      {rec.a_id} reflects: {rec.a_reflection}")
+        if rec.b_reflection is not None:
+            print(f"      {rec.b_id} reflects: {rec.b_reflection}")
 
 
 async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
@@ -78,5 +92,5 @@ async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | N
     run_id = await run_experiment(cfg, db_path, name)
     if run_id is not None:
         print(f"\nrun_id={run_id}   "
-              f"(replay: PYTHONPATH=. uv run python replay.py {run_id})")
+              f"(replay: uv run python replay.py {run_id})")
     return run_id

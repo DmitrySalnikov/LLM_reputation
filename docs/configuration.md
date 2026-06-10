@@ -7,7 +7,7 @@ One episode = one YAML file under `config/`. Loaded and validated once by
 ## Running an episode
 
 ```bash
-PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py [config/episode.yaml]
+uv run python examples/orchestrator_demo.py [config/episode.yaml]
 ```
 
 Defaults to `config/example.yaml` if no path is given. The entry point

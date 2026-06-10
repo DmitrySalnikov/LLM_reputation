@@ -8,7 +8,7 @@ Point it at another config to run a different episode (e.g. config/example.yaml)
 Run from the repo root. Optional positional args: a config path, then a human label for
 the run (stored in runs.name):
 
-    PYTHONPATH=. uv run python experiment.py [config.yaml] ["run name"]
+    uv run python experiment.py [config.yaml] ["run name"]
 
 Every run is appended to one DB ("one DB, many runs"), keyed by a hash of its config
 (run_id): re-running an identical config is skipped, so the DB de-dups. To force a fresh
@@ -16,12 +16,14 @@ run, change the seed (or anything else in the config).
 
 Read a stored run back, round by round, with:
 
-    PYTHONPATH=. uv run python replay.py <run_id>
+    uv run python replay.py <run_id>
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import sys
 
 from dotenv import load_dotenv
@@ -35,7 +37,23 @@ DB = "experiment.db"                 # one DB, many runs; appended to on every r
 DEFAULT_CONFIG = "config/experiment.yaml"
 
 
+def configure_llm_trace() -> None:
+    """LLM_TRACE=1 (env или .env) -> DEBUG-вывод входа LLM фаз DECIDE/PREDICT/REFLECT.
+
+    Хендлер настраивает этот caller-скрипт, а не движок: src/core/agent.py лишь пишет в
+    логгер `src.core.agent` (CLAUDE.md: handlers configured by the caller, never in src/).
+    """
+    if os.environ.get("LLM_TRACE", "0") in ("", "0"):
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("\n%(message)s"))
+    logger = logging.getLogger("src.core.agent")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+
 if __name__ == "__main__":
+    configure_llm_trace()           # opt-in трассировка LLM-входа (env/.env), до запуска
     args = sys.argv[1:]
     config_path = args[0] if args else DEFAULT_CONFIG   # which episode YAML to run
     name = args[1] if len(args) > 1 else None           # optional human label for the run

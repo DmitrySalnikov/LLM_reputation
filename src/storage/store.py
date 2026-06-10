@@ -70,12 +70,14 @@ class Storage:
                            run_id, round_idx, pair_idx, a_id, b_id,
                            a_number, b_number, a_rationale, b_rationale,
                            a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
+                           a_reflection, b_reflection,
                            usage_prompt_tokens, usage_completion_tokens, usage_calls)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         rid, round, pair_idx, rec.a_id, rec.b_id,
                         rec.a_number, rec.b_number, rec.a_rationale, rec.b_rationale,
                         rec.outcome, rec.a_payoff, rec.b_payoff, rec.a_predicted, rec.b_predicted,
+                        rec.a_reflection, rec.b_reflection,
                         rec.usage["prompt_tokens"], rec.usage["completion_tokens"], rec.usage["calls"],
                     ),
                 )

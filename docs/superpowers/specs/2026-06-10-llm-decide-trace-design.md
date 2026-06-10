@@ -45,7 +45,7 @@ this is not research data collection.
 - Usage:
 
   ```bash
-  LLM_TRACE=1 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+  LLM_TRACE=1 uv run python examples/orchestrator_demo.py
   ```
 
 ### Testing (TDD, written first)

@@ -50,9 +50,9 @@ uv sync --extra dev                                   # install deps (incl. pyte
 uv run pytest                                          # all tests
 uv run pytest tests/strategy/test_prediction.py       # single test file
 uv run pytest -k resolve                              # by name
-PYTHONPATH=. uv run python examples/orchestrator_demo.py                          # run example.yaml episode
-PYTHONPATH=. uv run python examples/orchestrator_demo.py config/example_prediction.yaml
-LLM_TRACE=1 PYTHONPATH=. uv run python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
+uv run python examples/orchestrator_demo.py                          # run example.yaml episode
+uv run python examples/orchestrator_demo.py config/example_prediction.yaml
+LLM_TRACE=1 uv run python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
 ```
 
 Running an episode needs a reachable provider; the API key is read from `.env`

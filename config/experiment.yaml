@@ -1,8 +1,8 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 6                       # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 2
+seed: 9                       # drives population build + matchmaker rng (change to force a fresh run)
+rounds: 3
 max_concurrency: 4            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -31,15 +31,15 @@ population:
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
   agents:
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1, provider: *default}
-    - {persona: "You are a cautious player who values trust.", count: 1, provider: *default}
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 2                   # hard ceiling on total cheap-talk turns in a pairing
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
-  rationale: true                     # ask for a reason before the number in DECIDE/PREDICT
-  reflection: false                   # post-game reflection: an extra LLM call after the outcome
+  rationale: true                    # ask for a reason before the number in DECIDE/PREDICT
+  reflection: true                    # post-game reflection: an extra LLM call after the outcome
   talk_stop_rule: both_ready_latch    # only this rule in the MVP
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in

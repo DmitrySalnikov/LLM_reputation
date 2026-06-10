@@ -34,8 +34,8 @@ TOGETHER_API_KEY=ваш_ключ
 Запуск эпизода:
 
 ```bash
-PYTHONPATH=. uv run python examples/orchestrator_demo.py                          # config/example.yaml
-PYTHONPATH=. uv run python examples/orchestrator_demo.py config/example_prediction.yaml
+uv run python examples/orchestrator_demo.py                          # config/example.yaml
+uv run python examples/orchestrator_demo.py config/example_prediction.yaml
 ```
 
 Эксперимент с сохранением в SQLite: конфигурация лежит в YAML (по умолчанию
@@ -45,19 +45,19 @@ PYTHONPATH=. uv run python examples/orchestrator_demo.py config/example_predicti
 раундом без обращений к LLM:
 
 ```bash
-PYTHONPATH=. uv run python experiment.py                       # config/experiment.yaml
-PYTHONPATH=. uv run python experiment.py config/example.yaml   # другой эпизод
-PYTHONPATH=. uv run python experiment.py config/experiment.yaml "имя запуска"
-PYTHONPATH=. uv run python replay.py                # список запусков в базе
-PYTHONPATH=. uv run python replay.py <run_id>       # воспроизвести запуск
-PYTHONPATH=. uv run python replay.py <run_id> -c    # + промпты, ростер и параметры конфига
+uv run python experiment.py                       # config/experiment.yaml
+uv run python experiment.py config/example.yaml   # другой эпизод
+uv run python experiment.py config/experiment.yaml "имя запуска"
+uv run python replay.py                # список запусков в базе
+uv run python replay.py <run_id>       # воспроизвести запуск
+uv run python replay.py <run_id> -c    # + промпты, ростер и параметры конфига
 ```
 
 Для отладки можно включить трассировку точного входа LLM перед выбором числа
 (флаг можно задать и в `.env`):
 
 ```bash
-LLM_TRACE=1 PYTHONPATH=. uv run python examples/orchestrator_demo.py
+LLM_TRACE=1 uv run python examples/orchestrator_demo.py
 ```
 
 Тесты:

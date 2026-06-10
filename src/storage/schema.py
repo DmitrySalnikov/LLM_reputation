@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     b_payoff    REAL NOT NULL,
     a_predicted INTEGER,                    -- prediction strategy: a's guess of b's number (NULL for direct)
     b_predicted INTEGER,
+    a_reflection TEXT,                      -- post-game reflection (NULL when game.reflection=false)
+    b_reflection TEXT,
     usage_prompt_tokens     INTEGER NOT NULL,
     usage_completion_tokens INTEGER NOT NULL,
     usage_calls             INTEGER NOT NULL,
