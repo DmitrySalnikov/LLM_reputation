@@ -24,24 +24,72 @@ class Payoffs:
     # invariants: T > R > P > S and 2R > T + S (strict PD)
 
 
+# Prompt templates. The text was hardcoded in src/games/prompts.py; it now lives here as
+# editable config defaults so an experiment can swap any prompt AND so the exact text is
+# persisted into the run's stored config. src/games/prompts.py fills these placeholders by
+# literal string replacement (NOT str.format — the JSON examples contain real braces):
+#   rules:                {R} {T} {P} {S}              <- payoff values
+#   talk/decide/predict:  {partner} {round} {feed}
+DEFAULT_RULES = (
+    "You are playing a repeated game. Each round you face one partner.\n"
+    "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
+    "- Equal numbers: you each score {R}.\n"
+    "- Your number exactly one higher than your partner's (0 counts as following 9): "
+    "you score {T}, your partner {S}.\n"
+    "- Your partner's number exactly one higher than yours: they score {T}, you {S}.\n"
+    "- Any other case: you each score {P}.\n"
+    "Before choosing you may exchange short messages. Messages are not binding; "
+    "the final choice is secret and simultaneous. Maximize your own total score."
+)
+
+DEFAULT_TALK_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation so far:\n{feed}\n\n"
+    'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+)
+
+DEFAULT_DECIDE_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
+    "Now secretly choose your number from 0 to 9.\n"
+    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+)
+
+DEFAULT_PREDICT_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
+    "Predict the number your partner will secretly choose, from 0 to 9.\n"
+    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+)
+
+
 @dataclass(frozen=True)
 class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
+    rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
+    talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
+    decide_prompt: str = DEFAULT_DECIDE_PROMPT    # direct decision ({partner}/{round}/{feed})
+    predict_prompt: str = DEFAULT_PREDICT_PROMPT  # prediction phase ({partner}/{round}/{feed})
 
 
 @dataclass(frozen=True)
 class AgentSpec:
     persona: str
     provider: ProviderCfg
+    count: int = 1                   # how many agents of this type to build
 
 
 @dataclass(frozen=True)
 class PopulationCfg:
     kind: str
-    n_agents: int
-    agents: list[AgentSpec]          # shorter than n_agents -> cycled at build time
+    agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
+    # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
+    # without repetition; otherwise they fall back to stable A1..An ids.
+    first_name_pool: list[str] = field(default_factory=list)
+    last_name_pool: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -54,6 +102,8 @@ class EpisodeCfg:
     context_window: int | None = None
     idle_payoff: float = 1.0         # C3: idle pays P by default
     max_concurrency: int = 4
+    play_strategy: str = "direct"          # "direct" | "prediction"
+    prediction_mapping: str = "match"      # used only when play_strategy="prediction"
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
 
 
@@ -69,10 +119,45 @@ def _game_cfg(d: dict) -> GameCfg:
 
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]))
+        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]),
+                  count=a.get("count", 1))
         for a in d["agents"]
     ]
-    return PopulationCfg(kind=d["kind"], n_agents=d["n_agents"], agents=agents)
+    return PopulationCfg(
+        kind=d["kind"],
+        agents=agents,
+        first_name_pool=d.get("first_name_pool", []),
+        last_name_pool=d.get("last_name_pool", []),
+    )
+
+
+def _validate(d: dict) -> None:
+    """Validate one episode config at load time; fail fast.
+
+    Raises ValueError on an unknown strategy/mapping or bad name pools. Name pools are
+    OPTIONAL: if a pool is empty the roster falls back to A1..An ids; a provided pool must
+    be unique and hold at least one name per agent (size = sum of agent counts).
+    """
+    strategy = d.get("play_strategy", "direct")
+    if strategy not in ("direct", "prediction"):
+        raise ValueError(
+            f"play_strategy must be 'direct' or 'prediction', got: {strategy!r}"
+        )
+    if strategy == "prediction":
+        from src.strategy.mappings import get_mapping
+
+        get_mapping(d.get("prediction_mapping", "match"))  # raises on an unknown name
+
+    pop = d["population"]
+    total = sum(a.get("count", 1) for a in pop["agents"])
+    for key in ("first_name_pool", "last_name_pool"):
+        pool = pop.get(key, [])
+        if not pool:
+            continue                                       # optional -> A1..An fallback
+        if len(set(pool)) != len(pool):
+            raise ValueError(f"{key} contains duplicate names")
+        if len(pool) < total:
+            raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
 
 
 def load_episode(path: str) -> EpisodeCfg:
@@ -80,6 +165,7 @@ def load_episode(path: str) -> EpisodeCfg:
     so a provider shared via *default arrives as the same dict for every agent."""
     with open(path) as f:
         d = yaml.safe_load(f)
+    _validate(d)
     return EpisodeCfg(
         seed=d["seed"],
         rounds=d["rounds"],
@@ -89,4 +175,6 @@ def load_episode(path: str) -> EpisodeCfg:
         context_window=d.get("context_window"),
         idle_payoff=d.get("idle_payoff", 1.0),
         max_concurrency=d.get("max_concurrency", 4),
+        play_strategy=d.get("play_strategy", "direct"),
+        prediction_mapping=d.get("prediction_mapping", "match"),
     )

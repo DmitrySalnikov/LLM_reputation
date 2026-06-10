@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from conftest import ScriptedProvider
 
 from src.core.agent import Agent, AgentSetup, Phase, PhaseKind
@@ -135,6 +137,14 @@ async def test_talk_persistent_failure_fallback():
     assert a.parse_failures == 1
 
 
+async def test_predict_phase_parses_number_and_rationale():
+    p = ScriptedProvider(['{"number": 7, "rationale": "mid is safe"}'])
+    r = await _agent(p).act(Phase(PhaseKind.PREDICT, "predict your partner", rules="R"))
+    assert r.data["number"] == 7
+    assert r.data["rationale"] == "mid is safe"
+    assert r.public_text is None  # PREDICT produces no public message
+
+
 async def test_memory_diary_precedes_situation_in_prompt():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     a = _agent(p)
@@ -155,3 +165,46 @@ async def test_memory_diary_precedes_situation_in_prompt():
     assert len(messages) == 2
     assert messages[0].role == "user" and "Round 2" in messages[0].content and "A7" in messages[0].content
     assert messages[-1].content == "SITUATION"
+
+
+def _trace_records(caplog):
+    return [r for r in caplog.records if r.name == "src.core.agent"]
+
+
+async def test_decide_logs_full_llm_input_at_debug(caplog):
+    caplog.set_level(logging.DEBUG, logger="src.core.agent")
+    p = ScriptedProvider(['{"number": 4, "rationale": "ok"}'])
+    await _agent(p, persona="PERSONA").act(
+        Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES")
+    )
+    records = _trace_records(caplog)
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert "PERSONA" in msg and "GAME RULES" in msg  # system prompt
+    assert "SITUATION" in msg                        # phase context message
+
+
+async def test_predict_logs_llm_input_at_debug(caplog):
+    caplog.set_level(logging.DEBUG, logger="src.core.agent")
+    p = ScriptedProvider(['{"number": 7, "rationale": "guess"}'])
+    await _agent(p).act(Phase(PhaseKind.PREDICT, "PREDICT-CTX", rules="R"))
+    records = _trace_records(caplog)
+    assert len(records) == 1
+    assert "PREDICT-CTX" in records[0].getMessage()
+
+
+async def test_talk_logs_no_llm_input(caplog):
+    caplog.set_level(logging.DEBUG, logger="src.core.agent")
+    p = ScriptedProvider(['{"message": "hi", "ready": true}'])
+    await _agent(p).act(_talk())
+    assert _trace_records(caplog) == []
+
+
+async def test_decide_retry_logs_attempt_with_correction(caplog):
+    caplog.set_level(logging.DEBUG, logger="src.core.agent")
+    p = ScriptedProvider(["bad", '{"number": 1, "rationale": "r"}'])
+    await _agent(p).act(_decide())
+    records = _trace_records(caplog)
+    assert len(records) == 2  # one record per provider attempt
+    second = records[1].getMessage()
+    assert "ONLY valid JSON" in second  # the correction message is part of the input

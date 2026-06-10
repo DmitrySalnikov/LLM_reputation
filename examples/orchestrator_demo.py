@@ -6,20 +6,37 @@ run_episode returns nothing: the caller owns the population (reads scores from i
 closes it) and collects per-round data via the observer — the same seam the Logger
 layer will use to persist rounds.
 
-There is no CLI — this script IS the entry point. Run from the repo root (needs a local
-Ollama serving the model in config/example.yaml):
+Run from the repo root (needs API-доступ к провайдеру из конфигурации; ключ берётся из
+.env). Путь к конфигурации можно передать первым аргументом, иначе берётся example.yaml:
 
-    PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+    PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py [config/episode.yaml]
+
+Трассировка LLM-входа перед выбором числа: LLM_TRACE=1 (флаг можно задать в .env).
 """
 
 import asyncio
+import logging
+import os
 import random
+import sys
+
+from dotenv import load_dotenv
 
 from src.core.config import load_episode
 from src.core.orchestrator import run_episode
 from src.population import make_population
 
-CONFIG = "config/example.yaml"
+load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
+
+if os.environ.get("LLM_TRACE", "0") not in ("", "0"):
+    # Включить трассировку LLM-входа фаз DECIDE/PREDICT (см. src/core/agent.py)
+    _trace_handler = logging.StreamHandler()
+    _trace_handler.setFormatter(logging.Formatter("\n%(message)s"))
+    _trace_logger = logging.getLogger("src.core.agent")
+    _trace_logger.setLevel(logging.DEBUG)
+    _trace_logger.addHandler(_trace_handler)
+
+CONFIG = sys.argv[1] if len(sys.argv) > 1 else "config/example.yaml"
 
 
 def narrate_round(r, plan, recs):
@@ -33,6 +50,11 @@ def narrate_round(r, plan, recs):
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
+        if rec.a_predicted is not None or rec.b_predicted is not None:
+            print(
+                f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "
+                f"{rec.b_id} guessed {rec.a_id}={rec.b_predicted}"
+            )
         print(
             f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
             f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})"
@@ -43,8 +65,9 @@ def narrate_round(r, plan, recs):
 
 async def main():
     cfg = load_episode(CONFIG)
+    n_agents = sum(a.count for a in cfg.population.agents)
     print(
-        f"Running {cfg.rounds} rounds, {cfg.population.n_agents} agents, "
+        f"Running {cfg.rounds} rounds, {n_agents} agents, "
         f"matchmaker={cfg.matchmaker}, seed={cfg.seed}"
     )
     pop = make_population(cfg.population, context_window=cfg.context_window).build(

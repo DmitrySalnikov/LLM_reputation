@@ -1,0 +1,36 @@
+# Эпизод со стратегией prediction: агент предсказывает число партнёра, затем
+# отображает его в собственный выбор через prediction_mapping.
+#   PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
+seed: 42
+rounds: 6
+matchmaker: random
+context_window: null
+idle_payoff: 1
+max_concurrency: 4
+
+# one_above — рациональный best-response: сыграть на единицу выше предсказанного
+# числа партнёра (off-by-one даёт выигрыш T).
+play_strategy: prediction
+prediction_mapping: one_above
+
+game:
+  payoffs: {R: 3, T: 5, P: 1, S: 0}
+  max_talk_turns: 3
+
+provider_default: &default
+  base_url: https://api.together.xyz/v1   # Together.ai (OpenAI-совместимый)
+  api_key_env: TOGETHER_API_KEY           # ключ берётся из .env (см. .gitignore)
+  model: Qwen/Qwen2.5-7B-Instruct-Turbo
+  temperature: 0.7
+  max_tokens: 1000
+
+population:
+  kind: roster
+  first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
+                    Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
+  last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
+                    Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
+                    Takarada, Amasawa]
+  agents:
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}

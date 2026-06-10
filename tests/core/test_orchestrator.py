@@ -35,12 +35,12 @@ def providers(monkeypatch):
 
 
 def _cfg(n=3, rounds=2, seed=0):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"))
+    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", n_agents=n, agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec]),
         game=GameCfg(max_talk_turns=0),     # decision-only -> deterministic CC for all
     )
 
@@ -108,3 +108,27 @@ async def test_fail_fast_propagates(monkeypatch):
     with pytest.raises(ProviderUnavailable):
         await _run(_cfg(n=2, rounds=1))
     assert made and all(p.closed == 1 for p in made)
+
+
+def _pred_cfg(n=2, rounds=1, seed=0):
+    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
+    return EpisodeCfg(
+        seed=seed,
+        rounds=rounds,
+        matchmaker="random",
+        population=PopulationCfg(kind="roster", agents=[spec]),
+        game=GameCfg(max_talk_turns=0),
+        play_strategy="prediction",
+        prediction_mapping="one_above",
+    )
+
+
+async def test_prediction_strategy_threaded_through_orchestrator(providers):
+    # FixedProvider replies number=4 for every call -> predict 4 -> one_above -> choose 5.
+    records = []
+    await _run(_pred_cfg(n=2, rounds=1), observer=lambda r, p, recs: records.extend(recs))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.a_predicted == 4 and rec.b_predicted == 4
+    assert rec.a_number == 5 and rec.b_number == 5
+    assert rec.outcome == "CC"

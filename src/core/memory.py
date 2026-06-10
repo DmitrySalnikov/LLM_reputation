@@ -15,6 +15,7 @@ class MemoryEntry:
     partner_number: int
     outcome: str
     payoff: float
+    my_predicted: int | None = None  # стратегия prediction; None для direct
 
 
 class Memory:
@@ -48,6 +49,8 @@ def _render_entry(e: MemoryEntry) -> str:
             speaker = e.partner_id if turn.get("speaker") == e.partner_id else "me"
             ready = str(bool(turn.get("ready"))).lower()
             lines.append(f"  {speaker}: {turn.get('text', '')} (ready={ready})")
+    if e.my_predicted is not None:
+        lines.append(f"I predicted {e.partner_id} would pick {e.my_predicted}.")
     reason = f" (reason: {e.my_rationale})" if e.my_rationale else ""
     lines.append(
         f"Choices: me={e.my_number}{reason}, {e.partner_id}={e.partner_number}. "

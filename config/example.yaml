@@ -13,15 +13,20 @@ game:
 
 # A provider block reused by every agent via the &default / *default YAML anchor.
 provider_default: &default
-  base_url: http://localhost:11434/v1   # local Ollama
-  api_key_env: OLLAMA_KEY               # placeholder for a local server
-  model: llama3:8b
+  base_url: https://api.together.xyz/v1   # Together.ai (OpenAI-совместимый)
+  api_key_env: TOGETHER_API_KEY           # ключ берётся из .env (см. .gitignore)
+  model: Qwen/Qwen2.5-7B-Instruct-Turbo
   temperature: 0.7
   max_tokens: 1000
 
 population:
-  kind: roster
-  n_agents: 4
-  agents:                     # shorter than n_agents -> cycled at build time
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", provider: *default}
-    - {persona: "You are a cautious player who values trust.", provider: *default}
+  kind: roster                # each type's `count` agents are built; total = sum(counts)
+  # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
+  first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
+                    Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
+  last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
+                    Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
+                    Takarada, Amasawa]
+  agents:
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
+    - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}
