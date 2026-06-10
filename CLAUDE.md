@@ -2,72 +2,105 @@
 
 Research simulation engine studying whether **reputation** emerges on its own in
 populations of LLM agents that repeatedly play a coordination game with cheap talk.
+One **episode** = one YAML config: the orchestrator builds a population, a matchmaker
+pairs agents each round, each pair exchanges short messages (cheap-talk) and then
+secretly picks a number 0–9; payoffs reward matching and punish being undercut.
+
+## Stack
 
 Python 3.12, asyncio, httpx (OpenAI-compatible LLM calls), PyYAML, python-dotenv.
-Tooling: `uv`, `pytest` + `pytest-asyncio` (auto mode). No web framework — driven
-from `examples/`.
+Tooling: `uv`, `pytest` + `pytest-asyncio` (auto mode — no `@pytest.mark.asyncio`
+needed). No web framework — everything is driven from `examples/`.
 
 ## Project map
 
 ```
 src/
 ├── providers/      OpenAI-compatible HTTP client + retries (Together.ai, Ollama)
-├── core/           Agent, Memory, frozen-dataclass config, orchestrator
-├── games/          ReputationPD game + English prompt builders
-├── strategy/       PlayStrategy (direct | prediction) + prediction mappings
+│   ├── base.py         LLMProvider Protocol, Message, Completion, error types
+│   └── openai_compat.py  the real httpx client
+├── core/
+│   ├── agent.py        Agent.act: memory + phase context -> LLM -> parsed JSON;
+│   │                   phases TALK/DECIDE/PREDICT; DEBUG trace of LLM input
+│   ├── memory.py       per-agent diary of past rounds, rendered into the prompt
+│   ├── config.py       frozen dataclasses + load_episode + _validate (fail fast)
+│   └── orchestrator.py run_episode: rounds loop, semaphore, observer callback
+├── games/
+│   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
+│   ├── prompts.py        English prompt builders (rules/talk/decide/predict)
+│   └── base.py           PairingRecord, Game Protocol
+├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
+│                   partner, map via match/one_above) — base.py, mappings.py
 ├── population/     Population (live roster, provider cache) + RosterGenerator
-├── matchmaking/    Matchmaker (random) — who plays whom each round
+├── matchmaking/    Matchmaker Protocol + RandomMatchmaker (disjoint pairs, idle)
 config/             one YAML = one episode (example.yaml, example_prediction.yaml)
 examples/           runnable demos; orchestrator_demo.py is the main entry point
 tests/              mirrors src/; unit tests stub the LLM, smoke tests hit Ollama
-docs/               English overviews + per-layer design docs (see relevant block)
+docs/               English overviews + Russian per-layer design docs (see index)
 ```
 
 Dependency flow is one-directional bottom→top: providers → core → games/strategy →
 population/matchmaking → orchestrator. `games` and `strategy` reference each other
-via lazy imports.
+via lazy imports (`src/games/reputation_pd.py:20`).
 
-<important if="you need to run commands to install, test, or run an episode">
+## Commands
 
 ```bash
 uv sync --extra dev                                   # install deps (incl. pytest)
 uv run pytest                                          # all tests
 uv run pytest tests/strategy/test_prediction.py       # single test file
+uv run pytest -k resolve                              # by name
 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py                          # run example.yaml episode
 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
+LLM_TRACE=1 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
 ```
 
 Running an episode needs a reachable provider; the API key is read from `.env`
 (`TOGETHER_API_KEY`). `.env` is gitignored — never commit it.
-</important>
 
-<important if="you are writing docstrings, prints, logging, or error messages">
-- Docstrings (Google-style), `print`s, logging, and error messages are in **Russian**.
-- Keep established English terms (payoff, cheap-talk, matchmaker) untranslated.
-- LLM-facing prompt text stays in **English** (see `src/games/prompts.py`).
-</important>
+## Critical conventions (apply to nearly every task)
 
-<important if="you are adding or removing a dependency">
+- Docstrings (Google-style), `print`s, logging, and error messages are in
+  **Russian**; established English terms (payoff, cheap-talk, matchmaker) stay
+  untranslated. LLM-facing prompt text is **English** (`src/games/prompts.py`).
+- TDD: write the failing test first (AAA, behavioural name), then minimal code.
 - Manage dependencies only via `uv` (`uv add` / `uv remove` / `uv sync`) — never
   `pip` / `poetry`.
-</important>
+- No printing or persistence inside `src/` — output leaves the engine only through
+  the orchestrator's `observer` callback (silent DEBUG logging is the one
+  exception: handlers are configured by the caller, never in `src/`).
+- `from __future__ import annotations` at the top of every module; rng objects are
+  passed in, never created inside library code.
 
 <important if="you are writing or modifying tests">
-- Write the failing test first (AAA, behavioural name), then minimal code.
-- Unit tests use the `ScriptedProvider` stub — no network.
+- Unit tests use the `ScriptedProvider` stub (per-package `tests/*/conftest.py`) —
+  no network; queue exact JSON replies, assert on outcomes AND on the recorded
+  `(system, messages)` calls.
 - Smoke tests (`test_smoke_*_ollama.py`) hit a local Ollama and auto-skip if absent.
+- `pythonpath = ["."]` is set — tests import `src.*` directly.
 - Details and conventions: `docs/testing.md`.
 </important>
 
 <important if="you are adding a new provider, strategy, matchmaker, or population generator">
-- Implement the relevant Protocol and register it through its `make_*` factory
-  (`LLMProvider`, `PlayStrategy`, `Matchmaker`, `PopulationGenerator`).
+Implement the Protocol and register it through its `make_*` factory:
+
+| seam | Protocol | factory |
+|------|----------|---------|
+| provider | `LLMProvider` (`src/providers/base.py`) | `make_provider` (`src/providers/openai_compat.py:115`) |
+| strategy | `PlayStrategy` (`src/strategy/base.py`) | `make_strategy` (`src/strategy/base.py:37`) |
+| matchmaker | `Matchmaker` (`src/matchmaking/base.py`) | `make_matchmaker` (`src/matchmaking/base.py:20`) |
+| population | `PopulationGenerator` (`src/population/base.py`) | `make_population` (`src/population/base.py:67`) |
+
+If the new kind needs config validation, extend `_validate` in `src/core/config.py`.
 </important>
 
 <important if="you are modifying the orchestrator or the episode run loop">
-- The orchestrator's **only output channel is the `observer` callback** — no printing
-  or persistence inside `src/`.
-- The **caller owns the `Population`**: it builds it and must `await pop.aclose()`.
+- The orchestrator's **only output channel is the `observer` callback**
+  `(round, RoundPlan, list[PairingRecord])`.
+- The **caller owns the `Population`**: it builds it and must `await pop.aclose()`
+  (in a `finally`).
+- Pairings in a round run concurrently under `asyncio.Semaphore(cfg.max_concurrency)`,
+  fail-fast via `gather`.
 - Deep dive: `docs/architecture.md`.
 </important>
 
@@ -75,11 +108,30 @@ Running an episode needs a reachable provider; the API key is read from `.env`
 - Config objects are frozen dataclasses in `src/core/config.py`; wire new fields
   through the `_*_cfg` builders / `load_episode`.
 - Validate input once at load (`_validate`), fail fast with a Russian message.
-- Episode YAML, provider anchors, population pools: `docs/configuration.md`.
+- Provider blocks are shared across agents via YAML anchors; `ProviderCfg` points
+  at any OpenAI-compatible `/chat/completions` endpoint.
+- Field reference, anchors, population pools: `docs/configuration.md`.
 </important>
 
-<important if="you need to understand the architecture, layers, game rules, or data flow">
+<important if="you are changing Agent.act, phases, prompts, or memory rendering">
+- The LLM input is assembled in `Agent.act` (`src/core/agent.py`): system =
+  persona + game rules; messages = memory diary + phase context (+ correction on
+  JSON parse retry, max 2 retries, then a random-number fallback).
+- JSON extraction is lenient (raw / fenced / balanced-brace); validators per phase.
+- DECIDE/PREDICT inputs are traced at DEBUG via the `src.core.agent` logger
+  (`_render_trace`); keep the trace in sync if you change prompt assembly.
+- Determinism: `seed` drives population build and a derived matchmaker rng stream;
+  the LLM is the only nondeterministic part.
+</important>
 
+<important if="you are debugging what agents actually see or why they chose a number">
+Run the demo with `LLM_TRACE=1` (env var or `.env`) — it prints the full system
+prompt, memory diary, and decide/predict context per provider attempt. In tests,
+use `caplog.set_level(logging.DEBUG, logger="src.core.agent")` (examples at the
+bottom of `tests/core/test_agent.py`).
+</important>
+
+<important if="you need to understand the architecture, game rules, or data flow">
 - `docs/architecture.md` — layers, the game, pairing flow, strategies, seams
 - `docs/conventions.md` — language rules, code patterns, ownership, dependency rules
 
@@ -91,4 +143,18 @@ English overviews link to the authoritative **Russian design docs**, also under 
 - `docs/agent-games-mvp-sequence.md` — one-round sequence diagram (Mermaid)
 - `docs/agent-games-{provider,agent,game,matching,orchestrator}-plan.md` —
   per-layer design + its test slices
+
+Specs/plans for individual features live in `docs/superpowers/{specs,plans}/`.
 </important>
+
+## Doc index
+
+Read the relevant doc before starting work on a related area:
+
+- `docs/architecture.md` — layered design, ReputationPD rules, pairing flow,
+  strategies, agent phases, LLM input trace, intentional seams (Logger, selection)
+- `docs/configuration.md` — episode YAML reference, provider anchors, population
+  pools, how to add a config knob
+- `docs/testing.md` — unit vs smoke tests, ScriptedProvider, determinism
+- `docs/conventions.md` — Russian/English language rules, code patterns,
+  output ownership, dependency direction

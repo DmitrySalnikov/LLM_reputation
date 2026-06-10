@@ -99,6 +99,15 @@ it falls back (random number / empty message) and bumps `parse_failures`.
 Three `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`. JSON extraction is lenient —
 raw, fenced, and balanced-brace candidates are all tried (`_extract_json_obj`).
 
+### LLM input trace
+
+For DECIDE/PREDICT calls, `Agent.act` logs the exact LLM input (system prompt,
+memory diary, phase context, retry corrections) at DEBUG level via the
+`src.core.agent` logger — one record per provider attempt (`_render_trace`,
+`src/core/agent.py`). Silent unless the caller configures logging:
+`examples/orchestrator_demo.py` attaches a handler when `LLM_TRACE=1` is set.
+TALK calls are not traced. Design: `docs/superpowers/specs/2026-06-10-llm-decide-trace-design.md`.
+
 ## Population & matchmaking
 
 Deep dives: [matchmaking](./agent-games-matching-plan.md) ·

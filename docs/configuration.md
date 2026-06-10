@@ -14,6 +14,10 @@ Defaults to `config/example.yaml` if no path is given. The entry point
 (`examples/orchestrator_demo.py`) calls `load_dotenv()` so provider API keys come
 from `.env`.
 
+Set `LLM_TRACE=1` (env var or `.env`) to print the exact LLM input of every
+DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
+"LLM input trace").
+
 ## Reference configs
 
 - `config/example.yaml` — direct strategy (agents pick numbers themselves).
