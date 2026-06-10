@@ -78,5 +78,5 @@ async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | N
     run_id = await run_experiment(cfg, db_path, name)
     if run_id is not None:
         print(f"\nrun_id={run_id}   "
-              f"(replay: PYTHONPATH=. .venv/bin/python replay.py {run_id})")
+              f"(replay: PYTHONPATH=. uv run python replay.py {run_id})")
     return run_id

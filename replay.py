@@ -7,7 +7,7 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    PYTHONPATH=. .venv/bin/python replay.py <run_id> [db_path] [--config]
+    PYTHONPATH=. .venv/bin/python replay.py <run_id> [--config]
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also
 dump the full episode config.
@@ -170,11 +170,10 @@ def main():
     args = sys.argv[1:]
     show_config = any(a in ("--config", "-c") for a in args)
     pos = [a for a in args if a not in ("--config", "-c")]   # positional args only
-    db = pos[1] if len(pos) > 1 else DB_DEFAULT
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(DB_DEFAULT)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [db_path={DB_DEFAULT}] [--config]\n")
+            print(f"usage: replay.py <run_id> [--config]   (db: {DB_DEFAULT})\n")
             list_runs(conn)
         else:
             replay(conn, pos[0], show_config=show_config)
