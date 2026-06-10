@@ -14,6 +14,18 @@ def test_predict_template_puts_rationale_before_number():
     assert ctx.index('"rationale"') < ctx.index('"number"')
 
 
+def test_decide_template_without_rationale_asks_bare_number():
+    ctx = decide_context("A2", 1, "feed", rationale=False)
+    assert "rationale" not in ctx.lower()
+    assert '{"number": <0-9>}' in ctx
+
+
+def test_predict_template_without_rationale_asks_bare_number():
+    ctx = predict_context("A2", 1, "feed", rationale=False)
+    assert "rationale" not in ctx.lower()
+    assert '{"number": <0-9>}' in ctx
+
+
 def test_reflect_context_states_result_and_asks_json():
     ctx = reflect_context("A2", 3, "A2: take 4 (ready=true)",
                           my_number=4, partner_number=5, payoff=0.0)

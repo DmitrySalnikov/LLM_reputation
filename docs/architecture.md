@@ -103,7 +103,8 @@ it falls back (random number / empty message) and bumps `parse_failures`.
 
 Four `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`. In DECIDE/PREDICT the
 JSON answer puts `rationale` before `number`, so reasoning tokens are generated
-before the choice is committed. JSON extraction is lenient — raw, fenced, and
+before the choice is committed; with `game.rationale: false` the prompt asks for
+a bare `{"number": ...}` instead. JSON extraction is lenient — raw, fenced, and
 balanced-brace candidates are all tried (`_extract_json_obj`).
 
 ### LLM input trace

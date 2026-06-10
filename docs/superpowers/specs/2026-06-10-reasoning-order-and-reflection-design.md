@@ -52,6 +52,25 @@ Status: approved (autonomous session — recommended defaults applied)
   the record for analysis, never to the partner.
 - Demo prints `... reflects: <text>` lines after the outcome block.
 
+## Amendment (same day): both knobs configurable
+
+`game.rationale: bool = True` makes the pre-choice reasoning optional, symmetric
+to `game.reflection`:
+
+- When off, `decide_context` / `predict_context` ask for bare
+  `{"number": <0-9>}` — no reasoning request at all (saving tokens), and the
+  strategies force `Decision.rationale = ""` so a volunteered rationale never
+  reaches memory or records.
+- The flag lives in `GameCfg`; `make_strategy` reads `cfg.game.rationale` and
+  passes it to both strategies; `ReputationPD`'s lazy default `DirectStrategy`
+  honours `GameCfg.rationale` too.
+- Defaults preserve existing behaviour: `rationale: true`, `reflection: false`.
+- Empty rationale is already omitted from the memory diary; the demo skips
+  empty reason lines.
+- The static parse-retry correction still names both JSON fields; the validator
+  tolerates a missing rationale, and the strategy drops any volunteered one, so
+  the contract stays robust either way.
+
 ## Out of scope
 
 - No new strategy kind: reflection is strategy-independent and lives in the game.

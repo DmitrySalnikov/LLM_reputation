@@ -30,6 +30,7 @@ class GameCfg:
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
+    rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
 
 
 @dataclass(frozen=True)

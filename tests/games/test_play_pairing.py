@@ -130,6 +130,20 @@ async def test_decide_context_contains_feed_and_ids():
     assert "0 to 9" in system  # rules went into the system prompt
 
 
+# ---- Rationale switched off in config ----
+
+async def test_rationale_off_default_strategy_asks_bare_number():
+    g = ReputationPD(GameCfg(max_talk_turns=0, rationale=False))
+    a = _agent("A1", ['{"number": 4}'])
+    b = _agent("A2", ['{"number": 4, "rationale": "volunteered"}'])
+    rec = await g.play_pairing(a, b, 1)
+    assert (rec.a_number, rec.b_number, rec.outcome) == (4, 4, "CC")
+    assert rec.a_rationale == "" and rec.b_rationale == ""
+    assert a.memory.entries[0].my_rationale == ""
+    _, messages = a.provider.calls[-1]   # a's DECIDE call
+    assert "rationale" not in messages[-1].content.lower()
+
+
 # ---- Reflection after the outcome ----
 
 def _reflect(text):

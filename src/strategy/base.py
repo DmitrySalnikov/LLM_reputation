@@ -38,7 +38,8 @@ def make_strategy(cfg) -> PlayStrategy:
     """Собрать стратегию из конфигурации эпизода (play_strategy/prediction_mapping).
 
     Args:
-        cfg: Конфигурация эпизода с полями play_strategy и prediction_mapping.
+        cfg: Конфигурация эпизода с полями play_strategy, prediction_mapping
+            и game.rationale.
 
     Returns:
         Экземпляр стратегии игры, соответствующий конфигурации.
@@ -50,8 +51,9 @@ def make_strategy(cfg) -> PlayStrategy:
     from src.strategy.mappings import get_mapping
     from src.strategy.prediction import PredictionStrategy
 
+    rationale = cfg.game.rationale
     if cfg.play_strategy == "direct":
-        return DirectStrategy()
+        return DirectStrategy(rationale=rationale)
     if cfg.play_strategy == "prediction":
-        return PredictionStrategy(get_mapping(cfg.prediction_mapping))
+        return PredictionStrategy(get_mapping(cfg.prediction_mapping), rationale=rationale)
     raise ValueError(f"неизвестная стратегия игры: {cfg.play_strategy!r}")

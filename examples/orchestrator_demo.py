@@ -50,9 +50,11 @@ def narrate_round(r, plan, recs):
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
-        # reasoning is shown before the choices it led to
-        print(f"    {rec.a_id} reason: {rec.a_rationale}")
-        print(f"    {rec.b_id} reason: {rec.b_rationale}")
+        # reasoning is shown before the choices it led to (absent when game.rationale=false)
+        if rec.a_rationale:
+            print(f"    {rec.a_id} reason: {rec.a_rationale}")
+        if rec.b_rationale:
+            print(f"    {rec.b_id} reason: {rec.b_rationale}")
         if rec.a_predicted is not None or rec.b_predicted is not None:
             print(
                 f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "

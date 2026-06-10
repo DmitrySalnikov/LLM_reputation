@@ -10,6 +10,7 @@ max_concurrency: 4
 game:
   payoffs: {R: 3, T: 5, P: 1, S: 0}
   max_talk_turns: 3
+  rationale: true             # просить обоснование перед числом в DECIDE/PREDICT
   reflection: true            # пост-игровая рефлексия: доп. LLM-вызов после исхода
 
 # A provider block reused by every agent via the &default / *default YAML anchor.

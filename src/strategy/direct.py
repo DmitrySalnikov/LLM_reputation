@@ -10,6 +10,14 @@ from src.strategy.base import Decision
 class DirectStrategy:
     """Стратегия прямого выбора числа без шага предсказания."""
 
+    def __init__(self, *, rationale: bool = True):
+        """Инициализировать стратегию.
+
+        Args:
+            rationale: Просить ли обоснование перед числом (game.rationale).
+        """
+        self._rationale = rationale
+
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, rules: str) -> Decision:
         """Запросить у агента финальный выбор числа в фазе DECIDE.
@@ -24,11 +32,10 @@ class DirectStrategy:
         Returns:
             Решение с выбранным числом и обоснованием (без предсказания).
         """
-        res = await agent.act(
-            Phase(PhaseKind.DECIDE, decide_context(partner_id, round, feed), rules=rules)
-        )
+        ctx = decide_context(partner_id, round, feed, rationale=self._rationale)
+        res = await agent.act(Phase(PhaseKind.DECIDE, ctx, rules=rules))
         return Decision(
             number=res.data["number"],
-            rationale=res.data["rationale"],
+            rationale=res.data["rationale"] if self._rationale else "",
             usage=res.usage,
         )

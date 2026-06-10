@@ -11,13 +11,15 @@ from src.strategy.mappings import PredictionMapping
 class PredictionStrategy:
     """Стратегия предсказания: агент предсказывает число партнёра, отображение даёт выбор."""
 
-    def __init__(self, mapping: PredictionMapping):
+    def __init__(self, mapping: PredictionMapping, *, rationale: bool = True):
         """Инициализировать стратегию отображением предсказания в выбор.
 
         Args:
             mapping: Чистая функция предсказанное число -> собственный выбор (0..9).
+            rationale: Просить ли обоснование перед числом (game.rationale).
         """
         self._mapping = mapping
+        self._rationale = rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, rules: str) -> Decision:
@@ -33,15 +35,14 @@ class PredictionStrategy:
         Returns:
             Решение с итоговым числом (после отображения), предсказанием и обоснованием.
         """
-        res = await agent.act(
-            Phase(PhaseKind.PREDICT, predict_context(partner_id, round, feed), rules=rules)
-        )
+        ctx = predict_context(partner_id, round, feed, rationale=self._rationale)
+        res = await agent.act(Phase(PhaseKind.PREDICT, ctx, rules=rules))
         predicted = res.data["number"]
-        rationale = res.data["rationale"]
+        rationale = res.data["rationale"] if self._rationale else ""
         return Decision(
             number=self._mapping(predicted),
             rationale=rationale,
             predicted=predicted,
-            predicted_rationale=rationale,
+            predicted_rationale=rationale if self._rationale else None,
             usage=res.usage,
         )

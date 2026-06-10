@@ -26,3 +26,29 @@ async def test_prediction_match_mapping_is_identity():
     agent = _agent(['{"number": 8, "rationale": "high"}'])
     d = await PredictionStrategy(get_mapping("match")).decide(agent, "A2", 1, "", "R")
     assert d.predicted == 8 and d.number == 8
+
+
+async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
+    agent = _agent(['{"number": 4, "rationale": "volunteered anyway"}'])
+    d = await PredictionStrategy(get_mapping("one_above"), rationale=False).decide(
+        agent, "A2", 1, "", "R")
+    assert d.predicted == 4 and d.number == 5
+    assert d.rationale == "" and d.predicted_rationale is None
+    _, messages = agent.provider.calls[0]
+    assert "rationale" not in messages[-1].content.lower()
+
+
+def test_make_strategy_passes_rationale_flag():
+    from src.core.config import EpisodeCfg, GameCfg, PopulationCfg
+    from src.strategy.base import make_strategy
+
+    pop = PopulationCfg(kind="roster", n_agents=2, agents=[])
+    cfg = EpisodeCfg(seed=1, rounds=1, matchmaker="random", population=pop,
+                     game=GameCfg(rationale=False), play_strategy="prediction",
+                     prediction_mapping="one_above")
+    s = make_strategy(cfg)
+    assert s._rationale is False
+
+    cfg = EpisodeCfg(seed=1, rounds=1, matchmaker="random", population=pop,
+                     game=GameCfg(), play_strategy="direct")
+    assert make_strategy(cfg)._rationale is True

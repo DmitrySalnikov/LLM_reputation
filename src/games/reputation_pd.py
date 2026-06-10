@@ -18,7 +18,7 @@ class ReputationPD:
         self._rules = rules if rules is not None else rules_text(cfg)
         if strategy is None:
             from src.strategy.direct import DirectStrategy  # ленивый импорт: разрывает цикл games<->strategy
-            strategy = DirectStrategy()
+            strategy = DirectStrategy(rationale=cfg.rationale)
         self._strategy = strategy
 
     def resolve(self, x: int, y: int) -> tuple[str, float, float]:

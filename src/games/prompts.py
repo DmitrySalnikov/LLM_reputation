@@ -50,43 +50,54 @@ def talk_context(partner: str, round: int, feed: str) -> str:
     )
 
 
-def decide_context(partner: str, round: int, feed: str) -> str:
+def decide_context(partner: str, round: int, feed: str, *, rationale: bool = True) -> str:
     """Контекст финального выбора числа (стратегия direct).
 
     Args:
         partner: Идентификатор партнёра в текущем раунде.
         round: Номер раунда.
         feed: Отрендеренная история переговоров.
+        rationale: Просить ли обоснование перед числом.
 
     Returns:
         Текст контекста на английском языке для выбора числа.
     """
     feed_block = feed if feed else "(no messages were exchanged)"
-    return (
+    head = (
         f"Your partner this round is {partner}. Round {round}.\n"
         f"Negotiation:\n{feed_block}\n\n"
-        "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
+        "Now secretly choose your number from 0 to 9."
+    )
+    if not rationale:
+        return head + '\nRespond ONLY as JSON: {"number": <0-9>}'
+    return (
+        head + " Reason first, then commit to a number.\n"
         'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
     )
 
 
-def predict_context(partner: str, round: int, feed: str) -> str:
+def predict_context(partner: str, round: int, feed: str, *, rationale: bool = True) -> str:
     """Контекст предсказания числа партнёра (стратегия prediction).
 
     Args:
         partner: Идентификатор партнёра в текущем раунде.
         round: Номер раунда.
         feed: Отрендеренная история переговоров.
+        rationale: Просить ли обоснование перед числом.
 
     Returns:
         Текст контекста на английском языке для предсказания числа партнёра.
     """
     feed_block = feed if feed else "(no messages were exchanged)"
-    return (
+    head = (
         f"Your partner this round is {partner}. Round {round}.\n"
         f"Negotiation:\n{feed_block}\n\n"
-        "Predict the number your partner will secretly choose, from 0 to 9. "
-        "Reason first, then commit to a number.\n"
+        "Predict the number your partner will secretly choose, from 0 to 9."
+    )
+    if not rationale:
+        return head + '\nRespond ONLY as JSON: {"number": <0-9>}'
+    return (
+        head + " Reason first, then commit to a number.\n"
         'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
     )
 

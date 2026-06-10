@@ -26,7 +26,7 @@ def test_load_example():
     assert not hasattr(cfg, "db_path")              # persistence belongs to the Logger layer
 
 
-def test_reflection_defaults_to_false(tmp_path):
+def test_reflection_and_rationale_defaults(tmp_path):
     f = tmp_path / "min.yaml"
     f.write_text(textwrap.dedent(
         """
@@ -45,6 +45,28 @@ def test_reflection_defaults_to_false(tmp_path):
     ))
     cfg = load_episode(str(f))
     assert cfg.game.reflection is False
+    assert cfg.game.rationale is True
+
+
+def test_rationale_loaded_from_game_block(tmp_path):
+    f = tmp_path / "no_reason.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {rationale: false}
+        population:
+          kind: roster
+          n_agents: 2
+          first_name_pool: [Kurisu, Mayuri]
+          last_name_pool: [Makise, Shiina]
+          agents:
+            - persona: "p"
+              provider: {base_url: "http://x/v1", model: "m"}
+        """
+    ))
+    assert load_episode(str(f)).game.rationale is False
 
 
 def test_reflection_loaded_from_game_block():
