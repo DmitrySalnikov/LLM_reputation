@@ -20,6 +20,7 @@ class PhaseKind(Enum):
     TALK = "talk"
     DECIDE = "decide"
     PREDICT = "predict"
+    REFLECT = "reflect"
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ class AgentSetup:
 _CORRECTION = {
     PhaseKind.DECIDE: (
         "Respond with ONLY valid JSON, nothing else: "
-        '{"number": <integer 0-9>, "rationale": "<short reason>"}'
+        '{"rationale": "<short reason>", "number": <integer 0-9>}'
     ),
     PhaseKind.TALK: (
         "Respond with ONLY valid JSON, nothing else: "
@@ -53,7 +54,11 @@ _CORRECTION = {
     ),
     PhaseKind.PREDICT: (
         "Respond with ONLY valid JSON, nothing else: "
-        '{"number": <integer 0-9>, "rationale": "<short reason>"}'
+        '{"rationale": "<short reason>", "number": <integer 0-9>}'
+    ),
+    PhaseKind.REFLECT: (
+        "Respond with ONLY valid JSON, nothing else: "
+        '{"reflection": "<short reflection>"}'
     ),
 }
 
@@ -91,7 +96,7 @@ class Agent:
         correction: str | None = None
         for attempt in range(1, _MAX_PARSE_RETRIES + 2):
             messages = base if correction is None else base + [Message("user", correction)]
-            if phase.kind in (PhaseKind.DECIDE, PhaseKind.PREDICT) and _log.isEnabledFor(logging.DEBUG):
+            if phase.kind is not PhaseKind.TALK and _log.isEnabledFor(logging.DEBUG):
                 _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))
             comp = await self.provider.complete(
                 system=system,
@@ -123,6 +128,8 @@ def _parse(kind: PhaseKind, text: str) -> dict | None:
         return _validate_decide(obj)
     if kind is PhaseKind.TALK:
         return _validate_talk(obj)
+    if kind is PhaseKind.REFLECT:
+        return _validate_reflect(obj)
     return None
 
 
@@ -152,6 +159,15 @@ def _validate_talk(obj: dict) -> dict | None:
     return {"message": message, "ready": _coerce_bool(obj.get("ready"))}
 
 
+def _validate_reflect(obj: dict) -> dict | None:
+    reflection = obj.get("reflection")
+    if reflection is None:  # ключ обязателен; иначе повтор с поправкой
+        return None
+    if not isinstance(reflection, str):
+        reflection = str(reflection)
+    return {"reflection": reflection}
+
+
 def _coerce_bool(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -167,6 +183,8 @@ def _coerce_bool(value) -> bool:
 def _fallback(kind: PhaseKind) -> dict:
     if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
         return {"number": random.randint(0, 9), "rationale": "(unparsed)"}
+    if kind is PhaseKind.REFLECT:
+        return {"reflection": ""}
     return {"message": "", "ready": True}
 
 
@@ -176,7 +194,7 @@ def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,
 
     Args:
         agent_id: Идентификатор агента, делающего запрос.
-        kind: Фаза запроса (DECIDE или PREDICT).
+        kind: Фаза запроса (DECIDE, PREDICT или REFLECT).
         attempt: Номер попытки запроса (1..3, повторы из-за ошибок парсинга).
         system: Полный системный промпт (персона + правила).
         messages: Сообщения запроса (дневник памяти, контекст фазы, поправка).

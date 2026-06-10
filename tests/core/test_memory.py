@@ -41,6 +41,24 @@ def test_single_entry_content():
     assert "ready=false" in text and "ready=true" in text
 
 
+def test_reflection_rendered_after_outcome():
+    m = Memory()
+    e = _entry(round=2, partner="A3")
+    e.my_reflection = "A3 kept the agreement; cooperating with them pays off"
+    m.add(e)
+    text = m.render(None)[0].content
+    assert "A3 kept the agreement" in text
+    # reflection comes after the choices/outcome line
+    assert text.index("Outcome: CC") < text.index("A3 kept the agreement")
+
+
+def test_entry_without_reflection_renders_no_reflection_line():
+    m = Memory()
+    m.add(_entry())
+    text = m.render(None)[0].content
+    assert "reflection" not in text.lower()
+
+
 def test_window_limits_to_last_k():
     m = Memory()
     for r in range(1, 6):

@@ -30,6 +30,7 @@ class Payoffs:
 # literal string replacement (NOT str.format — the JSON examples contain real braces):
 #   rules:                {R} {T} {P} {S}              <- payoff values
 #   talk/decide/predict:  {partner} {round} {feed}
+#   reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
 DEFAULT_RULES = (
     "You are playing a repeated game. Each round you face one partner.\n"
     "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
@@ -52,15 +53,40 @@ DEFAULT_TALK_PROMPT = (
 DEFAULT_DECIDE_PROMPT = (
     "Your partner this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
+    "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+)
+
+DEFAULT_DECIDE_PROMPT_BARE = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
     "Now secretly choose your number from 0 to 9.\n"
-    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+    'Respond ONLY as JSON: {"number": <0-9>}'
 )
 
 DEFAULT_PREDICT_PROMPT = (
     "Your partner this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
+    "Predict the number your partner will secretly choose, from 0 to 9. "
+    "Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+)
+
+DEFAULT_PREDICT_PROMPT_BARE = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
     "Predict the number your partner will secretly choose, from 0 to 9.\n"
-    'Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}'
+    'Respond ONLY as JSON: {"number": <0-9>}'
+)
+
+DEFAULT_REFLECT_PROMPT = (
+    "Your partner this round is {partner}. Round {round}.\n"
+    "Negotiation:\n{feed}\n\n"
+    "The round is over. You picked {my_number}, {partner} picked {partner_number}. "
+    "You scored {payoff} points.\n"
+    "Reflect briefly on this outcome: what does it tell you about this partner, "
+    "and what should you do differently (or keep doing) in future rounds?\n"
+    'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
 
 
@@ -71,8 +97,29 @@ class GameCfg:
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
-    decide_prompt: str = DEFAULT_DECIDE_PROMPT    # direct decision ({partner}/{round}/{feed})
-    predict_prompt: str = DEFAULT_PREDICT_PROMPT  # prediction phase ({partner}/{round}/{feed})
+    decide_prompt: str = ""          # пусто -> шаблон по умолчанию выбирается по флагу rationale
+    predict_prompt: str = ""         # пусто -> шаблон по умолчанию выбирается по флагу rationale
+    reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
+    reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
+    rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
+
+    def __post_init__(self) -> None:
+        """Подставить шаблоны DECIDE/PREDICT по умолчанию с учётом флага rationale.
+
+        Явно заданный в конфиге шаблон всегда имеет приоритет; пустая строка означает
+        «выбрать стандартный шаблон»: с обоснованием перед числом (rationale=true)
+        или с одним лишь числом (rationale=false).
+        """
+        if not self.decide_prompt:
+            object.__setattr__(
+                self, "decide_prompt",
+                DEFAULT_DECIDE_PROMPT if self.rationale else DEFAULT_DECIDE_PROMPT_BARE,
+            )
+        if not self.predict_prompt:
+            object.__setattr__(
+                self, "predict_prompt",
+                DEFAULT_PREDICT_PROMPT if self.rationale else DEFAULT_PREDICT_PROMPT_BARE,
+            )
 
 
 @dataclass(frozen=True)

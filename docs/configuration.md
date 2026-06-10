@@ -14,6 +14,10 @@ Defaults to `config/example.yaml` if no path is given. The entry point
 (`examples/orchestrator_demo.py`) calls `load_dotenv()` so provider API keys come
 from `.env`.
 
+Set `LLM_TRACE=1` (env var or `.env`) to print the exact LLM input of every
+DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
+"LLM input trace").
+
 ## Reference configs
 
 - `config/example.yaml` — direct strategy (agents pick numbers themselves).
@@ -31,7 +35,7 @@ from `.env`.
 | `max_concurrency` | semaphore size for concurrent pairings |
 | `play_strategy` | `direct` (default) or `prediction` |
 | `prediction_mapping` | only used when `play_strategy: prediction`; `match` or `one_above` |
-| `game` | `GameCfg`: `payoffs {R,T,P,S}` and `max_talk_turns` |
+| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`) |
 | `population` | `PopulationCfg` (see below) |
 
 ## Provider blocks & YAML anchors

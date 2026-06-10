@@ -38,6 +38,13 @@ PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py                     
 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
 ```
 
+Для отладки можно включить трассировку точного входа LLM перед выбором числа
+(флаг можно задать и в `.env`):
+
+```bash
+LLM_TRACE=1 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+```
+
 Тесты:
 
 ```bash

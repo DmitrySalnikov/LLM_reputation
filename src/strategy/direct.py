@@ -12,7 +12,13 @@ class DirectStrategy:
     """Стратегия прямого выбора числа без шага предсказания."""
 
     def __init__(self, game_cfg: GameCfg):
-        self._game = game_cfg            # держит шаблоны промптов (decide_prompt)
+        """Инициализировать стратегию конфигурацией игры.
+
+        Args:
+            game_cfg: Конфигурация игры (шаблон decide_prompt и флаг rationale).
+        """
+        self._game = game_cfg
+        self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, rules: str) -> Decision:
@@ -33,6 +39,6 @@ class DirectStrategy:
         )
         return Decision(
             number=res.data["number"],
-            rationale=res.data["rationale"],
+            rationale=res.data["rationale"] if self._rationale else "",
             usage=res.usage,
         )

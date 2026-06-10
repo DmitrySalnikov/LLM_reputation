@@ -3,8 +3,9 @@
 Imports neither the game nor the strategies, to avoid import cycles. The prompt TEXT lives
 in GameCfg (config layer); these builders just fill placeholders by literal replacement
 (NOT str.format — the templates contain real JSON braces):
-    rules:                {R} {T} {P} {S}        <- payoff values
+    rules:                {R} {T} {P} {S}
     talk/decide/predict:  {partner} {round} {feed}
+    reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
 """
 
 from __future__ import annotations
@@ -38,6 +39,18 @@ def predict_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
     """Partner-number prediction context (prediction strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
     return _fill(cfg.predict_prompt, partner, round, feed_block)
+
+
+def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
+                    my_number: int, partner_number: int, payoff: float) -> str:
+    """Post-game reflection context: both numbers are revealed, the payoff is known."""
+    feed_block = feed if feed else "(no messages were exchanged)"
+    return (
+        _fill(cfg.reflect_prompt, partner, round, feed_block)
+        .replace("{my_number}", str(my_number))
+        .replace("{partner_number}", str(partner_number))
+        .replace("{payoff}", f"{payoff:g}")
+    )
 
 
 def _fill(template: str, partner: str, round: int, feed: str) -> str:

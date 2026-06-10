@@ -22,6 +22,8 @@ class PairingRecord:
     usage: dict                     # {"prompt_tokens", "completion_tokens", "calls"}
     a_predicted: int | None = None  # стратегия prediction; None для direct
     b_predicted: int | None = None
+    a_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
+    b_reflection: str | None = None
 
 
 class Game(Protocol):

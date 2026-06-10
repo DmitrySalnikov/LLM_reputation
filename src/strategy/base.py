@@ -38,7 +38,8 @@ def make_strategy(cfg) -> PlayStrategy:
     """Собрать стратегию из конфигурации эпизода (play_strategy/prediction_mapping).
 
     Args:
-        cfg: Конфигурация эпизода с полями play_strategy и prediction_mapping.
+        cfg: Конфигурация эпизода с полями play_strategy, prediction_mapping
+            и game.rationale.
 
     Returns:
         Экземпляр стратегии игры, соответствующий конфигурации.

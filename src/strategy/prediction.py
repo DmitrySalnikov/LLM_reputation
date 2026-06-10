@@ -17,10 +17,11 @@ class PredictionStrategy:
 
         Args:
             mapping: Чистая функция предсказанное число -> собственный выбор (0..9).
-            game_cfg: Конфигурация игры (держит шаблон predict_prompt).
+            game_cfg: Конфигурация игры (шаблон predict_prompt и флаг rationale).
         """
         self._mapping = mapping
         self._game = game_cfg
+        self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, rules: str) -> Decision:
@@ -40,11 +41,11 @@ class PredictionStrategy:
             Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed), rules=rules)
         )
         predicted = res.data["number"]
-        rationale = res.data["rationale"]
+        rationale = res.data["rationale"] if self._rationale else ""
         return Decision(
             number=self._mapping(predicted),
             rationale=rationale,
             predicted=predicted,
-            predicted_rationale=rationale,
+            predicted_rationale=rationale if self._rationale else None,
             usage=res.usage,
         )

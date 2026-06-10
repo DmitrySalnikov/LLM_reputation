@@ -16,6 +16,7 @@ class MemoryEntry:
     outcome: str
     payoff: float
     my_predicted: int | None = None  # стратегия prediction; None для direct
+    my_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
 
 
 class Memory:
@@ -56,4 +57,6 @@ def _render_entry(e: MemoryEntry) -> str:
         f"Choices: me={e.my_number}{reason}, {e.partner_id}={e.partner_number}. "
         f"Outcome: {e.outcome}. Payoff to me: {e.payoff:g}."
     )
+    if e.my_reflection:
+        lines.append(f"My takeaway after that round: {e.my_reflection}")
     return "\n".join(lines)
