@@ -38,6 +38,17 @@ PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py                     
 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
 ```
 
+Эксперимент с сохранением в SQLite: конфигурация правится прямо в `experiment.py`,
+каждый запуск дописывается в общую базу `experiment.db` (повторный запуск той же
+конфигурации пропускается). `replay.py` воспроизводит сохранённый запуск раунд за
+раундом без обращений к LLM:
+
+```bash
+PYTHONPATH=. .venv/bin/python experiment.py ["имя запуска"]
+PYTHONPATH=. .venv/bin/python replay.py              # список запусков в базе
+PYTHONPATH=. .venv/bin/python replay.py <run_id>     # воспроизвести запуск
+```
+
 Для отладки можно включить трассировку точного входа LLM перед выбором числа
 (флаг можно задать и в `.env`):
 
