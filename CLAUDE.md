@@ -21,13 +21,13 @@ src/
 │   └── openai_compat.py  the real httpx client
 ├── core/
 │   ├── agent.py        Agent.act: memory + phase context -> LLM -> parsed JSON;
-│   │                   phases TALK/DECIDE/PREDICT; DEBUG trace of LLM input
+│   │                   phases TALK/DECIDE/PREDICT/REFLECT; DEBUG trace of LLM input
 │   ├── memory.py       per-agent diary of past rounds, rendered into the prompt
 │   ├── config.py       frozen dataclasses + load_episode + _validate (fail fast)
 │   └── orchestrator.py run_episode: rounds loop, semaphore, observer callback
 ├── games/
 │   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
-│   ├── prompts.py        English prompt builders (rules/talk/decide/predict)
+│   ├── prompts.py        English prompt builders (rules/talk/decide/predict/reflect)
 │   └── base.py           PairingRecord, Game Protocol
 ├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
 │                   partner, map via match/one_above) — base.py, mappings.py
