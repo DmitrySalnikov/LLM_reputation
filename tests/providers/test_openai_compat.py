@@ -158,14 +158,14 @@ async def test_every_retry_is_an_attempt(monkeypatch):
 
     def handler(req):
         calls["n"] += 1
-        if calls["n"] < 3:
+        if calls["n"] < _MAX_ATTEMPTS:        # fail until the last allowed attempt
             return httpx.Response(503, text=f"busy{calls['n']}")
         return _ok_response("ok", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
     p = _provider_with(handler)
     c = await _call(p)
-    # каждая HTTP-попытка — отдельный attempt; финальная ok, ретраи с телом 5xx
-    assert [a.status for a in c.attempts] == ["server_error", "server_error", "ok"]
+    # each HTTP attempt is its own row; final ok, the retries carry the 5xx body
+    assert [a.status for a in c.attempts] == ["server_error"] * (_MAX_ATTEMPTS - 1) + ["ok"]
     assert c.attempts[0].status_code == 503
     assert c.attempts[0].response_raw == "busy1"
     assert c.attempts[-1].response == "ok"
@@ -219,14 +219,14 @@ async def test_retries_5xx_then_succeeds(monkeypatch):
 
     def handler(req):
         calls["n"] += 1
-        if calls["n"] < 3:
+        if calls["n"] < _MAX_ATTEMPTS:        # fail until the last allowed attempt
             return httpx.Response(503, text="busy")
         return _ok_response("ok", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
     p = _provider_with(handler)
     c = await _call(p)
     assert c.text == "ok"
-    assert calls["n"] == 3
+    assert calls["n"] == _MAX_ATTEMPTS
 
 
 async def test_retries_transport_error(monkeypatch):

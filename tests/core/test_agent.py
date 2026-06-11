@@ -5,7 +5,7 @@ import logging
 import pytest
 from conftest import ScriptedProvider
 
-from src.core.agent import Agent, AgentSetup, Phase, PhaseKind
+from src.core.agent import ActParseError, Agent, AgentSetup, Phase, PhaseKind
 from src.core.config import ProviderCfg
 from src.core.memory import MemoryEntry
 from src.providers.base import HttpAttempt, ProviderUnavailable
@@ -84,14 +84,15 @@ async def test_decide_invalid_twice_then_valid():
     assert len(p.calls) == 3
 
 
-async def test_decide_persistent_failure_fallback():
+async def test_decide_persistent_failure_raises():
     p = ScriptedProvider(["no", "no", "no"])
     a = _agent(p)
-    r = await a.act(_decide())
-    assert 0 <= r.data["number"] <= 9
-    assert r.data["rationale"] == "(unparsed)"
+    with pytest.raises(ActParseError) as ei:        # no substitution: abort instead of a fallback number
+        await a.act(_decide())
     assert a.parse_failures == 1
-    assert len(p.calls) == 3
+    assert len(p.calls) == 3                         # retried with _CORRECTION, then gave up
+    assert [c.status for c in ei.value.calls] == ["parse_error"] * 3
+    assert ei.value.agent_id == "A1" and ei.value.phase == "decide"
 
 
 async def test_decide_rejects_bool_number():
@@ -123,11 +124,11 @@ async def test_reflect_invalid_then_valid_retries_with_correction():
     assert "reflection" in messages[-1].content  # correction names the expected key
 
 
-async def test_reflect_persistent_failure_fallback():
+async def test_reflect_persistent_failure_raises():
     p = ScriptedProvider(["no", "no", "no"])
     a = _agent(p)
-    r = await a.act(_reflect())
-    assert r.data == {"reflection": ""}
+    with pytest.raises(ActParseError):
+        await a.act(_reflect())
     assert a.parse_failures == 1
     assert len(p.calls) == 3
 
@@ -178,13 +179,13 @@ async def test_talk_message_missing_then_valid():
     assert len(p.calls) == 2
 
 
-async def test_talk_persistent_failure_fallback():
+async def test_talk_persistent_failure_raises():
     p = ScriptedProvider(["no", "no", "no"])
     a = _agent(p)
-    r = await a.act(_talk())
-    assert r.data == {"message": "", "ready": True}  # fallback stops the negotiation
-    assert r.public_text == ""
+    with pytest.raises(ActParseError):               # talk too: abort, no empty-message substitution
+        await a.act(_talk())
     assert a.parse_failures == 1
+    assert len(p.calls) == 3
 
 
 async def test_predict_phase_parses_number_and_rationale():
@@ -283,11 +284,11 @@ async def test_parse_retry_records_two_calls_with_statuses():
     assert r.calls[0].response == "garbage"               # сырой невалидный ответ сохранён
 
 
-async def test_all_parse_fail_records_three_calls():
+async def test_all_parse_fail_raises_with_logged_calls():
     p = ScriptedProvider(["x", "y", "z"])
-    r = await _agent(p).act(_decide())
-    assert [c.status for c in r.calls] == ["parse_error"] * 3   # фолбэк-число не вызов LLM
-    assert r.data["rationale"] == "(unparsed)"
+    with pytest.raises(ActParseError) as ei:
+        await _agent(p).act(_decide())
+    assert [c.status for c in ei.value.calls] == ["parse_error"] * 3   # all three attempts logged
 
 
 async def test_provider_error_reraised_with_calls_and_context():

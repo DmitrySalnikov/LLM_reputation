@@ -269,3 +269,16 @@ async def test_provider_error_aborts_pairing_as_unfinished():
     statuses = [c.status for c in rec.llm_calls]
     assert "ok" in statuses          # успевший decide(a)
     assert "network" in statuses     # сбойный decide(b)
+
+
+async def test_parse_exhaustion_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(4)])
+    b = _agent("A2", ["nope", "nope", "nope"])   # never valid JSON -> ActParseError, no substitution
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    assert rec.a_number is None and rec.outcome is None       # no result
+    assert a.score == 0.0 and b.score == 0.0                  # nothing scored
+    statuses = [c.status for c in rec.llm_calls]
+    assert "ok" in statuses                       # a's decide succeeded
+    assert statuses.count("parse_error") == 3     # b's three failed attempts logged

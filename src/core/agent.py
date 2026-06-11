@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import random
 from dataclasses import dataclass
 from enum import Enum
 
@@ -13,6 +12,19 @@ from src.providers.base import LLMProvider, Message, ProviderError
 _MAX_PARSE_RETRIES = 2
 
 _log = logging.getLogger(__name__)
+
+
+class ActParseError(Exception):
+    """The agent could not get a valid phase response after all parse-retries.
+
+    No fallback / substitution: the pairing is aborted (finished=0) and the episode stops.
+    Carries the failed call log (`calls`) so the pairing can persist it before aborting,
+    exactly like a ProviderError.
+    """
+
+    calls: tuple = ()
+    agent_id: str | None = None
+    phase: str | None = None
 
 
 class PhaseKind(Enum):
@@ -145,7 +157,7 @@ class Agent:
                     max_tokens=cfg.max_tokens,
                 )
             except ProviderError as e:
-                # сбойный вызов — тоже строки L2-лога; контекст на исключение, бросаем дальше
+                # a failed call is also L2-log rows; attach context to the exception, re-raise
                 calls.extend(_calls_from_attempts(self.id, phase.kind, attempt, e.attempts))
                 e.agent_id, e.phase, e.attempt = self.id, phase.kind.value, attempt
                 e.calls = tuple(calls)
@@ -159,8 +171,13 @@ class Agent:
                 return _result(phase.kind, data, (prompt_toks, comp_toks), tuple(calls))
             correction = _CORRECTION[phase.kind]
 
+        # all parse-retries exhausted: no fallback — abort the pairing (finished=0)
         self.parse_failures += 1
-        return _result(phase.kind, _fallback(phase.kind), (prompt_toks, comp_toks), tuple(calls))
+        err = ActParseError(
+            f"{self.id} {phase.kind.value}: no valid JSON after {_MAX_PARSE_RETRIES + 1} attempts")
+        err.agent_id, err.phase = self.id, phase.kind.value
+        err.calls = tuple(calls)
+        raise err
 
 
 def _calls_from_attempts(agent_id, kind, attempt, attempts, *, parsed: bool | None = None):
@@ -248,14 +265,6 @@ def _coerce_bool(value) -> bool:
         if s in ("true", "yes", "y", "1"):
             return True
     return False  # missing / unknown -> default False (keep talking)
-
-
-def _fallback(kind: PhaseKind) -> dict:
-    if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
-        return {"number": random.randint(0, 9), "rationale": "(unparsed)"}
-    if kind is PhaseKind.REFLECT:
-        return {"reflection": ""}
-    return {"message": "", "ready": True}
 
 
 def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,

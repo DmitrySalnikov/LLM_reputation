@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.core.agent import Agent, Phase, PhaseKind
+from src.core.agent import ActParseError, Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry
 from src.games.base import PairingRecord
@@ -75,9 +75,9 @@ class ReputationPD:
                 a_reflection=ra, b_reflection=rb,
                 finished=True, llm_calls=_talk_calls(transcript) + post_calls,
             )
-        except ProviderError as e:
-            # Сорванная пара: результатов нет (числа/исход/payoff = None), но весь сырой
-            # L2-лог сохранён — talk-каллы + успевшие decide/reflect + сбойные (e.calls).
+        except (ProviderError, ActParseError) as e:
+            # Aborted pairing: no results (numbers/outcome/payoff = None), but the full raw
+            # L2 log is kept — talk calls + completed decide/reflect + the failing ones (e.calls).
             calls = _talk_calls(transcript) + post_calls + list(e.calls)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=_public(transcript),
