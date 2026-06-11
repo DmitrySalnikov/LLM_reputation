@@ -50,6 +50,30 @@ def _duration(created, finished):
     return f"{h}h{m}m{s}s" if h else f"{m}m{s}s" if m else f"{s}s"
 
 
+_YELLOW, _RESET = "\033[93m", "\033[0m"
+
+
+def highlight(line, *, on):
+    """Обернуть строку в жёлтый ANSI-цвет (подсветка сообщений, процитированных судьёй)."""
+    return f"{_YELLOW}{line}{_RESET}" if on else line
+
+
+def cited_set(evidence_json):
+    """Распаковать JSON-доказательства вердикта в множество (round, pair, turn)."""
+    return {(e["round"], e["pair"], e["turn"]) for e in json.loads(evidence_json)}
+
+
+def load_verdict(conn, run_id):
+    """Прочитать вердикт судьи; None, если его нет или БД старая (нет таблицы)."""
+    try:
+        return conn.execute(
+            "SELECT emerged, explanation, evidence FROM judge_verdicts WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:                  # БД создана до появления судьи
+        return None
+
+
 def list_runs(conn):
     rows = conn.execute(
         "SELECT run_id, name, config, created_at, finished_at FROM runs ORDER BY created_at"
@@ -78,6 +102,9 @@ def replay(conn, run_id, show_config=False):
         return
     name, config, seed, created, finished = run
     cfg = json.loads(config)
+    verdict = load_verdict(conn, run_id)
+    cited = cited_set(verdict[2]) if verdict else set()
+    color = sys.stdout.isatty()                       # ANSI только в терминале
 
     n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])  # derived from counts
     game_cfg = cfg.get("game", {})
@@ -150,8 +177,9 @@ def replay(conn, run_id, show_config=False):
                 (run_id, r, pi),
             ).fetchall()
             if msgs:
-                for i, (speaker, text, ready) in enumerate(msgs, 1):
-                    print(f"    {i}. {speaker}: {text}   [ready={bool(ready)}]")
+                for ti, (speaker, text, ready) in enumerate(msgs):
+                    line = f"    {ti + 1}. {speaker}: {text}   [ready={bool(ready)}]"
+                    print(highlight(line, on=color) if (r, pi, ti) in cited else line)
             else:
                 print("    (no messages exchanged)")
             print(
@@ -189,6 +217,24 @@ def replay(conn, run_id, show_config=False):
     total = sum(dist.values())
     cc = f"{dist.get('CC', 0) / total * 100:.0f}%" if total else "n/a"
     print(f"\noutcomes: {dist}   CC={cc}   games={total}")
+
+    if verdict:
+        emerged, explanation, evidence_json = verdict
+        print(f"\n{bar}\n  JUDGE VERDICT\n{bar}")
+        print(f"  reputation institute emerged: {'YES' if emerged else 'NO'}")
+        print(f"  {explanation}")
+        refs = json.loads(evidence_json)
+        if refs:
+            print(f"\n  evidence ({len(refs)} message(s)):")
+            for e in refs:
+                row = conn.execute(
+                    """SELECT speaker, text FROM messages
+                       WHERE run_id=? AND round_idx=? AND pair_idx=? AND turn_idx=?""",
+                    (run_id, e["round"], e["pair"], e["turn"]),
+                ).fetchone()
+                if row:
+                    line = f"    r{e['round']}.p{e['pair']}.t{e['turn']}  {row[0]}: {row[1]}"
+                    print(highlight(line, on=color))
 
 
 def main():
