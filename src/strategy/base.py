@@ -18,6 +18,7 @@ class Decision:
         predicted: Предсказанное число партнёра (None для стратегии direct).
         predicted_rationale: Обоснование предсказания (None для direct).
         usage: (prompt_tokens, completion_tokens) для агрегирования в игре.
+        calls: Сырые LLMCall'ы фаз стратегии (decide/predict) для L2-лога.
     """
 
     number: int
@@ -25,6 +26,7 @@ class Decision:
     predicted: int | None = None
     predicted_rationale: str | None = None
     usage: tuple[int, int] = (0, 0)
+    calls: tuple = ()
 
 
 class PlayStrategy(Protocol):

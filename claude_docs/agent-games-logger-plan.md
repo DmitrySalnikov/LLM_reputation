@@ -167,8 +167,12 @@ CREATE TABLE messages (
 ```
 
 **Шаги заполнения:** Шаг 0 (старт) → `runs`+`agents`; Шаг R (каждый раунд, одна txn) →
-`rounds`+`idle`+`pairings`+`messages`; Шаг F (финал) → `runs.finished_at`+
+`rounds`+`idle`+`pairings`+`messages`(+`llm_calls`); Шаг F (финал) → `runs.finished_at`+
 `agents.final_score`.
+
+> **L2 (§9) ревизует этот §4:** `pairings` получает флаг `finished` (результаты становятся
+> NULLABLE + `CHECK`), добавляется 7-я таблица `llm_calls` (сырьё каждого HTTP-вызова).
+> Актуальные DDL — в §9.4.
 
 ## 5. Интерфейс и поток
 
@@ -261,3 +265,155 @@ finally:
 - **D** без `status`; `created_at`/`finished_at` есть.
 - **E** анализ — python/pandas, но схема нормализованная (gossip по `messages`).
 - **матчер (b)** — per-round `rng`, делаем в срезе R (resume).
+
+## 9. L2 — сырые вызовы LLM (`llm_calls`) + сорванные пары (`finished`)
+
+Реализация шва из §7 («L2»), но богаче исходного наброска. **Одна строка `llm_calls` =
+один `provider.complete()`** (включая парс-ретраи `Agent.act`: каждая попытка — отдельная
+строка, т.к. в неё доклеивается `_CORRECTION` → это разный вход). Плюс: ловим и **сбойные**
+вызовы (не-JSON / HTTP-ошибка / сеть), которые раньше просто роняли эпизод без следа.
+
+### 9.1 Что считаем сырьём
+
+- **Вход** — литеральный `payload`, уходящий в `self._client.post(...)`
+  (`providers/openai_compat.py`). Не реконструируем: провайдер сам сообщает отправленное
+  через новое поле `Completion.request = payload`.
+- **Выход** — всегда `resp.text` (дословное тело строкой, и при успехе, и при сбое;
+  `resp.json()` остаётся как распарсенное удобство в `Completion.raw`, но в лог пишем
+  именно `resp.text`).
+
+**Гранулярность — один HTTP-запрос = одна строка.** Пишем **каждый** `self._client.post`,
+включая сетевые ретраи (429/5xx/таймаут) и тело 5xx. Провайдер — единственный, кто видит
+отдельные попытки, поэтому он накапливает их списком `HttpAttempt` и отдаёт наверх (на
+`Completion.attempts` при успехе, на `exc.attempts` при сбое); `Agent.act` проставляет
+контекст и разворачивает их в строки `LLMCall`. Два измерения ретраев:
+- `attempt` — парс-попытка `act` (1..3): после невалидного JSON `act` доклеивает
+  `_CORRECTION` и шлёт **новый** `complete()` с другими `messages`;
+- `http_attempt` — сетевой ретрай внутри одного `complete()` (1..5): тот же payload.
+
+### 9.2 Два вида сбоя и как их ловим
+
+1. **Парс-сбой фазы** — `Completion` есть, но текст не прошёл валидатор фазы
+   (`{"number":15}`, проза). Уже не фатально: `act` ретраит, после 3 попыток — случайный
+   ход. Пишется строкой `llm_calls` со `status='parse_error'`.
+2. **Транспортный сбой** — `complete()` **бросает**. Ретраятся как транзиентные (тот же
+   payload, до 5 раз) все «200, но тело не извлекается»: сеть, 429/5xx, **битый
+   JSON-конверт** (`bad_json`) и **кривая форма** валидного JSON без `choices[0].message`
+   (`bad_shape`). Гейт в `_post_with_retries` — это сама попытка извлечь контент.
+   Терминальны: 4xx (`ProviderHTTPError`) и исчерпание ретраев (`ProviderUnavailable`).
+   Любой такой бросок раньше ронял раунд до `observe` → терялся; теперь ловим на
+   **границе пары** (см. §9.3).
+
+### 9.3 Перехват и протяжка (одна точка записи — `observe`)
+
+У провайдера нет игровых ключей (run/round/pair/agent/phase/turn) — он только рапортует
+байты. Ключи доклеиваются по пути наверх, тем же маршрутом, что и `usage`:
+
+- Провайдер накапливает попытки списком `HttpAttempt` (`status / status_code / request /
+  response / response_raw / error / tokens`); отдаёт на `Completion.attempts` (успех) или
+  `exc.attempts` (сбой). `Agent.act` разворачивает каждую попытку в `LLMCall`, проставляя
+  `agent_id / phase / attempt(парс) / http_attempt(сетевой)` → `ActResult.calls`. На
+  исключении провайдера — аннотирует его `agent_id/phase/attempt`, кладёт `exc.calls`,
+  **пробрасывает**.
+- `ActResult.calls` → `Decision.calls` (strategy) / `transcript[i]["calls"]` (talk) →
+  `PairingRecord.llm_calls` (с доклеенным `turn_idx` для talk).
+- **`play_pairing` оборачивает тело в `try/except ProviderError`**: на сбое аннотирует
+  `round/a_id/b_id/turn`, собирает `LLMCall` из обогащённого исключения, возвращает
+  `PairingRecord(finished=False, …)` с числами/исходом = `None`. Раунд **не падает** →
+  `gather` доигрывает остальные пары → весь раунд уходит в `observer`.
+- `Storage.observe` пишет раунд **обычным путём**: `pairings` (успешные `finished=1`,
+  сорванная `finished=0`) + `messages` + `llm_calls` (с живым FK и `pair_idx` из
+  `enumerate(recs)`, `call_idx` — порядок в `rec.llm_calls`). `src/` ничего не персистит.
+- `run_episode` после `observer` проверяет `finished=0` → **бросает**, останавливая эпизод
+  (`finish()` не зовётся → `runs.finished_at = NULL` как маркер «упал»). Соседние пары
+  раунда при этом доиграны и записаны (в отличие от прежнего fail-fast `gather`).
+
+**Гранулярность.** Одна строка = один `self._client.post`. Сетевые ретраи (429/5xx/сеть)
+пишутся **каждый** (с телом 5xx и `status_code`), различаются `http_attempt`; парс-ретраи
+`act` — различаются `attempt`. Финальная успешная попытка несёт `response`/токены; у
+ретраев `response=NULL`, токены 0.
+
+### 9.4 Схема: `pairings` + флаг `finished`, новая таблица `llm_calls`
+
+Сорванная пара получает строку в `pairings` (`finished=0`), поэтому у `llm_calls` есть
+родитель → восстанавливаем **FK на `pairings`** и реальный `pair_idx`. Результаты пары
+становятся NULLABLE; `CHECK` связывает их с флагом («валидация на пустое»):
+
+```sql
+-- pairings: + finished, результаты NULLABLE, CHECK по флагу
+ALTER семантика (для свежей БД — в DDL):
+    finished INTEGER NOT NULL DEFAULT 1,   -- 1 = доиграна; 0 = сорвана (LLM-сбой)
+    a_number, b_number, a_outcome, a_payoff, b_payoff,
+    usage_prompt_tokens, usage_completion_tokens, usage_calls  -- снять NOT NULL
+    CHECK (finished = 0 OR a_number IS NOT NULL),   -- доиграна ⇒ результат есть
+    CHECK (finished = 1 OR a_number IS NULL)        -- сорвана  ⇒ результат пуст
+
+CREATE TABLE llm_calls (
+    run_id        TEXT    NOT NULL,
+    round_idx     INTEGER NOT NULL,
+    pair_idx      INTEGER NOT NULL,
+    call_idx      INTEGER NOT NULL,   -- порядок вызова внутри пары (порядок исполнения)
+    agent_id      TEXT    NOT NULL,   -- кто вызывал
+    phase         TEXT    NOT NULL,   -- talk | decide | predict | reflect
+    turn_idx      INTEGER,            -- NULL кроме TALK; FK на конкретную реплику messages
+    attempt       INTEGER NOT NULL,   -- парс-попытка Agent.act (1..3)
+    http_attempt  INTEGER NOT NULL,   -- сетевой ретрай внутри complete() (1..5)
+    status        TEXT    NOT NULL,   -- ok | parse_error | bad_json | bad_shape | http_error | server_error | network
+    status_code   INTEGER,            -- HTTP-код попытки (NULL при сетевой ошибке)
+    request       TEXT    NOT NULL,   -- ДОСЛОВНЫЙ payload (JSON): model, messages, temperature, max_tokens
+    response      TEXT,               -- извлечённый текст (только на финальной ok-попытке); иначе NULL
+    response_raw  TEXT,               -- ДОСЛОВНОЕ тело resp.text (вкл. тело 5xx); NULL при сетевой ошибке
+    error         TEXT,               -- сообщение сбоя
+    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, round_idx, pair_idx, call_idx),
+    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx),
+    FOREIGN KEY (run_id, agent_id) REFERENCES agents(run_id, agent_id),
+    FOREIGN KEY (run_id, round_idx, pair_idx, turn_idx)
+        REFERENCES messages(run_id, round_idx, pair_idx, turn_idx)
+);
+CREATE INDEX ix_llm_calls_agent  ON llm_calls(run_id, agent_id);
+CREATE INDEX ix_llm_calls_status ON llm_calls(run_id, status);
+```
+
+`request` — «что реально ушло»; `response_raw` — «что реально пришло» (включая мусор при
+сбое); `response` — извлечённый текст; `status`/`http_code`/`error` — диагностика сбоя.
+
+**Поиск, который это даёт:** все вызовы пары/раунда/рана (джойн к `pairings`); всё, что
+говорил агент (индекс по `agent_id`); вызов(ы), породивший публичную реплику (FK
+`turn_idx → messages`); вызов DECIDE → его исход (джойн к `pairings`); все сбои
+(`WHERE status != 'ok'`); все сорванные игры (`pairings.finished = 0`).
+
+### 9.5 Потребители фильтруют `finished=1`
+
+Раз в `pairings` бывают пустые строки, все потребители результата фильтруют `finished=1`:
+- проверка целостности очков; `replay.py` (сорванную помечает/пропускает);
+- вход судьи (`records` в `runner` отдаёт судье только `finished=1`);
+- `narrate_round` (рендер `rec.a_number is None` без падения).
+
+`CREATE TABLE IF NOT EXISTS` **не мигрирует** старые БД (новых колонок/CHECK там нет) — для
+ресёрча с пересоздаваемыми БД ок, фиксируем явно.
+
+### 9.6 Вне scope
+
+Судья (`judge_episode`) тоже бьёт в провайдер, но он вне пары — пока не логируется
+(отложено). `call_idx` уникальности достигаем порядком в `rec.llm_calls`.
+
+### 9.7 Срезы (порядок реализации, TDD)
+
+1. **provider** — `Completion.request`; обогащение исключений (`request`/`response_raw`/
+   `http_code`/`status`) в `complete`/`_post_with_retries`. Тест: payload в `request`;
+   не-JSON → `ProviderParseError` с `.response_raw=resp.text`.
+2. **agent** — `LLMCall` + `ActResult.calls`; копить по попытке; на исключении провайдера
+   аннотировать и пробросить. Тест: успех → 1 call `status=ok`; парс-сбой+успех → 2 call
+   `parse_error,ok`; провайдер бросает → исключение с `agent_id/phase`.
+3. **strategy** — `Decision.calls` (direct + prediction).
+4. **game** — `PairingRecord.finished` + опц. результаты + `llm_calls`; `play_pairing`
+   собирает calls, ловит `ProviderError` → `finished=0`, тэгует `turn_idx`. Тест: успех →
+   `finished=1` + calls; сбой decide → `finished=0`, числа `None`, сбойный call в списке.
+5. **orchestrator** — после `observer` при `finished=0` бросить. Тест: сорванная пара
+   останавливает эпизод, предыдущие раунды записаны.
+6. **storage** — `pairings` (finished/nullable/CHECK) + таблица `llm_calls`; `observe`
+   пишет `finished` и `llm_calls`. Тест: строки, FK, CHECK, джойн `llm_calls→pairings`.
+7. **consumers** — `narrate_round`/судья/`replay`/тесты целостности фильтруют `finished=1`.
+8. **доки** — синхронизировать `configuration.md`/`architecture.md`.

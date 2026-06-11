@@ -13,7 +13,7 @@ import random
 import sqlite3
 
 from src.core.config import EpisodeCfg
-from src.core.orchestrator import run_episode
+from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
 from src.providers.base import ProviderError
@@ -32,6 +32,9 @@ def narrate_round(r, plan, recs) -> None:
                 print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
         else:
             print("    (no messages exchanged)")
+        if not rec.finished:                       # aborted pairing: no result
+            print("    (pairing aborted by LLM failure — no result)")
+            continue
         # reasoning is shown before the choices it led to (absent when game.rationale=false)
         if rec.a_rationale:
             print(f"    {rec.a_id} reason: {rec.a_rationale}")
@@ -92,9 +95,14 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
         def observer(r, plan, recs):             # persist AND narrate each round live
             st.observe(r, plan, recs)
             narrate_round(r, plan, recs)
-            records.extend(recs)
+            records.extend(rec for rec in recs if rec.finished)   # judge sees only finished pairings
 
-        await run_episode(cfg, pop, observer=observer)
+        try:
+            await run_episode(cfg, pop, observer=observer)
+        except EpisodeAborted as e:
+            # the aborted pairing is already persisted; run stays without finished_at (crash marker)
+            print(f"\nepisode aborted: {e} — run saved without finished_at")
+            return run_id
         st.finish(pop)
 
         bar = "=" * 60

@@ -7,11 +7,16 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    uv run python replay.py <run_id> [--config]
+    uv run python replay.py <run_id> [--config] [--calls] [--call ID]
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
 the episode config: the prompts in full, then the roster, then the remaining scalar knobs
 (prompts / agents / name pools are stripped from that last dump to avoid repetition).
+
+--calls adds the raw L2 log under each pairing: one compact line per HTTP call, led by its
+#id (phase, attempt/http_attempt, status, tokens, response/error preview); failed calls are
+highlighted. --call ID dumps that one call in full — the verbatim request payload and the
+response body. ID is the #id shown by --calls.
 """
 
 import json
@@ -92,7 +97,75 @@ def list_runs(conn):
               f"[{state}]{label}")
 
 
-def replay(conn, run_id, show_config=False):
+def _render_calls(conn, run_id, r, pi, color):
+    """Compact table of a pairing's raw LLM calls (one row per HTTP attempt), with header.
+
+    The `id` column is the call's stable id (rowid) — pass it to `--call`.
+    """
+    rows = conn.execute(
+        """SELECT rowid, agent_id, phase, turn_idx, attempt, http_attempt,
+                  status, status_code, prompt_tokens, completion_tokens
+           FROM llm_calls WHERE run_id=? AND round_idx=? AND pair_idx=? ORDER BY call_idx""",
+        (run_id, r, pi),
+    ).fetchall()
+    if not rows:
+        return
+    header = ("id", "agent", "phase", "a/h", "turn", "status", "code", "tokens")
+    table = [header]
+    statuses = []
+    for (cid, agent, phase, turn, att, hatt, status, code, pt, ct) in rows:
+        table.append((
+            f"#{cid}", agent, phase, f"{att}/{hatt}",
+            f"t{turn}" if turn is not None else "-",
+            status, str(code) if code is not None else "-", f"{pt}+{ct}",
+        ))
+        statuses.append(status)
+    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+
+    def fmt(cells):
+        return "      " + "  ".join(c.ljust(widths[i]) for i, c in enumerate(cells))
+
+    print(f"    llm calls ({len(rows)}):")
+    print(fmt(header))
+    for status, cells in zip(statuses, table[1:]):
+        print(highlight(fmt(cells), on=color and status != "ok"))   # failures in yellow
+
+
+def dump_call(conn, run_id, spec):
+    """Full dump of ONE call: the verbatim request payload and response — by numeric id (see --calls)."""
+    try:
+        cid = int(spec)
+    except ValueError:
+        print(f"bad --call {spec!r}; expected a numeric call id (the #id column in --calls)")
+        return
+    row = conn.execute(
+        """SELECT round_idx, pair_idx, call_idx, agent_id, phase, turn_idx, attempt, http_attempt,
+                  status, status_code, request, response, response_raw, error,
+                  prompt_tokens, completion_tokens
+           FROM llm_calls WHERE rowid=? AND run_id=?""",
+        (cid, run_id),
+    ).fetchone()
+    if row is None:
+        print(f"call #{cid} not found in run {run_id}.")
+        return
+    (r, p, ci, agent, phase, turn, att, hatt, status, code,
+     request, response, raw, err, pt, ct) = row
+    bar = "=" * 64
+    print(f"{bar}\n  CALL #{cid}  (r{r}.p{p}.c{ci})   run={run_id}\n{bar}")
+    print(f"agent={agent}  phase={phase}  turn_idx={turn}  attempt={att}  http_attempt={hatt}")
+    print(f"status={status}  status_code={code}  tokens={pt}+{ct}" + (f"  error={err}" if err else ""))
+    print("\n--- request (sent payload) ---")
+    try:
+        print(json.dumps(json.loads(request), indent=2, ensure_ascii=False))
+    except (TypeError, ValueError):
+        print(request)
+    print("\n--- response (extracted text) ---")
+    print(response if response is not None else "(none)")
+    print("\n--- response_raw (verbatim body) ---")
+    print(raw if raw is not None else "(none)")
+
+
+def replay(conn, run_id, show_config=False, show_calls=False):
     run = conn.execute(
         "SELECT name, config, seed, created_at, finished_at FROM runs WHERE run_id=?", (run_id,)
     ).fetchone()
@@ -164,12 +237,12 @@ def replay(conn, run_id, show_config=False):
         pairings = conn.execute(
             """SELECT pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
                       a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                      a_reflection, b_reflection, usage_calls
+                      a_reflection, b_reflection, usage_calls, finished
                FROM pairings WHERE run_id=? AND round_idx=? ORDER BY pair_idx""",
             (run_id, r),
         ).fetchall()
         for (pi, a_id, b_id, a_num, b_num, a_rat, b_rat,
-             outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl, calls) in pairings:
+             outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl, calls, finished) in pairings:
             print(f"\n  {a_id} vs {b_id}  ({a_id} opens):")
             msgs = conn.execute(
                 """SELECT speaker, text, ready FROM messages
@@ -182,18 +255,23 @@ def replay(conn, run_id, show_config=False):
                     print(highlight(line, on=color) if (r, pi, ti) in cited else line)
             else:
                 print("    (no messages exchanged)")
-            print(
-                f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}   "
-                f"(payoffs {a_id}={a_pay:g}, {b_id}={b_pay:g})  [{calls} llm calls]"
-            )
-            if show_predictions:                            # gated by config (play_strategy)
-                print(f"    predictions: {a_id} guessed {b_id}={a_pred}, {b_id} guessed {a_id}={b_pred}")
-            if show_rationale:                              # gated by config, not by NULL
-                print(f"      {a_id} reason: {a_rat}")
-                print(f"      {b_id} reason: {b_rat}")
-            if show_reflection:
-                print(f"      {a_id} reflects: {a_refl}")
-                print(f"      {b_id} reflects: {b_refl}")
+            if not finished:                          # aborted pairing: no result
+                print(f"    (pairing aborted by LLM failure — no result)  [{calls} llm calls]")
+            else:
+                print(
+                    f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}   "
+                    f"(payoffs {a_id}={a_pay:g}, {b_id}={b_pay:g})  [{calls} llm calls]"
+                )
+                if show_predictions:                        # gated by config (play_strategy)
+                    print(f"    predictions: {a_id} guessed {b_id}={a_pred}, {b_id} guessed {a_id}={b_pred}")
+                if show_rationale:                          # gated by config, not by NULL
+                    print(f"      {a_id} reason: {a_rat}")
+                    print(f"      {b_id} reason: {b_rat}")
+                if show_reflection:
+                    print(f"      {a_id} reflects: {a_refl}")
+                    print(f"      {b_id} reflects: {b_refl}")
+            if show_calls:                                  # raw L2 log (--calls)
+                _render_calls(conn, run_id, r, pi, color)
 
     # final scoreboard + games-played, reconstructed from pairings
     scores = dict(conn.execute(
@@ -201,7 +279,7 @@ def replay(conn, run_id, show_config=False):
     ))
     games = {aid: 0 for aid in scores}
     for (a_id, b_id) in conn.execute(
-        "SELECT a_id, b_id FROM pairings WHERE run_id=?", (run_id,)
+        "SELECT a_id, b_id FROM pairings WHERE run_id=? AND finished=1", (run_id,)
     ):
         games[a_id] += 1
         games[b_id] += 1
@@ -212,7 +290,8 @@ def replay(conn, run_id, show_config=False):
         print(f"  {aid}: {s}   ({games[aid]} games)")
 
     dist = dict(conn.execute(
-        "SELECT a_outcome, COUNT(*) FROM pairings WHERE run_id=? GROUP BY a_outcome", (run_id,)
+        "SELECT a_outcome, COUNT(*) FROM pairings WHERE run_id=? AND finished=1 GROUP BY a_outcome",
+        (run_id,)
     ))
     total = sum(dist.values())
     cc = f"{dist.get('CC', 0) / total * 100:.0f}%" if total else "n/a"
@@ -239,15 +318,33 @@ def replay(conn, run_id, show_config=False):
 
 def main():
     args = sys.argv[1:]
-    show_config = any(a in ("--config", "-c") for a in args)
-    pos = [a for a in args if a not in ("--config", "-c")]   # positional args only
+    show_config = "--config" in args or "-c" in args
+    show_calls = "--calls" in args
+    call_spec = None
+    pos = []
+    skip = False
+    for i, a in enumerate(args):
+        if skip:                                  # the value after --call
+            skip = False
+            continue
+        if a == "--call":
+            call_spec = args[i + 1] if i + 1 < len(args) else None
+            skip = True
+            continue
+        if a in ("--config", "-c", "--calls"):
+            continue
+        pos.append(a)                             # positional args only
+
     conn = sqlite3.connect(DB_DEFAULT)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [--config]   (db: {DB_DEFAULT})\n")
+            print(f"usage: replay.py <run_id> [--config] [--calls] [--call ID]   "
+                  f"(db: {DB_DEFAULT})\n")
             list_runs(conn)
+        elif call_spec is not None:
+            dump_call(conn, pos[0], call_spec)    # full dump of one call
         else:
-            replay(conn, pos[0], show_config=show_config)
+            replay(conn, pos[0], show_config=show_config, show_calls=show_calls)
     finally:
         conn.close()
 

@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import json
 import random
+import sqlite3
 from dataclasses import replace
 
 import pytest
 
 from src.core import orchestrator as orch
+from src.core.agent import LLMCall
 from src.core.config import AgentSpec, EpisodeCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg
 from src.judge import JudgeVerdict, MessageRef
 from src.games.base import PairingRecord
 from src.matchmaking.base import RoundPlan
 from src.population import base as popbase
 from src.population import make_population
-from src.providers.base import Completion
+from src.providers.base import Completion, HttpAttempt
 from src.storage import Storage
 
 
@@ -21,8 +23,12 @@ class FixedProvider:
     def __init__(self, cfg):
         self.cfg = cfg
 
-    async def complete(self, **kw):
-        return Completion(text='{"number": 4, "rationale": "r"}', prompt_tokens=2, completion_tokens=3, raw={})
+    async def complete(self, *, system, messages, temperature, max_tokens):
+        text = '{"number": 4, "rationale": "r"}'
+        req = {"model": "m", "messages": [{"role": "system", "content": system}]}
+        at = HttpAttempt("ok", 200, req, text, text, None, 2, 3)
+        return Completion(text=text, prompt_tokens=2, completion_tokens=3, raw={},
+                          request=req, attempts=(at,))
 
     async def aclose(self):
         pass
@@ -109,6 +115,79 @@ def test_observe_writes_round_tables(tmp_path):
         st.close()
 
 
+# ---- Slice L2: llm_calls + finished flag ----
+
+def _plan(idle=None):
+    return RoundPlan(pairings=[("A1", "A2")], idle=idle or [], events=[])
+
+
+def test_observe_writes_llm_calls_with_join(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        calls = [
+            LLMCall("A1", "talk", 1, 1, "ok", 200, {"model": "m"}, "hi", '{"x":1}', None, 2, 3, turn_idx=0),
+            LLMCall("A1", "decide", 1, 1, "ok", 200, {"model": "m"}, '{"number":4}', '{"y":2}', None, 2, 3),
+        ]
+        rec = PairingRecord(
+            round=1, a_id="A1", b_id="A2",
+            transcript=[{"speaker": "A1", "text": "hi", "ready": True}],
+            a_number=4, b_number=4, a_rationale="ra", b_rationale="rb",
+            outcome="CC", a_payoff=3.0, b_payoff=3.0,
+            usage={"prompt_tokens": 4, "completion_tokens": 6, "calls": 2}, llm_calls=calls,
+        )
+        st.observe(1, _plan(), [rec])
+        c = st._conn
+        rows = c.execute(
+            "SELECT call_idx, agent_id, phase, turn_idx, attempt, http_attempt, status, status_code, response "
+            "FROM llm_calls ORDER BY call_idx"
+        ).fetchall()
+        assert rows == [
+            (0, "A1", "talk", 0, 1, 1, "ok", 200, "hi"),
+            (1, "A1", "decide", None, 1, 1, "ok", 200, '{"number":4}'),
+        ]
+        # джойн llm_calls -> pairings: сырой вызов рядом со своим исходом
+        joined = c.execute(
+            "SELECT lc.phase, p.a_outcome FROM llm_calls lc "
+            "JOIN pairings p USING (run_id, round_idx, pair_idx) WHERE lc.phase='decide'"
+        ).fetchone()
+        assert joined == ("decide", "CC")
+        assert json.loads(c.execute("SELECT request FROM llm_calls LIMIT 1").fetchone()[0])["model"] == "m"
+    finally:
+        st.close()
+
+
+def test_observe_writes_aborted_pairing(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        calls = [LLMCall("A2", "decide", 1, 1, "network", None, {"model": "m"}, None, None, "boom", 0, 0)]
+        rec = PairingRecord(
+            round=1, a_id="A1", b_id="A2", transcript=[], finished=False,
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 1}, llm_calls=calls,
+        )
+        st.observe(1, _plan(), [rec])
+        c = st._conn
+        assert c.execute("SELECT finished, a_number, a_outcome FROM pairings").fetchone() == (0, None, None)
+        assert c.execute("SELECT status, error FROM llm_calls").fetchone() == ("network", "boom")
+    finally:
+        st.close()
+
+
+def test_check_rejects_finished_pairing_without_result(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        bad = PairingRecord(round=1, a_id="A1", b_id="A2", transcript=[], finished=True)  # a_number=None
+        with pytest.raises(sqlite3.IntegrityError):
+            st.observe(1, _plan(), [bad])
+    finally:
+        st.close()
+
+
 # ---- Slices 1+2 end-to-end: Storage as the orchestrator observer ----
 
 async def test_logs_full_episode(tmp_path):
@@ -128,6 +207,14 @@ async def test_logs_full_episode(tmp_path):
         assert c.execute("SELECT COUNT(*) FROM pairings").fetchone()[0] == 2     # 1 pair/round
         assert c.execute("SELECT COUNT(*) FROM idle").fetchone()[0] == 2         # 1 idle/round (N=3)
         assert c.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0     # max_talk_turns=0
+        # L2: 2 decide-вызова на пару (a, b) -> 2 пары -> 4 строки llm_calls, все ok decide
+        assert c.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0] == 4
+        assert all(s == "ok" and p == "decide"
+                   for s, p in c.execute("SELECT status, phase FROM llm_calls"))
+        # каждая строка llm_calls джойнится со своей парой (FK + (round,pair))
+        assert c.execute(
+            "SELECT COUNT(*) FROM llm_calls lc JOIN pairings p USING (run_id, round_idx, pair_idx)"
+        ).fetchone()[0] == 4
         assert all(o == "CC" for (o,) in c.execute("SELECT a_outcome FROM pairings"))
         stored = dict(c.execute("SELECT agent_id, final_score FROM agents").fetchall())
         assert stored == {a.id: a.score for a in pop}

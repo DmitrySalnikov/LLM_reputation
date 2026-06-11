@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from src.providers.base import Completion
+import json
+
+from src.providers.base import Completion, HttpAttempt
 
 
 class ScriptedProvider:
@@ -16,7 +18,16 @@ class ScriptedProvider:
     async def complete(self, *, system, messages, temperature, max_tokens) -> Completion:
         self.calls.append((system, messages))
         text = self._queue.pop(0)
-        return Completion(text=text, prompt_tokens=self._pt, completion_tokens=self._ct, raw={})
+        request = {"model": "scripted",
+                   "messages": [{"role": "system", "content": system},
+                                *({"role": m.role, "content": m.content} for m in messages)],
+                   "temperature": temperature, "max_tokens": max_tokens}
+        raw = {"choices": [{"message": {"content": text}}]}
+        attempt = HttpAttempt(status="ok", status_code=200, request=request, response=text,
+                              response_raw=json.dumps(raw), error=None,
+                              prompt_tokens=self._pt, completion_tokens=self._ct)
+        return Completion(text=text, prompt_tokens=self._pt, completion_tokens=self._ct,
+                          raw=raw, request=request, attempts=(attempt,))
 
     async def aclose(self) -> None:
         pass

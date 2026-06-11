@@ -48,4 +48,5 @@ class PredictionStrategy:
             predicted=predicted,
             predicted_rationale=rationale if self._rationale else None,
             usage=res.usage,
+            calls=res.calls,
         )
