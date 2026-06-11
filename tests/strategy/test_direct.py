@@ -21,6 +21,13 @@ async def test_direct_returns_parsed_number_no_prediction():
     assert d.predicted_rationale is None
 
 
+async def test_direct_threads_llm_calls():
+    agent = _agent(['{"number": 6, "rationale": "because"}'])
+    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="", rules="R")
+    assert [c.phase for c in d.calls] == ["decide"]   # сырой вызов протянут наверх
+    assert d.calls[0].status == "ok"
+
+
 async def test_direct_rationale_off_asks_bare_number_and_drops_text():
     agent = _agent(['{"number": 6, "rationale": "volunteered anyway"}'])
     d = await DirectStrategy(GameCfg(rationale=False)).decide(agent, "A2", round=1, feed="", rules="R")

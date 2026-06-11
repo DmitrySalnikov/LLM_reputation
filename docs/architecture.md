@@ -144,7 +144,14 @@ owns the population**, builds it, reads final scores from it, and `aclose()`s it
   output channel**. The future Logger layer will plug in here to persist rounds —
   there is deliberately no `db_path` in the config.
 - Pairings within a round run concurrently under an `asyncio.Semaphore`
-  (`cfg.max_concurrency`), fail-fast via `asyncio.gather`.
+  (`cfg.max_concurrency`).
+- **LLM failures don't fail-fast mid-round.** `play_pairing` catches a `ProviderError`
+  and returns the pairing as **unfinished** (`PairingRecord.finished=False`, results NULL,
+  full raw L2 log kept). The round finishes and is emitted to `observer` (so the failure is
+  persisted), then `run_episode` raises `EpisodeAborted` — stopping the episode at a round
+  boundary, with `runs.finished_at` left NULL as a crash marker. Raw LLM I/O of every
+  HTTP call (incl. retries, parse-retries, failures) is logged to `llm_calls`; see
+  `claude_docs/agent-games-logger-plan.md` §9.
 
 ## LLM judge (`src/judge/`)
 

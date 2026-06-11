@@ -281,11 +281,17 @@ population:
 runs(run_id PK, config JSON, seed, status, model_info, started_at, finished_at)
 agents(run_id, agent_id, setup JSON, final_score,         PRIMARY KEY(run_id, agent_id))
 rounds(run_id, round_idx, plan JSON,                       PRIMARY KEY(run_id, round_idx))
-pairings(run_id, round_idx, pair_idx, a_id, b_id,
+pairings(run_id, round_idx, pair_idx, a_id, b_id, finished,
          a_number, b_number, a_rationale, b_rationale,
          outcome, a_payoff, b_payoff, transcript JSON, usage JSON,
-         PRIMARY KEY(run_id, round_idx, pair_idx))
+         PRIMARY KEY(run_id, round_idx, pair_idx))   -- finished=0 ⇒ результаты NULL (LLM-сбой)
+llm_calls(run_id, round_idx, pair_idx, call_idx, agent_id, phase, turn_idx,
+          attempt, http_attempt, status, status_code, request, response, response_raw, error,
+          PRIMARY KEY(run_id, round_idx, pair_idx, call_idx))   -- сырьё каждого HTTP-вызова (L2)
 ```
+
+> Актуальная нормализованная схема и L2 (`llm_calls`, флаг `finished`) — в
+> `claude_docs/agent-games-logger-plan.md` §4 и §9 (этот §6 — обзорный набросок).
 
 - **Запись без гонок:** пары раунда играются параллельно, но пишутся одной
   транзакцией после `gather()` (раунды последовательны) → single-writer SQLite не

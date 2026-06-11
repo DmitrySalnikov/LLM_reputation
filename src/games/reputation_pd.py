@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.core.agent import Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry
 from src.games.base import PairingRecord
 from src.games.prompts import reflect_context, rules_text, talk_context
+from src.providers.base import ProviderError
 from src.strategy.base import PlayStrategy
 
 # Outcome from A's perspective -> outcome from B's perspective.
@@ -33,39 +36,57 @@ class ReputationPD:
 
     async def play_pairing(self, a: Agent, b: Agent, round: int) -> PairingRecord:
         # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
-        transcript = await self._cheap_talk(a, b, round)
-        feed = _render_feed(transcript)
-        da = await self._strategy.decide(a, b.id, round, feed, self._rules)
-        db = await self._strategy.decide(b, a.id, round, feed, self._rules)
-        x, y = da.number, db.number
-        outcome, pa, pb = self.resolve(x, y)
-        a.score += pa
-        b.score += pb
+        # Сырьё каждого LLM-вызова копим инкрементально: при LLM-сбое (ProviderError) пара
+        # не падает, а возвращается как сорванная (finished=False) со всем накопленным L2-логом.
+        transcript: list[dict] = []
+        post_calls: list = []        # вызовы decide/predict/reflect (talk-каллы — из transcript)
+        try:
+            await self._cheap_talk(a, b, round, transcript)
+            feed = _render_feed(transcript)
+            da = await self._strategy.decide(a, b.id, round, feed, self._rules)
+            post_calls += list(da.calls)
+            db = await self._strategy.decide(b, a.id, round, feed, self._rules)
+            post_calls += list(db.calls)
+            x, y = da.number, db.number
+            outcome, pa, pb = self.resolve(x, y)
+            a.score += pa
+            b.score += pb
 
-        ra = rb = None
-        usages = [t["usage"] for t in transcript] + [da.usage, db.usage]
-        if self.cfg.reflection:
-            # Рефлексия идёт до записи в память: факты раунда приходят через контекст,
-            # а дневник агента ещё показывает только прошлые раунды.
-            ra, ua = await self._reflect(a, b.id, round, feed, x, y, pa)
-            rb, ub = await self._reflect(b, a.id, round, feed, y, x, pb)
-            usages += [ua, ub]
+            ra = rb = None
+            usages = [t["usage"] for t in transcript] + [da.usage, db.usage]
+            if self.cfg.reflection:
+                # Рефлексия идёт до записи в память: факты раунда приходят через контекст,
+                # а дневник агента ещё показывает только прошлые раунды.
+                ra, ua, ca = await self._reflect(a, b.id, round, feed, x, y, pa)
+                post_calls += list(ca)
+                rb, ub, cb = await self._reflect(b, a.id, round, feed, y, x, pb)
+                post_calls += list(cb)
+                usages += [ua, ub]
 
-        public = _public(transcript)
-        self._remember(a, b.id, round, public, da, y, outcome, pa, ra)
-        self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, rb)
-        return PairingRecord(
-            round=round, a_id=a.id, b_id=b.id, transcript=public,
-            a_number=x, b_number=y,
-            a_rationale=da.rationale, b_rationale=db.rationale,
-            outcome=outcome, a_payoff=pa, b_payoff=pb, usage=_sum_usage(usages),
-            a_predicted=da.predicted, b_predicted=db.predicted,
-            a_reflection=ra, b_reflection=rb,
-        )
+            public = _public(transcript)
+            self._remember(a, b.id, round, public, da, y, outcome, pa, ra)
+            self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, rb)
+            return PairingRecord(
+                round=round, a_id=a.id, b_id=b.id, transcript=public,
+                a_number=x, b_number=y,
+                a_rationale=da.rationale, b_rationale=db.rationale,
+                outcome=outcome, a_payoff=pa, b_payoff=pb, usage=_sum_usage(usages),
+                a_predicted=da.predicted, b_predicted=db.predicted,
+                a_reflection=ra, b_reflection=rb,
+                finished=True, llm_calls=_talk_calls(transcript) + post_calls,
+            )
+        except ProviderError as e:
+            # Сорванная пара: результатов нет (числа/исход/payoff = None), но весь сырой
+            # L2-лог сохранён — talk-каллы + успевшие decide/reflect + сбойные (e.calls).
+            calls = _talk_calls(transcript) + post_calls + list(e.calls)
+            return PairingRecord(
+                round=round, a_id=a.id, b_id=b.id, transcript=_public(transcript),
+                usage=_usage_from_calls(calls), finished=False, llm_calls=calls,
+            )
 
     async def _reflect(self, agent: Agent, partner_id: str, round: int, feed: str,
                        my_number: int, partner_number: int,
-                       payoff: float) -> tuple[str, tuple[int, int]]:
+                       payoff: float) -> tuple[str, tuple[int, int], tuple]:
         """Запросить у агента рефлексию по вскрытому исходу раунда.
 
         Args:
@@ -78,15 +99,16 @@ class ReputationPD:
             payoff: Выигрыш агента в этом раунде.
 
         Returns:
-            Пара (текст рефлексии, usage запроса).
+            Тройка (текст рефлексии, usage запроса, сырые LLMCall'ы фазы).
         """
         ctx = reflect_context(self.cfg, partner_id, round, feed, my_number=my_number,
                               partner_number=partner_number, payoff=payoff)
         res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
-        return res.data["reflection"], res.usage
+        return res.data["reflection"], res.usage, res.calls
 
-    async def _cheap_talk(self, a: Agent, b: Agent, round: int) -> list[dict]:
-        transcript: list[dict] = []
+    async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict]) -> None:
+        # Наполняет переданный transcript на месте (чтобы при LLM-сбое частичный
+        # cheap-talk и его L2-лог не терялись — каждая реплика несёт свои "calls").
         ready = {a.id: False, b.id: False}
         order = [a, b]  # a opens; the matcher sets orientation via pairing order
         i = 0
@@ -105,6 +127,7 @@ class ReputationPD:
                     "text": res.public_text,
                     "ready": res.data["ready"],
                     "usage": res.usage,
+                    "calls": res.calls,      # сырой L2-лог реплики (turn_idx доклеит игра)
                 }
             )
             ready[cur.id] = res.data["ready"]
@@ -112,7 +135,6 @@ class ReputationPD:
             # and an agent is marked ready only after it has spoken.
             if ready[a.id] and ready[b.id]:
                 break
-        return transcript
 
     def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
                   outcome, payoff, reflection=None):
@@ -134,6 +156,23 @@ class ReputationPD:
 
 def _public(transcript: list[dict]) -> list[dict]:
     return [{"speaker": t["speaker"], "text": t["text"], "ready": t["ready"]} for t in transcript]
+
+
+def _talk_calls(transcript: list[dict]) -> list:
+    """Собрать LLMCall'ы реплик cheap-talk, проставив каждому turn_idx (индекс в transcript)."""
+    out: list = []
+    for ti, t in enumerate(transcript):
+        out += [replace(c, turn_idx=ti) for c in t.get("calls", ())]
+    return out
+
+
+def _usage_from_calls(calls: list) -> dict:
+    """Usage сорванной пары — суммарные токены и число HTTP-вызовов из её L2-лога."""
+    return {
+        "prompt_tokens": sum(c.prompt_tokens for c in calls),
+        "completion_tokens": sum(c.completion_tokens for c in calls),
+        "calls": len(calls),
+    }
 
 
 def _sum_usage(usages: list) -> dict:

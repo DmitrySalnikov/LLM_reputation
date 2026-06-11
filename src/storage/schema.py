@@ -46,24 +46,27 @@ CREATE TABLE IF NOT EXISTS pairings (
     pair_idx    INTEGER NOT NULL,
     a_id        TEXT NOT NULL,
     b_id        TEXT NOT NULL,
-    a_number    INTEGER NOT NULL,
-    b_number    INTEGER NOT NULL,
+    finished    INTEGER NOT NULL DEFAULT 1,  -- 1 = доиграна; 0 = сорвана LLM-сбоем (результатов нет)
+    a_number    INTEGER,                     -- результаты NULL, если finished=0 (см. CHECK)
+    b_number    INTEGER,
     a_rationale TEXT,
     b_rationale TEXT,
-    a_outcome   TEXT NOT NULL,
-    a_payoff    REAL NOT NULL,
-    b_payoff    REAL NOT NULL,
+    a_outcome   TEXT,
+    a_payoff    REAL,
+    b_payoff    REAL,
     a_predicted INTEGER,                    -- prediction strategy: a's guess of b's number (NULL for direct)
     b_predicted INTEGER,
     a_reflection TEXT,                      -- post-game reflection (NULL when game.reflection=false)
     b_reflection TEXT,
-    usage_prompt_tokens     INTEGER NOT NULL,
-    usage_completion_tokens INTEGER NOT NULL,
-    usage_calls             INTEGER NOT NULL,
+    usage_prompt_tokens     INTEGER,
+    usage_completion_tokens INTEGER,
+    usage_calls             INTEGER,
     PRIMARY KEY (run_id, round_idx, pair_idx),
     FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx),
     FOREIGN KEY (run_id, a_id) REFERENCES agents(run_id, agent_id),
-    FOREIGN KEY (run_id, b_id) REFERENCES agents(run_id, agent_id)
+    FOREIGN KEY (run_id, b_id) REFERENCES agents(run_id, agent_id),
+    CHECK (finished = 0 OR a_number IS NOT NULL),   -- доиграна ⇒ результат есть
+    CHECK (finished = 1 OR a_number IS NULL)        -- сорвана  ⇒ результат пуст
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -79,6 +82,31 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (run_id, speaker) REFERENCES agents(run_id, agent_id)
 );
 
+CREATE TABLE IF NOT EXISTS llm_calls (
+    run_id        TEXT    NOT NULL,
+    round_idx     INTEGER NOT NULL,
+    pair_idx      INTEGER NOT NULL,
+    call_idx      INTEGER NOT NULL,   -- порядок вызова внутри пары (порядок исполнения)
+    agent_id      TEXT    NOT NULL,   -- кто вызывал
+    phase         TEXT    NOT NULL,   -- talk | decide | predict | reflect
+    turn_idx      INTEGER,            -- NULL кроме TALK; FK на конкретную реплику messages
+    attempt       INTEGER NOT NULL,   -- парс-попытка Agent.act (1..3)
+    http_attempt  INTEGER NOT NULL,   -- сетевой ретрай внутри complete() (1..5)
+    status        TEXT    NOT NULL,   -- ok | parse_error | bad_json | bad_shape | http_error | server_error | network
+    status_code   INTEGER,            -- HTTP-код попытки (NULL при сетевой ошибке)
+    request       TEXT    NOT NULL,   -- ДОСЛОВНЫЙ payload (JSON)
+    response      TEXT,               -- извлечённый текст (только на финальной ok-попытке)
+    response_raw  TEXT,               -- ДОСЛОВНОЕ тело resp.text (вкл. тело 5xx); NULL при сетевой ошибке
+    error         TEXT,               -- сообщение сбоя
+    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, round_idx, pair_idx, call_idx),
+    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx),
+    FOREIGN KEY (run_id, agent_id) REFERENCES agents(run_id, agent_id),
+    FOREIGN KEY (run_id, round_idx, pair_idx, turn_idx)
+        REFERENCES messages(run_id, round_idx, pair_idx, turn_idx)
+);
+
 CREATE TABLE IF NOT EXISTS judge_verdicts (
     run_id      TEXT PRIMARY KEY,
     emerged     INTEGER NOT NULL,
@@ -88,6 +116,9 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
     created_at  TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES runs(run_id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_llm_calls_agent  ON llm_calls(run_id, agent_id);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_status ON llm_calls(run_id, status);
 """
 
 

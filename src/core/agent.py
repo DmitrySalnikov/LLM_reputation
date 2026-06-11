@@ -8,7 +8,7 @@ from enum import Enum
 from src.core.config import ProviderCfg
 from src.core.jsonextract import extract_json_obj
 from src.core.memory import Memory
-from src.providers.base import LLMProvider, Message
+from src.providers.base import LLMProvider, Message, ProviderError
 
 _MAX_PARSE_RETRIES = 2
 
@@ -30,10 +30,49 @@ class Phase:
 
 
 @dataclass(frozen=True)
+class LLMCall:
+    """Сырой L2-лог одного `provider.complete()` (включая парс-ретраи).
+
+    Самодостаточная запись: всё, кроме `round_idx`/`pair_idx`/`call_idx` (их добавляет
+    `Storage.observe`). `turn_idx` проставляет игра для фазы TALK.
+
+    Attributes:
+        agent_id: Кто вызывал.
+        phase: Фаза (talk/decide/predict/reflect).
+        attempt: Парс-попытка Agent.act (1..3).
+        http_attempt: Сетевой ретрай внутри одного complete() (1..5).
+        status: ok | parse_error | bad_json | bad_shape | http_error | server_error | network.
+        status_code: HTTP-код попытки (None при сетевой ошибке).
+        request: Дословный отправленный payload (None, если провайдер его не отдал).
+        response: Извлечённый текст ответа (только на финальной ok-попытке).
+        response_raw: Дословное тело ответа строкой (resp.text, вкл. тело 5xx).
+        error: Сообщение сбоя.
+        prompt_tokens: Токены промпта (на финальной ok-попытке).
+        completion_tokens: Токены ответа (на финальной ok-попытке).
+        turn_idx: Индекс реплики для TALK; None для остальных фаз.
+    """
+
+    agent_id: str
+    phase: str
+    attempt: int
+    http_attempt: int
+    status: str
+    status_code: int | None
+    request: dict | None
+    response: str | None
+    response_raw: str | None
+    error: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    turn_idx: int | None = None
+
+
+@dataclass(frozen=True)
 class ActResult:
     public_text: str | None     # TALK -> message; DECIDE -> None
     data: dict                  # TALK -> {message, ready}; DECIDE -> {number, rationale}
     usage: tuple[int, int]      # (prompt_tokens, completion_tokens), summed over all attempts
+    calls: tuple[LLMCall, ...] = ()   # L2-лог всех попыток этого act()
 
 
 @dataclass(frozen=True)
@@ -92,31 +131,63 @@ class Agent:
 
         prompt_toks = 0
         comp_toks = 0
+        calls: list[LLMCall] = []
         correction: str | None = None
         for attempt in range(1, _MAX_PARSE_RETRIES + 2):
             messages = base if correction is None else base + [Message("user", correction)]
             if phase.kind is not PhaseKind.TALK and _log.isEnabledFor(logging.DEBUG):
                 _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))
-            comp = await self.provider.complete(
-                system=system,
-                messages=messages,
-                temperature=cfg.temperature,
-                max_tokens=cfg.max_tokens,
-            )
+            try:
+                comp = await self.provider.complete(
+                    system=system,
+                    messages=messages,
+                    temperature=cfg.temperature,
+                    max_tokens=cfg.max_tokens,
+                )
+            except ProviderError as e:
+                # сбойный вызов — тоже строки L2-лога; контекст на исключение, бросаем дальше
+                calls.extend(_calls_from_attempts(self.id, phase.kind, attempt, e.attempts))
+                e.agent_id, e.phase, e.attempt = self.id, phase.kind.value, attempt
+                e.calls = tuple(calls)
+                raise
             prompt_toks += comp.prompt_tokens
             comp_toks += comp.completion_tokens
             data = _parse(phase.kind, comp.text)
+            calls.extend(_calls_from_attempts(
+                self.id, phase.kind, attempt, comp.attempts, parsed=data is not None))
             if data is not None:
-                return _result(phase.kind, data, (prompt_toks, comp_toks))
+                return _result(phase.kind, data, (prompt_toks, comp_toks), tuple(calls))
             correction = _CORRECTION[phase.kind]
 
         self.parse_failures += 1
-        return _result(phase.kind, _fallback(phase.kind), (prompt_toks, comp_toks))
+        return _result(phase.kind, _fallback(phase.kind), (prompt_toks, comp_toks), tuple(calls))
 
 
-def _result(kind: PhaseKind, data: dict, usage: tuple[int, int]) -> ActResult:
+def _calls_from_attempts(agent_id, kind, attempt, attempts, *, parsed: bool | None = None):
+    """Развернуть HTTP-попытки одного complete() в строки LLMCall (по одной на попытку).
+
+    На финальной удачной по HTTP попытке статус `ok` меняем на `parse_error`, если фазовый
+    валидатор отверг текст (`parsed=False`). Для сбойного complete() `parsed` не задаётся.
+    """
+    out = []
+    n = len(attempts)
+    for i, at in enumerate(attempts, start=1):
+        status = at.status
+        if parsed is not None and i == n and at.status == "ok" and not parsed:
+            status = "parse_error"
+        out.append(LLMCall(
+            agent_id=agent_id, phase=kind.value, attempt=attempt, http_attempt=i,
+            status=status, status_code=at.status_code, request=at.request,
+            response=at.response, response_raw=at.response_raw, error=at.error,
+            prompt_tokens=at.prompt_tokens, completion_tokens=at.completion_tokens,
+        ))
+    return out
+
+
+def _result(kind: PhaseKind, data: dict, usage: tuple[int, int],
+            calls: tuple[LLMCall, ...] = ()) -> ActResult:
     public = data["message"] if kind is PhaseKind.TALK else None
-    return ActResult(public_text=public, data=data, usage=usage)
+    return ActResult(public_text=public, data=data, usage=usage, calls=calls)
 
 
 def _parse(kind: PhaseKind, text: str) -> dict | None:

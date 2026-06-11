@@ -68,20 +68,21 @@ class Storage:
                 [(rid, round, aid) for aid in plan.idle],
             )
             for pair_idx, rec in enumerate(recs):
+                u = rec.usage or {}
                 self._conn.execute(
                     """INSERT INTO pairings(
-                           run_id, round_idx, pair_idx, a_id, b_id,
+                           run_id, round_idx, pair_idx, a_id, b_id, finished,
                            a_number, b_number, a_rationale, b_rationale,
                            a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
                            a_reflection, b_reflection,
                            usage_prompt_tokens, usage_completion_tokens, usage_calls)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        rid, round, pair_idx, rec.a_id, rec.b_id,
+                        rid, round, pair_idx, rec.a_id, rec.b_id, int(rec.finished),
                         rec.a_number, rec.b_number, rec.a_rationale, rec.b_rationale,
                         rec.outcome, rec.a_payoff, rec.b_payoff, rec.a_predicted, rec.b_predicted,
                         rec.a_reflection, rec.b_reflection,
-                        rec.usage["prompt_tokens"], rec.usage["completion_tokens"], rec.usage["calls"],
+                        u.get("prompt_tokens"), u.get("completion_tokens"), u.get("calls"),
                     ),
                 )
                 self._conn.executemany(
@@ -90,6 +91,22 @@ class Storage:
                     [
                         (rid, round, pair_idx, ti, t["speaker"], t["text"], int(bool(t["ready"])))
                         for ti, t in enumerate(rec.transcript)
+                    ],
+                )
+                # L2: сырые вызовы LLM (по одной строке на HTTP-попытку), call_idx — порядок
+                self._conn.executemany(
+                    """INSERT INTO llm_calls(
+                           run_id, round_idx, pair_idx, call_idx, agent_id, phase, turn_idx,
+                           attempt, http_attempt, status, status_code,
+                           request, response, response_raw, error,
+                           prompt_tokens, completion_tokens)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    [
+                        (rid, round, pair_idx, call_idx, c.agent_id, c.phase, c.turn_idx,
+                         c.attempt, c.http_attempt, c.status, c.status_code,
+                         json.dumps(c.request), c.response, c.response_raw, c.error,
+                         c.prompt_tokens, c.completion_tokens)
+                        for call_idx, c in enumerate(rec.llm_calls)
                     ],
                 )
 

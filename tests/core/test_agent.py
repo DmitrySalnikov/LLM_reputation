@@ -2,11 +2,31 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from conftest import ScriptedProvider
 
 from src.core.agent import Agent, AgentSetup, Phase, PhaseKind
 from src.core.config import ProviderCfg
 from src.core.memory import MemoryEntry
+from src.providers.base import HttpAttempt, ProviderUnavailable
+
+
+class RaisingProvider:
+    """Дубль провайдера: бросает ProviderUnavailable с заданными HttpAttempt'ами."""
+
+    def __init__(self, attempts):
+        self._attempts = tuple(attempts)
+        self.calls = 0
+
+    async def complete(self, *, system, messages, temperature, max_tokens):
+        self.calls += 1
+        e = ProviderUnavailable("boom")
+        e.request = {"model": "m", "messages": []}
+        e.attempts = self._attempts
+        raise e
+
+    async def aclose(self):
+        pass
 
 
 def _agent(provider, persona="You are A.", **kw):
@@ -238,3 +258,49 @@ async def test_decide_retry_logs_attempt_with_correction(caplog):
     assert len(records) == 2  # one record per provider attempt
     second = records[1].getMessage()
     assert "ONLY valid JSON" in second  # the correction message is part of the input
+
+
+# ---- L2: захват сырых вызовов (ActResult.calls) ----
+
+async def test_clean_decide_records_one_ok_call():
+    p = ScriptedProvider(['{"number": 4, "rationale": "ok"}'])
+    r = await _agent(p).act(_decide())
+    assert len(r.calls) == 1
+    c = r.calls[0]
+    assert (c.agent_id, c.phase, c.attempt, c.http_attempt) == ("A1", "decide", 1, 1)
+    assert c.status == "ok"
+    assert c.status_code == 200
+    assert c.response == '{"number": 4, "rationale": "ok"}'
+    assert c.request["messages"][0]["role"] == "system"   # дословный payload на руках
+    assert c.prompt_tokens == 2 and c.completion_tokens == 3
+
+
+async def test_parse_retry_records_two_calls_with_statuses():
+    p = ScriptedProvider(["garbage", '{"number": 1, "rationale": "r"}'])
+    r = await _agent(p).act(_decide())
+    assert [c.status for c in r.calls] == ["parse_error", "ok"]
+    assert [c.attempt for c in r.calls] == [1, 2]          # отдельный complete() на попытку
+    assert r.calls[0].response == "garbage"               # сырой невалидный ответ сохранён
+
+
+async def test_all_parse_fail_records_three_calls():
+    p = ScriptedProvider(["x", "y", "z"])
+    r = await _agent(p).act(_decide())
+    assert [c.status for c in r.calls] == ["parse_error"] * 3   # фолбэк-число не вызов LLM
+    assert r.data["rationale"] == "(unparsed)"
+
+
+async def test_provider_error_reraised_with_calls_and_context():
+    attempts = [
+        HttpAttempt("server_error", 503, {"m": 1}, None, "busy", "HTTP 503"),
+        HttpAttempt("network", None, {"m": 1}, None, None, "boom"),
+    ]
+    p = RaisingProvider(attempts)
+    with pytest.raises(ProviderUnavailable) as ei:
+        await _agent(p).act(_decide())
+    e = ei.value
+    assert (e.agent_id, e.phase, e.attempt) == ("A1", "decide", 1)
+    # каждая HTTP-попытка развёрнута в LLMCall с контекстом агента
+    assert [c.status for c in e.calls] == ["server_error", "network"]
+    assert [c.http_attempt for c in e.calls] == [1, 2]
+    assert e.calls[0].response_raw == "busy"              # тело 5xx сохранено

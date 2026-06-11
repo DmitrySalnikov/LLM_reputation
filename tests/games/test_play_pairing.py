@@ -5,11 +5,33 @@ from conftest import ScriptedProvider
 from src.core.agent import Agent, AgentSetup
 from src.core.config import GameCfg, ProviderCfg
 from src.games.reputation_pd import ReputationPD
+from src.providers.base import HttpAttempt, ProviderUnavailable
 
 
 def _agent(id, replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
     return Agent(id, AgentSetup(f"You are {id}.", cfg), ScriptedProvider(replies))
+
+
+class RaisingProvider:
+    """Дубль провайдера, который бросает ProviderUnavailable с заданными HttpAttempt'ами."""
+
+    def __init__(self, attempts):
+        self._attempts = tuple(attempts)
+
+    async def complete(self, *, system, messages, temperature, max_tokens):
+        e = ProviderUnavailable("down")
+        e.request = {"model": "m", "messages": []}
+        e.attempts = self._attempts
+        raise e
+
+    async def aclose(self):
+        pass
+
+
+def _raising_agent(id, attempts):
+    cfg = ProviderCfg(base_url="http://x/v1", model="m")
+    return Agent(id, AgentSetup(f"You are {id}.", cfg), RaisingProvider(attempts))
 
 
 def _decide(n, rationale="r"):
@@ -220,3 +242,30 @@ async def test_prediction_strategy_records_and_remembers_predictions():
     assert "pa" in str(a.memory.entries[0])
     # the partner's prediction reasoning never leaks into a's memory entry
     assert "pb" not in str(a.memory.entries[0])
+
+
+# ---- L2: флаг finished + захват llm_calls ----
+
+async def test_finished_pairing_collects_talk_and_decide_calls():
+    g = ReputationPD(GameCfg(max_talk_turns=2))
+    a = _agent("A1", [_talk("hi", True), _decide(4)])
+    b = _agent("A2", [_talk("ok", True), _decide(4)])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is True
+    phases = [(c.phase, c.turn_idx) for c in rec.llm_calls]
+    assert ("talk", 0) in phases and ("talk", 1) in phases   # talk-каллы помечены turn_idx
+    assert ("decide", None) in phases                        # decide — без turn_idx
+    assert all(c.status == "ok" for c in rec.llm_calls)
+
+
+async def test_provider_error_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(4)])
+    b = _raising_agent("A2", [HttpAttempt("network", None, {"m": 1}, None, None, "boom")])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    assert rec.a_number is None and rec.outcome is None      # результата нет
+    assert a.score == 0.0 and b.score == 0.0                 # очки не начислены
+    statuses = [c.status for c in rec.llm_calls]
+    assert "ok" in statuses          # успевший decide(a)
+    assert "network" in statuses     # сбойный decide(b)

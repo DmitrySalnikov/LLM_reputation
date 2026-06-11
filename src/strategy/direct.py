@@ -41,4 +41,5 @@ class DirectStrategy:
             number=res.data["number"],
             rationale=res.data["rationale"] if self._rationale else "",
             usage=res.usage,
+            calls=res.calls,
         )
