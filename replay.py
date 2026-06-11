@@ -86,14 +86,18 @@ def list_runs(conn):
     if not rows:
         print("(no runs in this DB)")
         return
+    toks = {rid: (pt, ct) for rid, pt, ct in conn.execute(
+        """SELECT run_id, COALESCE(SUM(usage_prompt_tokens), 0), COALESCE(SUM(usage_completion_tokens), 0)
+           FROM pairings GROUP BY run_id""")}
     print(f"{len(rows)} run(s):")
     for run_id, name, config, created, finished in rows:
         cfg = json.loads(config)
         n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])
         state = "done" if finished else "unfinished"
         label = f"  {name!r}" if name else ""
+        pt, ct = toks.get(run_id, (0, 0))
         print(f"  {run_id}  {_trim_ms(created)}  "
-              f"{n_agents} agents, {cfg['rounds']} rounds, {_duration(created, finished)}  "
+              f"{n_agents} agents, {cfg['rounds']} rounds, {pt}+{ct} tok, {_duration(created, finished)}  "
               f"[{state}]{label}")
 
 
@@ -191,6 +195,12 @@ def replay(conn, run_id, show_config=False, show_calls=False):
     print(f"{n_agents} agents, {cfg['rounds']} rounds, "
           f"max_talk_turns={cfg['game']['max_talk_turns']}")
     print(f"created={_trim_ms(created)}  finished={_trim_ms(finished) or '(unfinished)'}")
+    pt, ct = conn.execute(
+        """SELECT COALESCE(SUM(usage_prompt_tokens), 0), COALESCE(SUM(usage_completion_tokens), 0)
+           FROM pairings WHERE run_id=?""",
+        (run_id,),
+    ).fetchone()
+    print(f"tokens: input={pt}  output={ct}  total={pt + ct}")
 
     if show_config:
         game = cfg.get("game", {})
