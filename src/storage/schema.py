@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx),
     FOREIGN KEY (run_id, speaker) REFERENCES agents(run_id, agent_id)
 );
+
+CREATE TABLE IF NOT EXISTS judge_verdicts (
+    run_id      TEXT PRIMARY KEY,
+    emerged     INTEGER NOT NULL,
+    explanation TEXT NOT NULL,
+    evidence    TEXT NOT NULL,      -- JSON: [{"round":0,"pair":1,"turn":2}, ...]
+    model       TEXT NOT NULL,      -- модель судьи, для истории
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+);
 """
 
 
