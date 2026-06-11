@@ -14,7 +14,9 @@ import sqlite3
 
 from src.core.config import EpisodeCfg
 from src.core.orchestrator import run_episode
+from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
+from src.providers.base import ProviderError
 from src.storage import Storage
 
 
@@ -50,6 +52,26 @@ def narrate_round(r, plan, recs) -> None:
             print(f"      {rec.b_id} reflects: {rec.b_reflection}")
 
 
+def print_verdict(verdict: JudgeVerdict) -> None:
+    """Напечатать вердикт LLM-судьи (без цитат — подсветка живёт в replay)."""
+    bar = "=" * 60
+    print(f"\n{bar}\n  JUDGE VERDICT\n{bar}")
+    print(f"  reputation institute emerged: {'YES' if verdict.emerged else 'NO'}")
+    print(f"  {verdict.explanation}")
+    print(f"  evidence: {len(verdict.evidence)} message(s) — replay подсветит их цветом")
+
+
+async def _judge_and_store(cfg, records, st) -> None:
+    """Вызвать судью после эпизода; его ошибка не должна терять результаты run'а."""
+    try:
+        verdict = await judge_episode(cfg, records)
+    except (JudgeError, ProviderError) as e:
+        print(f"\nсудья не смог вынести вердикт: {e} — run сохранён без вердикта")
+        return
+    print_verdict(verdict)
+    st.save_verdict(verdict, model=cfg.provider.model)
+
+
 async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
     """Build the population, run the episode, persist + narrate each round, score it.
     Returns the run_id, or None if this exact config is already stored (de-dup)."""
@@ -65,9 +87,12 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
                   "(change seed or config to re-run)")
             return None
 
+        records: list = []                       # копим записи для LLM-судьи
+
         def observer(r, plan, recs):             # persist AND narrate each round live
             st.observe(r, plan, recs)
             narrate_round(r, plan, recs)
+            records.extend(recs)
 
         await run_episode(cfg, pop, observer=observer)
         st.finish(pop)
@@ -76,6 +101,9 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
         print(f"\n{bar}\n  FINAL SCOREBOARD\n{bar}")
         for a in sorted(pop, key=lambda a: a.score, reverse=True):
             print(f"  {a.id}: {a.score:g}")
+
+        if cfg.judge is not None:                # опциональный LLM-судья (см. JudgeCfg)
+            await _judge_and_store(cfg.judge, records, st)
     finally:
         st.close()
         await pop.aclose()
