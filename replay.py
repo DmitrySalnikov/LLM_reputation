@@ -7,10 +7,11 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    PYTHONPATH=. .venv/bin/python replay.py <run_id> [db_path] [--config]
+    uv run python replay.py <run_id> [--config]
 
-With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also
-dump the full episode config.
+With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
+the episode config: the prompts in full, then the roster, then the remaining scalar knobs
+(prompts / agents / name pools are stripped from that last dump to avoid repetition).
 """
 
 import json
@@ -20,6 +21,12 @@ import sys
 from datetime import datetime
 
 DB_DEFAULT = "experiment.db"
+
+# Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
+# секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
+_PROMPT_KEYS = ("rules", "talk_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
+# Из дампа конфига выкидываем и эти ключи population — ростер печатается отдельной секцией.
+_POP_DROP = ("agents", "first_name_pool", "last_name_pool")
 
 
 def _trim_ms(ts):
@@ -73,6 +80,10 @@ def replay(conn, run_id, show_config=False):
     cfg = json.loads(config)
 
     n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])  # derived from counts
+    game_cfg = cfg.get("game", {})
+    show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
+    show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
+    show_predictions = cfg.get("play_strategy", "direct") == "prediction"
 
     bar = "=" * 64
     title = f"{run_id}  ({name})" if name else run_id
@@ -83,16 +94,14 @@ def replay(conn, run_id, show_config=False):
 
     if show_config:
         game = cfg.get("game", {})
+        present = [k for k in _PROMPT_KEYS if k in game]
         print("\nprompts:")
-        for key in ("rules", "talk_prompt", "decide_prompt"):
-            text = game.get(key)
+        if not present:
+            print("  (not recorded — run predates configurable prompts)")
+        for key in present:
+            text = game[key]
             print(f"  [{key}]")
-            if text is None:
-                print("    (not recorded — run predates configurable prompts)")
-            else:
-                print("    " + text.replace("\n", "\n    "))
-        print("\nconfig:")
-        print("  " + json.dumps(cfg, indent=2, sort_keys=True).replace("\n", "\n  "))
+            print("    " + (text.replace("\n", "\n    ") if text else "(empty)"))
 
     print(f"\nroster ({n_agents} agents):")
     for spec in cfg["population"]["agents"]:        # one line per type, as in the config
@@ -100,6 +109,17 @@ def replay(conn, run_id, show_config=False):
         print(f"  {spec.get('count', 1)}x {spec['persona']}")
         print(f"       provider: model={p['model']} "
               f"temp={p['temperature']} max_tokens={p['max_tokens']}")
+
+    if show_config:
+        # config dump AFTER prompts + roster (both shown above) and WITHOUT them: drop the
+        # prompt strings, the agents list and the name pools — keep it to the scalar knobs.
+        game = cfg.get("game", {})
+        pop = cfg.get("population", {})
+        slim = dict(cfg)
+        slim["game"] = {k: v for k, v in game.items() if k not in _PROMPT_KEYS}
+        slim["population"] = {k: v for k, v in pop.items() if k not in _POP_DROP}
+        print("\nconfig (prompts + roster shown above):")
+        print("  " + json.dumps(slim, indent=2, sort_keys=True).replace("\n", "\n  "))
 
     rounds = [
         r for (r,) in conn.execute(
@@ -116,12 +136,13 @@ def replay(conn, run_id, show_config=False):
 
         pairings = conn.execute(
             """SELECT pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
-                      a_outcome, a_payoff, b_payoff, a_predicted, b_predicted, usage_calls
+                      a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
+                      a_reflection, b_reflection, usage_calls
                FROM pairings WHERE run_id=? AND round_idx=? ORDER BY pair_idx""",
             (run_id, r),
         ).fetchall()
         for (pi, a_id, b_id, a_num, b_num, a_rat, b_rat,
-             outcome, a_pay, b_pay, a_pred, b_pred, calls) in pairings:
+             outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl, calls) in pairings:
             print(f"\n  {a_id} vs {b_id}  ({a_id} opens):")
             msgs = conn.execute(
                 """SELECT speaker, text, ready FROM messages
@@ -137,10 +158,14 @@ def replay(conn, run_id, show_config=False):
                 f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}   "
                 f"(payoffs {a_id}={a_pay:g}, {b_id}={b_pay:g})  [{calls} llm calls]"
             )
-            if a_pred is not None or b_pred is not None:   # prediction strategy: guess of partner's number
+            if show_predictions:                            # gated by config (play_strategy)
                 print(f"    predictions: {a_id} guessed {b_id}={a_pred}, {b_id} guessed {a_id}={b_pred}")
-            print(f"      {a_id} reason: {a_rat}")
-            print(f"      {b_id} reason: {b_rat}")
+            if show_rationale:                              # gated by config, not by NULL
+                print(f"      {a_id} reason: {a_rat}")
+                print(f"      {b_id} reason: {b_rat}")
+            if show_reflection:
+                print(f"      {a_id} reflects: {a_refl}")
+                print(f"      {b_id} reflects: {b_refl}")
 
     # final scoreboard + games-played, reconstructed from pairings
     scores = dict(conn.execute(
@@ -170,11 +195,10 @@ def main():
     args = sys.argv[1:]
     show_config = any(a in ("--config", "-c") for a in args)
     pos = [a for a in args if a not in ("--config", "-c")]   # positional args only
-    db = pos[1] if len(pos) > 1 else DB_DEFAULT
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(DB_DEFAULT)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [db_path={DB_DEFAULT}] [--config]\n")
+            print(f"usage: replay.py <run_id> [--config]   (db: {DB_DEFAULT})\n")
             list_runs(conn)
         else:
             replay(conn, pos[0], show_config=show_config)

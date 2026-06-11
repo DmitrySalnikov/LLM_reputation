@@ -7,7 +7,7 @@ Storage -> SQLite) and the "one DB, many runs" design.
 
 Run from the repo root (needs a local Ollama serving the model below):
 
-    PYTHONPATH=. .venv/bin/python examples/logger_demo.py
+    uv run python examples/logger_demo.py
 """
 
 import asyncio

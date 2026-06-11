@@ -9,7 +9,7 @@ layer will use to persist rounds.
 Run from the repo root (needs API-доступ к провайдеру из конфигурации; ключ берётся из
 .env). Путь к конфигурации можно передать первым аргументом, иначе берётся example.yaml:
 
-    PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py [config/episode.yaml]
+    uv run python examples/orchestrator_demo.py [config/episode.yaml]
 
 Трассировка LLM-входа перед выбором числа: LLM_TRACE=1 (флаг можно задать в .env).
 """

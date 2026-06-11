@@ -2,7 +2,7 @@
 
 Run from the repo root so `src` is importable:
 
-    PYTHONPATH=. .venv/bin/python examples/provider_demo.py
+    uv run python examples/provider_demo.py
 """
 
 import asyncio

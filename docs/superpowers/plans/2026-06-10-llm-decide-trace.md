@@ -218,7 +218,7 @@ Also extend the module docstring's run instructions (the docstring ends at examp
 Run:
 
 ```bash
-LLM_TRACE=1 PYTHONPATH=. .venv/bin/python -c "
+LLM_TRACE=1 uv run python -c "
 import examples.orchestrator_demo, logging
 lg = logging.getLogger('src.core.agent')
 assert lg.level == logging.DEBUG and lg.handlers, 'трассировка не включилась'
@@ -233,7 +233,7 @@ Expected output: `OK: trace logger configured`
 Run:
 
 ```bash
-LLM_TRACE=1 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+LLM_TRACE=1 uv run python examples/orchestrator_demo.py
 ```
 
 Expected: before each round's results, multi-line `LLM-вход: агент …, фаза decide, попытка 1` blocks showing system prompt, memory diary, and the decide context.

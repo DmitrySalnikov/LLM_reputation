@@ -2,7 +2,7 @@
 
 Run from the repo root so `src` is importable:
 
-    PYTHONPATH=. .venv/bin/python examples/agent_demo.py
+    uv run python examples/agent_demo.py
 """
 
 import asyncio

@@ -3,7 +3,7 @@ narrated step by step.
 
 Run from the repo root so `src` is importable:
 
-    PYTHONPATH=. .venv/bin/python examples/game_demo.py
+    uv run python examples/game_demo.py
 """
 
 import asyncio

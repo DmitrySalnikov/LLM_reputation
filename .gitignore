@@ -6,6 +6,7 @@ venv/
 *.db-wal
 *.db-shm
 .ipynb_checkpoints/
+together_chat_models.txt
 
 # Секреты окружения (ключи API)
 .env

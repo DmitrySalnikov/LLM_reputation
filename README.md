@@ -1,3 +1,21 @@
+# TODO
+
+нумеровать раунды с 1
+
+писать сырые входы и выходы в бд
+
+проверить, почему gpt-oss не работает
+
+прогнать на разных моделях
+
+описать, как работает
+
+поправить промпты
+
+сделать персонализацию опциональной
+
+перенести харкод угадывания на уровень агента
+
 # LLM_reputation
 
 Исследование самостоятельного возникновения института репутации в группах ИИ-агентов.
@@ -34,26 +52,30 @@ TOGETHER_API_KEY=ваш_ключ
 Запуск эпизода:
 
 ```bash
-PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py                          # config/example.yaml
-PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py config/example_prediction.yaml
+uv run python examples/orchestrator_demo.py                          # config/example.yaml
+uv run python examples/orchestrator_demo.py config/example_prediction.yaml
 ```
 
-Эксперимент с сохранением в SQLite: конфигурация правится прямо в `experiment.py`,
-каждый запуск дописывается в общую базу `experiment.db` (повторный запуск той же
+Эксперимент с сохранением в SQLite: конфигурация лежит в YAML (по умолчанию
+`config/experiment.yaml`), `experiment.py` её только загружает и запускает. Каждый
+запуск дописывается в общую базу `experiment.db` (повторный запуск той же
 конфигурации пропускается). `replay.py` воспроизводит сохранённый запуск раунд за
 раундом без обращений к LLM:
 
 ```bash
-PYTHONPATH=. .venv/bin/python experiment.py ["имя запуска"]
-PYTHONPATH=. .venv/bin/python replay.py              # список запусков в базе
-PYTHONPATH=. .venv/bin/python replay.py <run_id>     # воспроизвести запуск
+uv run python experiment.py                       # config/experiment.yaml
+uv run python experiment.py config/example.yaml   # другой эпизод
+uv run python experiment.py config/experiment.yaml "имя запуска"
+uv run python replay.py                # список запусков в базе
+uv run python replay.py <run_id>       # воспроизвести запуск
+uv run python replay.py <run_id> -c    # + промпты, ростер и параметры конфига
 ```
 
 Для отладки можно включить трассировку точного входа LLM перед выбором числа
 (флаг можно задать и в `.env`):
 
 ```bash
-LLM_TRACE=1 PYTHONPATH=. .venv/bin/python examples/orchestrator_demo.py
+LLM_TRACE=1 uv run python examples/orchestrator_demo.py
 ```
 
 Тесты:

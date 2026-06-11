@@ -5,7 +5,7 @@ will formalize (population + round loop + storage + resume).
 
 Run from the repo root so `src` is importable (needs a local Ollama):
 
-    PYTHONPATH=. .venv/bin/python examples/matchmaking_demo.py
+    uv run python examples/matchmaking_demo.py
 """
 
 import asyncio
