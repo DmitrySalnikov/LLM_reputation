@@ -34,7 +34,7 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
     mm = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: matcher's own rng
     sem = asyncio.Semaphore(cfg.max_concurrency)
-    for r in range(cfg.rounds):
+    for r in range(1, cfg.rounds + 1):                                 # раунды нумеруются с 1
         plan = await mm.plan_round(pop.ids(), r, actor=None)
         recs = await asyncio.gather(*[                                  # fail-fast (C2)
             _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)

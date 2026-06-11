@@ -79,7 +79,7 @@ async def test_observer_gets_each_round(providers):
         seen.append((r, plan, recs))
 
     await _run(_cfg(n=4, rounds=3), observer=observer)
-    assert [r for r, _, _ in seen] == [0, 1, 2]
+    assert [r for r, _, _ in seen] == [1, 2, 3]
     for r, plan, recs in seen:
         assert len(recs) == len(plan.pairings)      # recs align with the round's pairings
         assert len(plan.pairings) == 2 and plan.idle == []   # N=4 -> 2 pairs, no idle
@@ -88,7 +88,7 @@ async def test_observer_gets_each_round(providers):
 async def test_sync_observer_supported(providers):
     seen = []
     await _run(_cfg(n=2, rounds=2), observer=lambda r, plan, recs: seen.append(r))
-    assert seen == [0, 1]
+    assert seen == [1, 2]
 
 
 async def test_fail_fast_propagates(monkeypatch):
