@@ -12,13 +12,13 @@ prediction_mapping: match     # used only when play_strategy=prediction: "match"
 
 # ── Provider (src/core/config.py: ProviderCfg) ────────────────────────────────
 provider_default: &default
-  base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
-  model: llama3.1:8b
-  # base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
-  # api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
-  # model: Qwen/Qwen2.5-7B-Instruct-Turbo
+  # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
+  # model: llama3.1:8b
+  base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
+  api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
+  model: openai/gpt-oss-20b
   temperature: 0.7
-  max_tokens: 256
+  max_tokens: 2000
   timeout_s: 120                # HTTP timeout per LLM call, seconds
 
 # ── Population (src/core/config.py: PopulationCfg) ────────────────────────────
@@ -39,7 +39,7 @@ game:
   max_talk_turns: 2                   # hard ceiling on total cheap-talk turns in a pairing
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: true                     # ask for a reason before the number in DECIDE/PREDICT
-  reflection: false                   # post-game reflection: an extra LLM call after the outcome
+  reflection: true                   # post-game reflection: an extra LLM call after the outcome
   talk_stop_rule: both_ready_latch    # only this rule in the MVP
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
