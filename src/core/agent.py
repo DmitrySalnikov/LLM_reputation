@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 import random
-import re
 from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import ProviderCfg
+from src.core.jsonextract import extract_json_obj
 from src.core.memory import Memory
 from src.providers.base import LLMProvider, Message
 
@@ -121,7 +120,7 @@ def _result(kind: PhaseKind, data: dict, usage: tuple[int, int]) -> ActResult:
 
 
 def _parse(kind: PhaseKind, text: str) -> dict | None:
-    obj = _extract_json_obj(text)
+    obj = extract_json_obj(text)
     if obj is None:
         return None
     if kind in (PhaseKind.DECIDE, PhaseKind.PREDICT):
@@ -208,38 +207,3 @@ def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,
     ]
     parts += [f"--- {m.role} ---\n{m.content}" for m in messages]
     return "\n".join(parts)
-
-
-def _extract_json_obj(text: str) -> dict | None:
-    candidates = [text.strip()]
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
-    if fenced:
-        candidates.append(fenced.group(1).strip())
-    block = _first_brace_block(text)
-    if block:
-        candidates.append(block)
-    for candidate in candidates:
-        try:
-            obj = json.loads(candidate)
-        except ValueError:
-            continue
-        if isinstance(obj, dict):
-            return obj
-    return None
-
-
-def _first_brace_block(text: str) -> str | None:
-    # Naive balanced-brace scan: good enough for prose-wrapped JSON; does not account
-    # for braces inside string values (rare in our outputs).
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return None
