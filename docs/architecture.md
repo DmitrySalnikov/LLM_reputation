@@ -146,6 +146,31 @@ owns the population**, builds it, reads final scores from it, and `aclose()`s it
 - Pairings within a round run concurrently under an `asyncio.Semaphore`
   (`cfg.max_concurrency`), fail-fast via `asyncio.gather`.
 
+## LLM judge (`src/judge/`)
+
+An optional post-episode component that evaluates whether a reputation institute
+emerged from the agents' interactions. It is **invoked by the callers** (runner /
+`orchestrator_demo.py`) after `run_episode` returns — the orchestrator itself is
+untouched.
+
+- **Input**: the public cheap-talk transcript only (agent messages from all pairings,
+  all rounds). Private rationales, reflections, and payoffs are not shown.
+- **LLM call**: one call via the judge's own `ProviderCfg`; one retry if the reply
+  cannot be parsed. On persistent failure the error is logged and the episode result
+  is unaffected.
+- **Output**: a `JudgeVerdict` (emerged: bool, explanation, evidence — validated
+  references to the cited messages). The verdict is printed immediately after the
+  episode summary.
+- **Persistence**: `run_experiment` (in `src/runner.py`) stores the verdict in the
+  `judge_verdicts` SQLite table, linked by `run_id`. The judge block is
+  **excluded from the `run_id` hash** so toggling it on/off does not create new run
+  entries.
+- **replay.py**: cited messages are highlighted in yellow (ANSI); a JUDGE VERDICT
+  section is appended after the round-by-round replay.
+
+Enable by adding a `judge:` block to the episode YAML (see `docs/configuration.md`)
+or by constructing `JudgeCfg` directly in `experiment.py`.
+
 ## Key seams (intentionally not yet built)
 
 - **Logger layer** — persistence via the observer; no DB in the orchestrator.
