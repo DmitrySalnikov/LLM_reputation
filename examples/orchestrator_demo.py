@@ -24,7 +24,10 @@ from dotenv import load_dotenv
 
 from src.core.config import load_episode
 from src.core.orchestrator import run_episode
+from src.judge import JudgeError, judge_episode
 from src.population import make_population
+from src.providers.base import ProviderError
+from src.runner import print_verdict
 
 load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
 
@@ -102,6 +105,14 @@ async def main():
     for rec in records:
         outcomes[rec.outcome] = outcomes.get(rec.outcome, 0) + 1
     print("\noutcomes:", outcomes)
+
+    if cfg.judge is not None:       # опциональный LLM-судья: только печать (БД здесь нет)
+        try:
+            verdict = await judge_episode(cfg.judge, records)
+        except (JudgeError, ProviderError) as e:
+            print(f"\nсудья не смог вынести вердикт: {e}")
+        else:
+            print_verdict(verdict)
 
 
 if __name__ == "__main__":

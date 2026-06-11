@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import random
+from dataclasses import replace
 
 import pytest
 
 from src.core import orchestrator as orch
-from src.core.config import AgentSpec, EpisodeCfg, GameCfg, PopulationCfg, ProviderCfg
+from src.core.config import AgentSpec, EpisodeCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg
+from src.judge import JudgeVerdict, MessageRef
 from src.games.base import PairingRecord
 from src.matchmaking.base import RoundPlan
 from src.population import base as popbase
@@ -131,5 +133,54 @@ async def test_logs_full_episode(tmp_path):
         assert stored == {a.id: a.score for a in pop}
         # integrity: idle gives each round's idle agent +idle_payoff, sum matches
         assert sum(stored.values()) == pytest.approx(14.0)
+    finally:
+        st.close()
+
+
+# ---- Slice 4: LLM judge — run_id stability and verdict persistence ----
+
+def _judge_cfg():
+    return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
+
+
+def test_run_id_ignores_judge_block(tmp_path):
+    base = _cfg(seed=1)
+    judged = replace(base, judge=_judge_cfg())
+    a, b = _store(tmp_path, "a.db"), _store(tmp_path, "b.db")
+    try:
+        assert a.begin(base, _pop(base)) == b.begin(judged, _pop(judged))  # судья — аналитика, не геймплей
+    finally:
+        a.close(); b.close()
+
+
+def test_judge_config_still_persisted_in_runs(tmp_path):
+    cfg = replace(_cfg(), judge=_judge_cfg())
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        stored = json.loads(st._conn.execute("SELECT config FROM runs").fetchone()[0])
+        assert stored["judge"]["provider"]["model"] == "judge-m"
+    finally:
+        st.close()
+
+
+def test_save_verdict_roundtrip(tmp_path):
+    cfg = _cfg()
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        st.save_verdict(
+            JudgeVerdict(emerged=True, explanation="gossip observed",
+                         evidence=[MessageRef(round=0, pair=0, turn=1)]),
+            model="judge-m",
+        )
+        row = st._conn.execute(
+            "SELECT emerged, explanation, evidence, model, created_at FROM judge_verdicts"
+        ).fetchone()
+        assert row[0] == 1
+        assert row[1] == "gossip observed"
+        assert json.loads(row[2]) == [{"round": 0, "pair": 0, "turn": 1}]
+        assert row[3] == "judge-m"
+        assert row[4]                                  # created_at заполнен
     finally:
         st.close()

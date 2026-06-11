@@ -89,6 +89,28 @@ DEFAULT_REFLECT_PROMPT = (
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
 
+# Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
+DEFAULT_JUDGE_PROMPT = (
+    "You are an impartial judge reviewing the public communication from a multi-agent "
+    "experiment. A population of agents repeatedly played the following game: each round "
+    "a matchmaker pairs agents; partners may exchange short non-binding messages "
+    "(cheap talk), then each secretly picks an integer from 0 to 9. Equal numbers reward "
+    "both players; picking exactly one above the partner's number rewards the higher "
+    "picker at the partner's expense; any other combination pays both poorly.\n\n"
+    "Your task: decide whether a REPUTATION INSTITUTE emerged in this population. "
+    "A reputation institute is present when agents condition their behavior on a "
+    "partner's past conduct, refer to their own or others' history of keeping or "
+    "breaking promises, spread or use information about third parties (gossip), or "
+    "express trust or distrust grounded in previous rounds.\n\n"
+    "Below is the full public transcript of the episode. Every message is tagged with "
+    "an id like [r2.p0.t1] (round 2, pairing 0, turn 1).\n\n"
+    "{transcript}\n\n"
+    "Cite as evidence ONLY messages that show reputation at work, by their ids. "
+    'If there is no such evidence, return an empty list and "emerged": false.\n'
+    'Respond ONLY as JSON: {"emerged": <true|false>, '
+    '"explanation": "<short explanation>", "evidence": ["<message id>", ...]}'
+)
+
 
 @dataclass(frozen=True)
 class GameCfg:
@@ -123,6 +145,18 @@ class GameCfg:
 
 
 @dataclass(frozen=True)
+class JudgeCfg:
+    """Конфигурация LLM-судьи: отдельная модель, оценивающая эпизод после игры.
+
+    Судья видит только публичный cheap-talk; модель настраивается независимо от
+    моделей агентов. Отсутствие блока judge в конфиге = судья выключен.
+    """
+
+    provider: ProviderCfg
+    prompt: str = DEFAULT_JUDGE_PROMPT   # английский шаблон с плейсхолдером {transcript}
+
+
+@dataclass(frozen=True)
 class AgentSpec:
     persona: str
     provider: ProviderCfg
@@ -151,6 +185,7 @@ class EpisodeCfg:
     max_concurrency: int = 4
     play_strategy: str = "direct"          # "direct" | "prediction"
     prediction_mapping: str = "match"      # used only when play_strategy="prediction"
+    judge: JudgeCfg | None = None          # None = LLM-судья выключен
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
 
 
@@ -162,6 +197,13 @@ def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
     return GameCfg(payoffs=payoffs, **d)
+
+
+def _judge_cfg(d: dict) -> JudgeCfg:
+    kwargs = {}
+    if "prompt" in d:
+        kwargs["prompt"] = d["prompt"]
+    return JudgeCfg(provider=_provider_cfg(d["provider"]), **kwargs)
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
@@ -195,6 +237,10 @@ def _validate(d: dict) -> None:
 
         get_mapping(d.get("prediction_mapping", "match"))  # raises on an unknown name
 
+    judge = d.get("judge")
+    if judge is not None and "provider" not in judge:
+        raise ValueError("блок judge требует provider: модель судьи настраивается отдельно")
+
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])
     for key in ("first_name_pool", "last_name_pool"):
@@ -224,4 +270,5 @@ def load_episode(path: str) -> EpisodeCfg:
         max_concurrency=d.get("max_concurrency", 4),
         play_strategy=d.get("play_strategy", "direct"),
         prediction_mapping=d.get("prediction_mapping", "match"),
+        judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
     )

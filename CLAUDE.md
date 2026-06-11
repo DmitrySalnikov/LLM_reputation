@@ -31,6 +31,8 @@ src/
 │   └── base.py           PairingRecord, Game Protocol
 ├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
 │                   partner, map via match/one_above) — base.py, mappings.py
+├── judge/          LLM-судья: вердикт о возникновении института репутации
+│                   (один вызов после эпизода, видит только публичный cheap-talk)
 ├── population/     Population (live roster, provider cache) + RosterGenerator
 ├── matchmaking/    Matchmaker Protocol + RandomMatchmaker (disjoint pairs, idle)
 config/             one YAML = one episode (experiment.yaml, example.yaml, example_prediction.yaml)

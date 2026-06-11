@@ -25,16 +25,30 @@ import asyncio
 import logging
 import os
 import sys
+from dataclasses import replace
 
 from dotenv import load_dotenv
 
-from src.core.config import load_episode
+from src.core.config import JudgeCfg, ProviderCfg, load_episode  # noqa: F401 (JudgeCfg/ProviderCfg used in commented example below)
 from src.runner import run
 
 load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
 
 DB = "experiment.db"                 # one DB, many runs; appended to on every run
 DEFAULT_CONFIG = "config/experiment.yaml"
+
+# --- LLM judge (optional) ------------------------------------------------------
+# Отдельная модель, которая в конце эпизода решает, возник ли институт репутации.
+# Судья видит только публичный cheap-talk; вердикт печатается, сохраняется в БД и
+# подсвечивается в replay.py. None = судья выключен.
+# Чтобы включить: раскомментируй JUDGE ниже — он подменит блок judge из YAML
+# (или задай блок `judge:` прямо в YAML-конфигурации — это эквивалентно).
+JUDGE = None
+# JUDGE = JudgeCfg(provider=ProviderCfg(
+#     base_url="https://api.together.xyz/v1",
+#     api_key_env="TOGETHER_API_KEY",
+#     model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+# ))
 
 
 def configure_llm_trace() -> None:
@@ -57,4 +71,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     config_path = args[0] if args else DEFAULT_CONFIG   # which episode YAML to run
     name = args[1] if len(args) > 1 else None           # optional human label for the run
-    asyncio.run(run(load_episode(config_path), DB, name))
+    cfg = load_episode(config_path)
+    if JUDGE is not None:           # Python-переопределение судьи поверх YAML (см. JUDGE выше)
+        cfg = replace(cfg, judge=JUDGE)
+    asyncio.run(run(cfg, DB, name))

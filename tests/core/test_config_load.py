@@ -216,3 +216,51 @@ def test_missing_pools_fall_back(tmp_path):
     cfg = load_episode(str(f))                       # must NOT raise
     assert cfg.population.first_name_pool == []
     assert cfg.population.last_name_pool == []
+
+
+# ---- LLM judge config (optional block, separate model) ----
+
+def _judge_yaml(tmp_path, judge_block):
+    f = tmp_path / "judge.yaml"
+    f.write_text(textwrap.dedent(
+        f"""
+        seed: 1
+        rounds: 2
+        matchmaker: random
+        {judge_block}
+        population:
+          kind: roster
+          agents:
+            - persona: "p"
+              provider: {{base_url: "http://x/v1", model: "m"}}
+        """
+    ))
+    return str(f)
+
+
+def test_judge_absent_by_default():
+    cfg = load_episode(EXAMPLE)
+    assert cfg.judge is None
+
+
+def test_judge_block_loads(tmp_path):
+    path = _judge_yaml(tmp_path, 'judge: {provider: {base_url: "http://j/v1", model: "judge-m"}}')
+    cfg = load_episode(path)
+    assert cfg.judge is not None
+    assert cfg.judge.provider.model == "judge-m"
+    assert cfg.judge.provider.base_url == "http://j/v1"
+    assert "{transcript}" in cfg.judge.prompt        # default prompt has the placeholder
+
+
+def test_judge_custom_prompt_loads(tmp_path):
+    path = _judge_yaml(
+        tmp_path,
+        'judge: {provider: {base_url: "http://j/v1", model: "judge-m"}, prompt: "Judge this: {transcript}"}',
+    )
+    assert load_episode(path).judge.prompt == "Judge this: {transcript}"
+
+
+def test_judge_without_provider_raises(tmp_path):
+    path = _judge_yaml(tmp_path, 'judge: {prompt: "no provider here"}')
+    with pytest.raises(ValueError):
+        load_episode(path)

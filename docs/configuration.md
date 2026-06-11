@@ -37,6 +37,34 @@ DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
 | `prediction_mapping` | only used when `play_strategy: prediction`; `match` or `one_above` |
 | `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`) |
 | `population` | `PopulationCfg` (see below) |
+| `judge` | `JudgeCfg` or absent/`null` — optional LLM judge (see below) |
+
+## LLM judge block (`JudgeCfg`, `src/core/config.py:148`)
+
+An optional top-level `judge:` block enables a separate LLM that reads the episode's
+public cheap-talk transcript once after the episode ends and returns a verdict on
+whether a reputation institute emerged.
+
+```yaml
+judge:
+  provider:
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY        # env-var name (not the value itself)
+    model: Qwen/Qwen2.5-72B-Instruct-Turbo
+  # prompt: optional override of the default English judge prompt ({transcript} placeholder)
+```
+
+| sub-field | meaning |
+|-----------|---------|
+| `provider` | required; same `ProviderCfg` shape as agent providers — YAML anchors (`*alias`) work here too |
+| `prompt` | optional; overrides `DEFAULT_JUDGE_PROMPT` (`src/core/config.py`); must contain `{transcript}` — the placeholder is replaced literally with the full public cheap-talk feed |
+
+Notes:
+- Omitting `judge:` (or setting it to `null`) disables the judge entirely (`cfg.judge is None`).
+- The judge config field is **excluded from the `run_id` hash** — adding or removing the
+  judge does not create a new run entry; only the game/population config matters for de-duplication.
+- The verdict is printed by the runner / demo and stored in the `judge_verdicts` table in
+  the SQLite DB; `replay.py` highlights cited messages in yellow and appends a JUDGE VERDICT section.
 
 ## Provider blocks & YAML anchors
 

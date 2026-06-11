@@ -21,6 +21,17 @@ provider_default: &default
   temperature: 0.7
   max_tokens: 1000
 
+# Optional LLM judge: a separate model that reads the episode's public cheap-talk once
+# at the end and decides whether a reputation institute emerged (verdict is printed;
+# in experiment.py runs it is also stored and replay.py highlights cited messages).
+# Uncomment to enable; the judge model is configured independently of the agents.
+# judge:
+#   provider:
+#     base_url: https://api.together.xyz/v1
+#     api_key_env: TOGETHER_API_KEY
+#     model: Qwen/Qwen2.5-72B-Instruct-Turbo
+#   # prompt: optional override of the default English judge prompt ({transcript} placeholder)
+
 population:
   kind: roster                # each type's `count` agents are built; total = sum(counts)
   # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.

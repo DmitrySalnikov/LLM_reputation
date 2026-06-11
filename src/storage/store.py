@@ -8,13 +8,16 @@ from datetime import datetime, timezone
 
 from src.core.config import EpisodeCfg
 from src.games.base import PairingRecord
+from src.judge import JudgeVerdict
 from src.matchmaking import RoundPlan
 from src.population import Population
 from src.storage.schema import init_schema
 
 
 def _run_id(cfg: EpisodeCfg) -> str:
-    canon = json.dumps(asdict(cfg), sort_keys=True)          # stable across processes
+    d = asdict(cfg)
+    d.pop("judge", None)            # судья — аналитика, не геймплей: не влияет на run_id
+    canon = json.dumps(d, sort_keys=True)               # stable across processes
     return hashlib.sha256(canon.encode()).hexdigest()[:16]
 
 
@@ -100,6 +103,22 @@ class Storage:
             self._conn.executemany(
                 "UPDATE agents SET final_score=? WHERE run_id=? AND agent_id=?",
                 [(a.score, rid, a.id) for a in pop],
+            )
+
+    def save_verdict(self, verdict: JudgeVerdict, *, model: str) -> None:
+        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run)."""
+        with self._conn:
+            self._conn.execute(
+                """INSERT INTO judge_verdicts(run_id, emerged, explanation, evidence, model, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    self._run_id,
+                    int(verdict.emerged),
+                    verdict.explanation,
+                    json.dumps([asdict(e) for e in verdict.evidence]),
+                    model,
+                    _now(),
+                ),
             )
 
     def close(self) -> None:
