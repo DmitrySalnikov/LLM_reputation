@@ -40,10 +40,11 @@ def _fake_providers(monkeypatch):
 
 
 def _cfg(seed=0, n=3, rounds=2):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
+    spec = AgentSpec(persona="p", count=n)
     return EpisodeCfg(
         seed=seed, rounds=rounds, matchmaker="random",
-        population=PopulationCfg(kind="roster", agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),
     )
 
@@ -97,8 +98,9 @@ def test_begin_twice_raises_duplicate_run_error(tmp_path):
 
 
 def test_begin_accepts_null_persona(tmp_path):
-    spec = AgentSpec(persona=None, provider=ProviderCfg(base_url="http://x/v1", model="m"), count=1)
-    cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec]))
+    spec = AgentSpec(persona=None, count=1)
+    cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec],
+                                                   provider=ProviderCfg(base_url="http://x/v1", model="m")))
     st = _store(tmp_path)
     try:
         st.begin(cfg, _pop(cfg))

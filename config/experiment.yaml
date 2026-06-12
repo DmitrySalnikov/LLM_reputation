@@ -1,7 +1,7 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 11                      # drives population build + matchmaker rng (change to force a fresh run)
+seed: 12                      # drives population build + matchmaker rng (change to force a fresh run)
 rounds: 2
 max_concurrency: 4            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
@@ -10,34 +10,32 @@ idle_payoff: 1                # what an agent scores in a round it sits out (odd
 play_strategy: direct         # "direct" (pick a number) | "prediction" (predict partner, then map)
 prediction_mapping: match     # used only when play_strategy=prediction: "match" | "one_above"
 
-# ── Provider (src/core/config.py: ProviderCfg) ────────────────────────────────
-provider_default: &default
-  base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
-  model: llama3.1:8b
-  # base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
-  # api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
-  # model: openai/gpt-oss-20b
-  temperature: 0.7
-  max_tokens: 2000
-  timeout_s: 120                # HTTP timeout per LLM call, seconds
-
 # ── Population (src/core/config.py: PopulationCfg) ────────────────────────────
 population:
-  kind: roster
   # System opener, shared by all agents ({id} -> agent id).
   identity_prompt: "You are AI agent {id}."
+  # Per-agent keys: persona (null -> omit it), count.
+  agents:
+    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1}
+    # - {persona: "You are a cautious player who values trust.", count: 1}
+    - {persona: null, count: 2}
+  # One LLM provider, shared by all agents
+  provider:
+    base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
+    model: llama3.1:8b
+    # base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
+    # api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
+    # model: openai/gpt-oss-20b
+    temperature: 0.7
+    max_tokens: 2000
+    timeout_s: 120                # HTTP timeout per LLM call, seconds
+  kind: roster
   # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  # Per-agent keys: persona (null -> omit it), count, provider.
-  agents:
-    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1, provider: *default}
-    # - {persona: "You are a cautious player who values trust.", count: 1, provider: *default}
-    - {persona: null, count: 1, provider: *default}
-    - {persona: null, count: 1, provider: *default}
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:

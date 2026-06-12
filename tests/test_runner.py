@@ -30,10 +30,11 @@ def _fake_providers(monkeypatch):
 
 
 def _cfg(judge=None):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=2)
+    spec = AgentSpec(persona="p", count=2)
     return EpisodeCfg(
         seed=0, rounds=1, matchmaker="random",
-        population=PopulationCfg(kind="roster", agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),
         judge=judge,
     )

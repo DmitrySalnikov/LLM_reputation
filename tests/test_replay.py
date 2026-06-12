@@ -3,7 +3,24 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from replay import cited_set, highlight, load_verdict
+from replay import _provider_line, _roster_line, cited_set, highlight, load_verdict
+
+
+def test_provider_line_puts_model_last():
+    prov = {"model": "llama3.1:8b", "temperature": 0.7, "max_tokens": 2000}
+    assert _provider_line(prov) == "provider: temp=0.7 max_tokens=2000 model=llama3.1:8b"
+
+
+def test_roster_line_shows_persona_and_count():
+    assert _roster_line({"persona": "pragmatic", "count": 3}) == "  3x pragmatic"
+
+
+def test_roster_line_renders_null_persona_as_placeholder():
+    assert _roster_line({"persona": None, "count": 1}) == "  1x (no persona)"
+
+
+def test_roster_line_count_defaults_to_one():
+    assert _roster_line({"persona": "p"}) == "  1x p"
 
 
 def test_cited_set_parses_evidence_json():

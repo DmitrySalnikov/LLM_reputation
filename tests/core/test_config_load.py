@@ -36,12 +36,12 @@ def test_reflection_and_rationale_defaults(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           n_agents: 2
           first_name_pool: [Kurisu, Mayuri]
           last_name_pool: [Makise, Shiina]
           agents:
             - persona: "p"
-              provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
     cfg = load_episode(str(f))
@@ -59,12 +59,12 @@ def test_rationale_loaded_from_game_block(tmp_path):
         game: {rationale: false}
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           n_agents: 2
           first_name_pool: [Kurisu, Mayuri]
           last_name_pool: [Makise, Shiina]
           agents:
             - persona: "p"
-              provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
     assert load_episode(str(f)).game.rationale is False
@@ -75,14 +75,12 @@ def test_reflection_loaded_from_game_block():
     assert cfg.game.reflection is True   # включено в примере конфигурации
 
 
-def test_yaml_anchor_shared_provider():
+def test_population_provider_loaded():
     cfg = load_episode(EXAMPLE)
-    p0 = cfg.population.agents[0].provider
-    p1 = cfg.population.agents[1].provider
-    assert p0 == p1                                  # &default / *default -> identical provider cfg
-    assert p0.model == "Qwen/Qwen2.5-7B-Instruct-Turbo"
-    assert p0.base_url.endswith("/v1")
-    assert p0.api_key_env == "TOGETHER_API_KEY"
+    p = cfg.population.provider                       # один провайдер на популяцию (&default / *default)
+    assert p.model == "Qwen/Qwen2.5-7B-Instruct-Turbo"
+    assert p.base_url.endswith("/v1")
+    assert p.api_key_env == "TOGETHER_API_KEY"
 
 
 def test_defaults_applied(tmp_path):
@@ -94,9 +92,9 @@ def test_defaults_applied(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           agents:
             - persona: "p"
-              provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
     cfg = load_episode(str(f))
@@ -118,12 +116,30 @@ def test_persona_optional_defaults_to_none(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           agents:
-            - provider: {base_url: "http://x/v1", model: "m"}
+            - {}
         """
     ))
     cfg = load_episode(str(f))
     assert cfg.population.agents[0].persona is None
+
+
+def test_provider_required_at_population_level(tmp_path):
+    f = tmp_path / "no_provider.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          agents:
+            - {persona: "p"}
+        """
+    ))
+    with pytest.raises(KeyError):                     # provider обязателен на уровне population, дефолта нет
+        load_episode(str(f))
 
 
 def test_identity_prompt_defaults_when_omitted(tmp_path):
@@ -135,8 +151,9 @@ def test_identity_prompt_defaults_when_omitted(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           agents:
-            - {persona: "p", provider: {base_url: "http://x/v1", model: "m"}}
+            - {persona: "p"}
         """
     ))
     cfg = load_episode(str(f))                        # identity_prompt — общий на популяцию, с дефолтом
@@ -152,9 +169,10 @@ def test_identity_prompt_loaded_from_population_block(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           identity_prompt: "You are a human player named {id}."
           agents:
-            - {persona: "p", provider: {base_url: "http://x/v1", model: "m"}}
+            - {persona: "p"}
         """
     ))
     cfg = load_episode(str(f))
@@ -192,12 +210,12 @@ def test_prediction_config_loads(tmp_path):
         prediction_mapping: one_above
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           first_name_pool: [Kurisu, Mayuri, Itaru]
           last_name_pool: [Makise, Shiina, Hashida]
           agents:
             - persona: "p"
               count: 2
-              provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
     cfg = load_episode(str(f))
@@ -217,12 +235,12 @@ def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
         prediction_mapping: {mapping}
         population:
           kind: roster
+          provider: {{base_url: "http://x/v1", model: "m"}}
           first_name_pool: {firsts}
           last_name_pool: {lasts}
           agents:
             - persona: "p"
               count: {count}
-              provider: {{base_url: "http://x/v1", model: "m"}}
         """
     ))
     return str(f)
@@ -259,10 +277,10 @@ def test_missing_pools_fall_back(tmp_path):
         matchmaker: random
         population:
           kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
           agents:
             - persona: "p"
               count: 2
-              provider: {base_url: "http://x/v1", model: "m"}
         """
     ))
     cfg = load_episode(str(f))                       # must NOT raise
@@ -282,9 +300,9 @@ def _judge_yaml(tmp_path, judge_block):
         {judge_block}
         population:
           kind: roster
+          provider: {{base_url: "http://x/v1", model: "m"}}
           agents:
             - persona: "p"
-              provider: {{base_url: "http://x/v1", model: "m"}}
         """
     ))
     return str(f)

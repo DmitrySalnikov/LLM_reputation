@@ -30,8 +30,10 @@ DB_DEFAULT = "experiment.db"
 # Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
 # секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
 _PROMPT_KEYS = ("rules", "talk_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
-# Из дампа конфига выкидываем и эти ключи population — ростер печатается отдельной секцией.
-_POP_DROP = ("agents", "first_name_pool", "last_name_pool")
+# Из дампа конфига выкидываем эти ключи population — ростер (агенты), пулы имён и
+# identity-промпт печатаются отдельными секциями выше. provider оставляем: его сводка
+# идёт строкой под шапкой, а полный блок (base_url, timeout_s, …) виден в дампе.
+_POP_DROP = ("agents", "first_name_pool", "last_name_pool", "identity_prompt")
 
 
 def _trim_ms(ts):
@@ -40,6 +42,17 @@ def _trim_ms(ts):
         return ts
     ts = re.sub(r"\.\d+", "", ts)                  # strip fractional seconds
     return re.sub(r"[+-]\d{2}:\d{2}$", "", ts)     # strip tz offset
+
+
+def _roster_line(spec):
+    """Одна строка ростера 'Nx <persona>'; пустая (null) персона -> '(no persona)'."""
+    return f"  {spec.get('count', 1)}x {spec.get('persona') or '(no persona)'}"
+
+
+def _provider_line(prov):
+    """Сводка провайдера одной строкой; model — последней."""
+    return (f"provider: temp={prov['temperature']} "
+            f"max_tokens={prov['max_tokens']} model={prov['model']}")
 
 
 def _duration(created, finished):
@@ -183,7 +196,10 @@ def replay(conn, run_id, show_config=False, show_calls=False):
     cited = cited_set(verdict[2]) if verdict else set()
     color = sys.stdout.isatty()                       # ANSI только в терминале
 
-    n_agents = sum(a.get("count", 1) for a in cfg["population"]["agents"])  # derived from counts
+    pop = cfg["population"]
+    n_agents = sum(a.get("count", 1) for a in pop["agents"])  # derived from counts
+    # Провайдер общий на популяцию; в старых прогонах он лежал на каждом агенте — фолбэк.
+    prov = pop.get("provider") or (pop["agents"][0].get("provider") if pop["agents"] else None)
     game_cfg = cfg.get("game", {})
     show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
     show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
@@ -194,7 +210,10 @@ def replay(conn, run_id, show_config=False, show_calls=False):
     print(f"{bar}\n  REPLAY run_id={title}\n{bar}")
     print(f"{n_agents} agents, {cfg['rounds']} rounds, "
           f"max_talk_turns={cfg['game']['max_talk_turns']}")
-    print(f"created={_trim_ms(created)}  finished={_trim_ms(finished) or '(unfinished)'}")
+    if prov:
+        print(_provider_line(prov))                  # сводка провайдера сразу под шапкой
+    if show_config:                                  # таймстемпы — только в подробном выводе (--config)
+        print(f"created={_trim_ms(created)}  finished={_trim_ms(finished) or '(unfinished)'}")
     pt, ct = conn.execute(
         """SELECT COALESCE(SUM(usage_prompt_tokens), 0), COALESCE(SUM(usage_completion_tokens), 0)
            FROM pairings WHERE run_id=?""",
@@ -204,27 +223,29 @@ def replay(conn, run_id, show_config=False, show_calls=False):
 
     if show_config:
         game = cfg.get("game", {})
+        identity = pop.get("identity_prompt")   # общий на популяцию (старые прогоны: нет)
         present = [k for k in _PROMPT_KEYS if k in game]
         print("\nprompts:")
-        if not present:
+        if not present and not identity:
             print("  (not recorded — run predates configurable prompts)")
+        if identity:
+            print("  [identity_prompt]")
+            print("    " + identity.replace("\n", "\n    "))
         for key in present:
             text = game[key]
             print(f"  [{key}]")
             print("    " + (text.replace("\n", "\n    ") if text else "(empty)"))
 
-    print(f"\nroster ({n_agents} agents):")
-    for spec in cfg["population"]["agents"]:        # one line per type, as in the config
-        p = spec["provider"]
-        print(f"  {spec.get('count', 1)}x {spec['persona']}")
-        print(f"       provider: model={p['model']} "
-              f"temp={p['temperature']} max_tokens={p['max_tokens']}")
+        # ростер — только в подробном выводе, без провайдера (он уже строкой выше и в config-дампе)
+        print(f"\nroster ({n_agents} agents):")
+        for spec in pop["agents"]:        # one line per type, as in the config
+            print(_roster_line(spec))
 
     if show_config:
-        # config dump AFTER prompts + roster (both shown above) and WITHOUT them: drop the
-        # prompt strings, the agents list and the name pools — keep it to the scalar knobs.
+        # config dump AFTER prompts + roster (shown above) and WITHOUT them: drop the prompt
+        # strings, the agents list, the name pools and identity_prompt. The provider stays so
+        # its full block (base_url, timeout_s, …) is visible beyond the one-line summary above.
         game = cfg.get("game", {})
-        pop = cfg.get("population", {})
         slim = dict(cfg)
         slim["game"] = {k: v for k, v in game.items() if k not in _PROMPT_KEYS}
         slim["population"] = {k: v for k, v in pop.items() if k not in _POP_DROP}

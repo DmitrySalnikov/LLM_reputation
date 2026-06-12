@@ -23,16 +23,16 @@ def _ollama_up() -> bool:
 
 @pytest.mark.skipif(not _ollama_up(), reason="local Ollama not reachable")
 async def test_run_episode_against_ollama():
-    spec = AgentSpec(
-        persona="You are a pragmatic player.",
-        provider=ProviderCfg(base_url=OLLAMA_URL, model=MODEL, temperature=0.7, max_tokens=256),
-        count=2,
-    )
+    spec = AgentSpec(persona="You are a pragmatic player.", count=2)
     cfg = EpisodeCfg(
         seed=1,
         rounds=1,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", agents=[spec]),
+        population=PopulationCfg(
+            kind="roster",
+            agents=[spec],
+            provider=ProviderCfg(base_url=OLLAMA_URL, model=MODEL, temperature=0.7, max_tokens=256),
+        ),
         game=GameCfg(max_talk_turns=2),
     )
     pop = make_population(cfg.population, context_window=cfg.context_window).build(

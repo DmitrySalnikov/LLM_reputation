@@ -28,9 +28,12 @@ class Payoffs:
 # editable config defaults so an experiment can swap any prompt AND so the exact text is
 # persisted into the run's stored config. src/games/prompts.py fills these placeholders by
 # literal string replacement (NOT str.format — the JSON examples contain real braces):
+#   identity:             {id}
 #   rules:                {R} {T} {P} {S}              <- payoff values
 #   talk/decide/predict:  {partner} {round} {feed}
 #   reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
+DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
+
 DEFAULT_RULES = (
     "You are playing a repeated game. Each round you face one partner.\n"
     "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
@@ -88,11 +91,6 @@ DEFAULT_REFLECT_PROMPT = (
     "and what should you do differently (or keep doing) in future rounds?\n"
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
-
-# Преамбула system-промпта, общая для всех агентов популяции (как и правила игры,
-# это часть фиксированной рамки эпизода, а не атрибут отдельного агента). {id} ->
-# id агента подставляется в Agent.system_prompt.
-DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
 
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
@@ -164,7 +162,6 @@ class JudgeCfg:
 @dataclass(frozen=True)
 class AgentSpec:
     persona: str | None      # None -> агент без persona (только преамбула + правила в system)
-    provider: ProviderCfg
     count: int = 1                   # how many agents of this type to build
 
 
@@ -172,6 +169,9 @@ class AgentSpec:
 class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
+    # Провайдер LLM, общий на всю популяцию (вариативность модели между агентами не нужна —
+    # это фиксированная рамка эпизода, как и правила/identity). Обязателен, дефолта нет.
+    provider: ProviderCfg
     # Преамбула system-промпта, общая на всю популяцию ({id} -> id агента). Дефолт
     # покрывает обычный случай; перекрывается полем identity_prompt в блоке population.
     identity_prompt: str = DEFAULT_IDENTITY_PROMPT
@@ -216,13 +216,13 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a.get("persona"), provider=_provider_cfg(a["provider"]),
-                  count=a.get("count", 1))
+        AgentSpec(persona=a.get("persona"), count=a.get("count", 1))
         for a in d["agents"]
     ]
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
+        provider=_provider_cfg(d["provider"]),
         identity_prompt=d.get("identity_prompt", DEFAULT_IDENTITY_PROMPT),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),

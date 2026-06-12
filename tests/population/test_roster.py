@@ -36,12 +36,15 @@ def created(monkeypatch):
     return made
 
 
-def _spec(persona, base_url="http://x/v1", model="m", count=1):
-    return AgentSpec(persona=persona, provider=ProviderCfg(base_url=base_url, model=model), count=count)
+_PROVIDER = ProviderCfg(base_url="http://x/v1", model="m")
 
 
-def _pop_cfg(specs):
-    return PopulationCfg(kind="roster", agents=specs)
+def _spec(persona, count=1):
+    return AgentSpec(persona=persona, count=count)
+
+
+def _pop_cfg(specs, provider=_PROVIDER):
+    return PopulationCfg(kind="roster", agents=specs, provider=provider)
 
 
 def test_roster_expands_by_count_and_ids(created):
@@ -53,13 +56,13 @@ def test_roster_expands_by_count_and_ids(created):
     assert len(pop) == 5
 
 
-def test_provider_cached_by_base_url_model(created):
-    specs = [_spec("p0", model="m"), _spec("p1", model="m"), _spec("p2", model="other")]
+def test_provider_shared_across_all_agents(created):
+    # provider is population-wide -> every agent dedups to one cached client
+    specs = [_spec("p0", count=2), _spec("p1", count=1)]
     pop = make_population(_pop_cfg(specs)).build(random.Random(0))
     a1, a2, a3 = pop.get("A1"), pop.get("A2"), pop.get("A3")
-    assert a1.provider is a2.provider          # same (base_url, model) -> shared client
-    assert a1.provider is not a3.provider      # different model -> different client
-    assert len(created) == 2                    # only two providers ever created
+    assert a1.provider is a2.provider is a3.provider   # same cfg -> shared client
+    assert len(created) == 1                             # only one provider ever created
 
 
 def test_context_window_threaded_to_agents(created):
@@ -67,22 +70,22 @@ def test_context_window_threaded_to_agents(created):
     assert pop.get("A1")._window == 3 and pop.get("A2")._window == 3
 
 
-async def test_aclose_closes_each_unique_provider_once(created):
-    specs = [_spec("p0", model="m"), _spec("p1", model="m"), _spec("p2", model="other")]
+async def test_aclose_closes_the_shared_provider_once(created):
+    specs = [_spec("p0", count=2), _spec("p1", count=1)]
     pop = make_population(_pop_cfg(specs)).build(random.Random(0))
     await pop.aclose()
-    assert len(created) == 2
-    assert all(p.closed == 1 for p in created)   # each unique client closed exactly once
+    assert len(created) == 1
+    assert all(p.closed == 1 for p in created)   # the shared client closed exactly once
 
 
 def test_make_population_unknown_kind_raises():
-    cfg = PopulationCfg(kind="nope", agents=[_spec("p")])
+    cfg = PopulationCfg(kind="nope", agents=[_spec("p")], provider=_PROVIDER)
     with pytest.raises(ValueError):
         make_population(cfg)
 
 
 def _pop_cfg_named(specs, firsts, lasts):
-    return PopulationCfg(kind="roster", agents=specs,
+    return PopulationCfg(kind="roster", agents=specs, provider=_PROVIDER,
                          first_name_pool=firsts, last_name_pool=lasts)
 
 

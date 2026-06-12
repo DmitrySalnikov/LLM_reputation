@@ -68,9 +68,11 @@ Notes:
 
 ## Provider blocks & YAML anchors
 
-A provider block is shared across agents via a YAML `&anchor` / `*alias`. pyyaml
-resolves these itself, so the same dict reaches every agent (`load_episode`
-docstring). Example:
+The provider lives on the **population** (`population.provider`), one LLM shared by every
+agent — model variability between agents isn't a research dimension, so like the rules and
+the identity prompt it is a single fixed frame for the episode. A common pattern is to define
+the provider as a top-level `&anchor` and reference it with `*alias`; pyyaml resolves these
+itself. Example:
 
 ```yaml
 provider_default: &default
@@ -89,22 +91,23 @@ any `/chat/completions` endpoint (Together.ai in prod, Ollama for smoke tests).
 ```yaml
 population:
   kind: roster                       # only roster is implemented
+  provider: *default                 # one LLM provider, shared by all agents (required)
   identity_prompt: "You are AI agent {id}."   # system opener shared by all agents (optional)
   n_agents: 4
   first_name_pool: [...]             # >= n_agents unique names, validated
   last_name_pool:  [...]             # >= n_agents unique names, validated
   agents:                            # shorter than n_agents -> cycled at build time
-    - {persona: "...", provider: *default}
-    - {provider: *default}            # persona optional -> omitted
+    - {persona: "...", count: 2}
+    - {}                             # persona optional -> omitted
 ```
 
-`identity_prompt` — the system-prompt opener placed before the persona; `{id}` is replaced
-with the agent id. It lives on the **population**, not the agent: like the game rules it is
-the same fixed frame for every agent in the episode (reputation isn't being studied through
-per-agent identities). It is **optional** — when omitted it defaults to `"You are AI agent
-{id}."` (`DEFAULT_IDENTITY_PROMPT` in `src/core/config.py`).
+`provider` — **required**, no default; the LLM used by every agent (see above). `identity_prompt`
+— the system-prompt opener placed before the persona; `{id}` is replaced with the agent id.
+Both live on the **population**, not the agent: like the game rules they are the same fixed
+frame for every agent in the episode. `identity_prompt` is **optional** — when omitted it
+defaults to `"You are AI agent {id}."` (`DEFAULT_IDENTITY_PROMPT` in `src/core/config.py`).
 
-Per-agent keys: `persona` (optional; omit/`null` to drop it), `count`, `provider`.
+Per-agent keys: `persona` (optional; omit/`null` to drop it), `count`.
 
 Agent ids are sampled as unique `First Last` strings from the two pools. `_validate`
 (`src/core/config.py:88`) enforces: both pools present, no duplicates within a pool,

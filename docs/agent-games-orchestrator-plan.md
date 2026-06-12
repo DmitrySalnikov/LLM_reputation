@@ -119,9 +119,10 @@ tests/
 ```python
 # core/config.py  (добавления)
 @dataclass(frozen=True)
-class AgentSpec:        persona: str | None; provider: ProviderCfg
+class AgentSpec:        persona: str | None; count: int = 1
 @dataclass(frozen=True)
-class PopulationCfg:    kind: str; n_agents: int; agents: list[AgentSpec]
+class PopulationCfg:    kind: str; agents: list[AgentSpec]; provider: ProviderCfg  # provider общий на популяцию
+                       # + identity_prompt (дефолт), first/last_name_pool
 @dataclass(frozen=True)
 class EpisodeCfg:
     seed: int; rounds: int; matchmaker: str
@@ -188,8 +189,9 @@ async def run_episode(cfg, pop, *, observer=None) -> None:    # pop постро
 ```
 `_guarded(coro, sem)`: `async with sem: return await coro`.
 
-`RosterGenerator.build`: `for i in range(n_agents): spec = agents[i % len(agents)];
-pop.add(AgentSetup(spec.persona, spec.provider))` → ID `A1..An`, провайдеры из кэша.
+`RosterGenerator.build`: разворачивает каждый `spec` по его `count`;
+`pop.add(AgentSetup(spec.persona, cfg.provider, cfg.identity_prompt))` → ID `A1..An`
+(или имена из пулов), провайдер общий на популяцию, берётся из кэша.
 
 ## 6. Срезы (порядок реализации)
 
