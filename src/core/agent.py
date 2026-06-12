@@ -131,7 +131,7 @@ class Agent:
         self._window = context_window
 
     def system_prompt(self, rules: str = "") -> str:
-        system = f"You are agent {self.id}."
+        system = f"You are AI agent {self.id}."
         if self.setup.persona:
             system = f"{system}\n\n{self.setup.persona}"
         if rules:

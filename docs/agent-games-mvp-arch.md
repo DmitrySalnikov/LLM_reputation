@@ -106,7 +106,7 @@ class Agent:
     id: str; setup: AgentSetup; memory: Memory; score: float; parse_failures: int
     def __init__(self, id, setup, provider: LLMProvider, *, context_window: int | None = None): ...
     async def act(self, phase: Phase) -> ActResult
-    #   system = «You are agent {id}» + persona + phase.rules; messages = memory.render(context_window) + [user(phase.context)]
+    #   system = «You are AI agent {id}» + persona + phase.rules; messages = memory.render(context_window) + [user(phase.context)]
     #   вызывает provider.complete; парсит JSON по phase.kind; кривой ответ → ретрай×2 + безопасный дефолт (parse_failures++)
 ```
 

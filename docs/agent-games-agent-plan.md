@@ -97,14 +97,14 @@ class Agent:
         self._window = context_window      # None = ∞
 
     async def act(self, phase: Phase) -> ActResult:
-        system = f"You are agent {self.id}." + ("\n\n" + self.setup.persona if self.setup.persona else "") + ("\n\n" + phase.rules if phase.rules else "")
+        system = f"You are AI agent {self.id}." + ("\n\n" + self.setup.persona if self.setup.persona else "") + ("\n\n" + phase.rules if phase.rules else "")
         base_messages = self.memory.render(self._window) + [Message("user", phase.context)]
         # цикл парс-ретраев (§6): зовём провайдер, парсим по phase.kind
         # суммируем usage по попыткам; на успехе -> ActResult
 ```
 
 Шаги одного `act`:
-1. **`system`** = свой ID (`«You are agent {self.id}»`) + персона (`setup.persona`,
+1. **`system`** = свой ID (`«You are AI agent {self.id}»`) + персона (`setup.persona`,
    опциональна — при `None` блок персоны опускается) + правила (`phase.rules`). ID
    агент знает сам; правилами владеет Игра (строит `Phase`);
    Агент остаётся игронезависимым — просто склеивает.

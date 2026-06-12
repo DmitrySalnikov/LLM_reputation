@@ -147,7 +147,7 @@ async def test_system_omits_persona_when_none():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     await _agent(p, persona=None).act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
     system, _ = p.calls[0]
-    assert system == "You are agent A1.\n\nGAME RULES"
+    assert system == "You are AI agent A1.\n\nGAME RULES"
 
 
 async def test_usage_summed_over_retries():
