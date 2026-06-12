@@ -97,7 +97,7 @@ in `make_strategy`, and (if it needs validation) extend `_validate` in
 Deep dive: [agent-games-agent-plan.md](./agent-games-agent-plan.md).
 
 An `Agent` owns its `Memory`, running `score`, and an `LLMProvider`. `Agent.act`
-renders memory + a phase context into messages, calls the provider, and parses the
+glues the memory diary and the phase context into a single user message, calls the provider, and parses the
 reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total failure it
 raises `ActParseError` (no substitution) — the pairing is aborted (`finished=0`) and the
 episode stops, same as a provider error. It also bumps `parse_failures`.

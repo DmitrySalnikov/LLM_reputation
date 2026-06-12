@@ -121,6 +121,7 @@ async def test_reflect_invalid_then_valid_retries_with_correction():
     assert r.data["reflection"] == "ok"
     assert len(p.calls) == 2
     _, messages = p.calls[1]
+    assert len(messages) == 1                     # поправка склеена в то же user-сообщение
     assert "reflection" in messages[-1].content  # correction names the expected key
 
 
@@ -212,7 +213,7 @@ async def test_predict_phase_parses_number_and_rationale():
     assert r.public_text is None  # PREDICT produces no public message
 
 
-async def test_memory_diary_precedes_situation_in_prompt():
+async def test_memory_diary_precedes_situation_in_one_message():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     a = _agent(p)
     a.memory.add(
@@ -229,9 +230,11 @@ async def test_memory_diary_precedes_situation_in_prompt():
     )
     await a.act(Phase(PhaseKind.DECIDE, "SITUATION", rules="R"))
     _system, messages = p.calls[0]
-    assert len(messages) == 2
-    assert messages[0].role == "user" and "Round 2" in messages[0].content and "A7" in messages[0].content
-    assert messages[-1].content == "SITUATION"
+    assert len(messages) == 1 and messages[0].role == "user"   # дневник и ситуация склеены
+    content = messages[0].content
+    assert "Round 2" in content and "A7" in content            # дневник присутствует
+    assert content.endswith("SITUATION")                       # ситуация — в конце
+    assert content.index("Round 2") < content.index("SITUATION")   # дневник раньше ситуации
 
 
 def _trace_records(caplog):

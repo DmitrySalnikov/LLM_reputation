@@ -117,9 +117,10 @@ If the new kind needs config validation, extend `_validate` in `src/core/config.
 
 <important if="you are changing Agent.act, phases, prompts, or memory rendering">
 - The LLM input is assembled in `Agent.act` (`src/core/agent.py`): system =
-  persona + game rules; messages = memory diary + phase context (+ correction on
-  JSON parse retry, max 2 retries, then `ActParseError` — the pairing is aborted, no
-  substitution/fallback).
+  persona + game rules; a single user message = memory diary + phase context (+ correction
+  appended on JSON parse retry, max 2 retries, then `ActParseError` — the pairing is
+  aborted, no substitution/fallback). The diary and phase context are glued into one
+  user message (not sent as consecutive same-role messages).
 - JSON extraction is lenient (raw / fenced / balanced-brace); validators per phase.
 - DECIDE/PREDICT inputs are traced at DEBUG via the `src.core.agent` logger
   (`_render_trace`); keep the trace in sync if you change prompt assembly.

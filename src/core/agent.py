@@ -141,7 +141,8 @@ class Agent:
 
     async def act(self, phase: Phase) -> ActResult:
         system = self.system_prompt(phase.rules)
-        base = self.memory.render(self._window) + [Message("user", phase.context)]
+        diary = self.memory.render(self._window)        # [] или [user-сообщение с дневником]
+        history = f"{diary[0].content}\n\n" if diary else ""
         cfg = self.setup.provider_cfg
 
         prompt_toks = 0
@@ -149,7 +150,11 @@ class Agent:
         calls: list[LLMCall] = []
         correction: str | None = None
         for attempt in range(1, _MAX_PARSE_RETRIES + 2):
-            messages = base if correction is None else base + [Message("user", correction)]
+            # одно user-сообщение: дневник памяти + контекст фазы (+ поправка на ретрае парсинга)
+            content = history + phase.context
+            if correction is not None:
+                content = f"{content}\n\n{correction}"
+            messages = [Message("user", content)]
             if phase.kind is not PhaseKind.TALK and _log.isEnabledFor(logging.DEBUG):
                 _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))
             try:
@@ -279,7 +284,8 @@ def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,
         kind: Фаза запроса (DECIDE, PREDICT или REFLECT).
         attempt: Номер попытки запроса (1..3, повторы из-за ошибок парсинга).
         system: Полный системный промпт (персона + правила).
-        messages: Сообщения запроса (дневник памяти, контекст фазы, поправка).
+        messages: Сообщения запроса — одно user-сообщение (дневник памяти + контекст
+            фазы + поправка), склеенное в Agent.act.
 
     Returns:
         Многострочный текст записи лога.
