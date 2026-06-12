@@ -2,7 +2,7 @@
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
 seed: 11                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 3
+rounds: 2
 max_concurrency: 4            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -12,11 +12,11 @@ prediction_mapping: match     # used only when play_strategy=prediction: "match"
 
 # ── Provider (src/core/config.py: ProviderCfg) ────────────────────────────────
 provider_default: &default
-  # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
-  # model: llama3.1:8b
-  base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
-  api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
-  model: openai/gpt-oss-20b
+  base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
+  model: llama3.1:8b
+  # base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
+  # api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
+  # model: openai/gpt-oss-20b
   temperature: 0.7
   max_tokens: 2000
   timeout_s: 120                # HTTP timeout per LLM call, seconds
@@ -31,8 +31,10 @@ population:
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
   agents:
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1, provider: *default}
-    - {persona: "You are a cautious player who values trust.", count: 1, provider: *default}
+    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1, provider: *default}
+    # - {persona: "You are a cautious player who values trust.", count: 1, provider: *default}
+    - {persona: null, count: 1, provider: *default}
+    - {persona: null, count: 1, provider: *default}
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:

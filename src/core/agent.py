@@ -89,7 +89,7 @@ class ActResult:
 
 @dataclass(frozen=True)
 class AgentSetup:
-    persona: str
+    persona: str | None       # None -> в system только id агента (+ правила)
     provider_cfg: ProviderCfg
 
 
@@ -131,7 +131,9 @@ class Agent:
         self._window = context_window
 
     def system_prompt(self, rules: str = "") -> str:
-        system = f"You are agent {self.id}.\n\n{self.setup.persona}"
+        system = f"You are agent {self.id}."
+        if self.setup.persona:
+            system = f"{system}\n\n{self.setup.persona}"
         if rules:
             system = f"{system}\n\n{rules}"
         return system

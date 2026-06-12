@@ -158,7 +158,7 @@ class JudgeCfg:
 
 @dataclass(frozen=True)
 class AgentSpec:
-    persona: str
+    persona: str | None      # None -> агент без persona (только id + правила в system)
     provider: ProviderCfg
     count: int = 1                   # how many agents of this type to build
 
@@ -208,7 +208,7 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]),
+        AgentSpec(persona=a.get("persona"), provider=_provider_cfg(a["provider"]),
                   count=a.get("count", 1))
         for a in d["agents"]
     ]

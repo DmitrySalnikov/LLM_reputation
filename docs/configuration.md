@@ -94,7 +94,7 @@ population:
   last_name_pool:  [...]             # >= n_agents unique names, validated
   agents:                            # shorter than n_agents -> cycled at build time
     - {persona: "...", provider: *default}
-    - {persona: "...", provider: *default}
+    - {provider: *default}           # persona optional -> omitted = system has only the id + rules
 ```
 
 Agent ids are sampled as unique `First Last` strings from the two pools. `_validate`

@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS agents (
     run_id      TEXT NOT NULL,
     agent_id    TEXT NOT NULL,
-    persona     TEXT NOT NULL,
+    persona     TEXT,
     provider    TEXT NOT NULL,
     final_score REAL,
     PRIMARY KEY (run_id, agent_id),

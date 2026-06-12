@@ -71,7 +71,7 @@ class ActResult:
 
 @dataclass(frozen=True)
 class AgentSetup:
-    persona: str
+    persona: str | None          # None -> в system только id агента (+ правила)
     provider_cfg: ProviderCfg
 
 @dataclass
@@ -97,15 +97,16 @@ class Agent:
         self._window = context_window      # None = ∞
 
     async def act(self, phase: Phase) -> ActResult:
-        system = f"You are agent {self.id}.\n\n" + self.setup.persona + ("\n\n" + phase.rules if phase.rules else "")
+        system = f"You are agent {self.id}." + ("\n\n" + self.setup.persona if self.setup.persona else "") + ("\n\n" + phase.rules if phase.rules else "")
         base_messages = self.memory.render(self._window) + [Message("user", phase.context)]
         # цикл парс-ретраев (§6): зовём провайдер, парсим по phase.kind
         # суммируем usage по попыткам; на успехе -> ActResult
 ```
 
 Шаги одного `act`:
-1. **`system`** = свой ID (`«You are agent {self.id}»`) + персона (`setup.persona`) +
-   правила (`phase.rules`). ID агент знает сам; правилами владеет Игра (строит `Phase`);
+1. **`system`** = свой ID (`«You are agent {self.id}»`) + персона (`setup.persona`,
+   опциональна — при `None` блок персоны опускается) + правила (`phase.rules`). ID
+   агент знает сам; правилами владеет Игра (строит `Phase`);
    Агент остаётся игронезависимым — просто склеивает.
 2. **`messages`** = `memory.render(window)` (дневник, §7) + `[user(phase.context)]`
    (текущая ситуация + инструкция формата вывода — её пишет Игра в `context`).

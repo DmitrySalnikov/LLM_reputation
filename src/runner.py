@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import os
 import random
-import sqlite3
 
 from src.core.config import EpisodeCfg
 from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
 from src.providers.base import ProviderError
-from src.storage import Storage
+from src.storage import DuplicateRunError, Storage
 
 
 def narrate_round(r, plan, recs) -> None:
@@ -85,7 +84,7 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
     try:
         try:
             run_id = st.begin(cfg, pop, name)    # INSERT runs+agents; fails if already stored
-        except sqlite3.IntegrityError:
+        except DuplicateRunError:
             print("identical config already in DB — nothing to do "
                   "(change seed or config to re-run)")
             return None

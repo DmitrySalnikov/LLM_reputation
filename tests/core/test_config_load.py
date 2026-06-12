@@ -109,6 +109,23 @@ def test_defaults_applied(tmp_path):
     assert cfg.game.payoffs.R == 3.0
 
 
+def test_persona_optional_defaults_to_none(tmp_path):
+    f = tmp_path / "no_persona.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          agents:
+            - provider: {base_url: "http://x/v1", model: "m"}
+        """
+    ))
+    cfg = load_episode(str(f))
+    assert cfg.population.agents[0].persona is None
+
+
 def test_missing_required_raises(tmp_path):
     f = tmp_path / "bad.yaml"
     f.write_text("rounds: 3\nmatchmaker: random\n")  # no seed, no population
