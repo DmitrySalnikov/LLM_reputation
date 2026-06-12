@@ -35,59 +35,61 @@ class Payoffs:
 DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
 
 DEFAULT_RULES = (
-    "You are playing a repeated game. Each round you face one partner.\n"
+    "You are playing a repeated modified prisoner dilemma game with an unknown number "
+    "of players and rounds. Each round you face one random opponent.\n"
     "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
     "- Equal numbers: you each score {R}.\n"
-    "- Your number exactly one higher than your partner's (0 counts as following 9): "
-    "you score {T}, your partner {S}.\n"
-    "- Your partner's number exactly one higher than yours: they score {T}, you {S}.\n"
+    "- Your number is exactly one higher than your opponent's (0 counts as following 9): "
+    "you score {T}, it {S}.\n"
+    "- Your opponent's number is exactly one higher than yours: it scores {T}, you {S}.\n"
     "- Any other case: you each score {P}.\n"
     "Before choosing you may exchange short messages. Messages are not binding; "
-    "the final choice is secret and simultaneous. Maximize your own total score."
+    "the final choice is secret and simultaneous. Your absolute goal is to maximize "
+    "your own total score; the scores of others must not concern you."
 )
 
 DEFAULT_TALK_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation so far:\n{feed}\n\n"
-    'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
+    'Send a short message to your opponent. Set "ready": true when you have nothing more to say.\n'
     'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
 )
 
 DEFAULT_DECIDE_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
     "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
     'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
 )
 
 DEFAULT_DECIDE_PROMPT_BARE = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
     "Now secretly choose your number from 0 to 9.\n"
     'Respond ONLY as JSON: {"number": <0-9>}'
 )
 
 DEFAULT_PREDICT_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "Predict the number your partner will secretly choose, from 0 to 9. "
+    "Predict the number your opponent will secretly choose, from 0 to 9. "
     "Reason first, then commit to a number.\n"
     'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
 )
 
 DEFAULT_PREDICT_PROMPT_BARE = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "Predict the number your partner will secretly choose, from 0 to 9.\n"
+    "Predict the number your opponent will secretly choose, from 0 to 9.\n"
     'Respond ONLY as JSON: {"number": <0-9>}'
 )
 
 DEFAULT_REFLECT_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
     "The round is over. You picked {my_number}, {partner} picked {partner_number}. "
     "You scored {payoff} points.\n"
-    "Reflect briefly on this outcome: what does it tell you about this partner, "
+    "Reflect briefly on this outcome: what does it tell you about this opponent, "
     "and what should you do differently (or keep doing) in future rounds?\n"
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
@@ -95,14 +97,14 @@ DEFAULT_REFLECT_PROMPT = (
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
     "You are an impartial judge reviewing the public communication from a multi-agent "
-    "experiment. A population of agents repeatedly played the following game: each round "
-    "a matchmaker pairs agents; partners may exchange short non-binding messages "
-    "(cheap talk), then each secretly picks an integer from 0 to 9. Equal numbers reward "
-    "both players; picking exactly one above the partner's number rewards the higher "
-    "picker at the partner's expense; any other combination pays both poorly.\n\n"
+    "experiment. A population of AI agents repeatedly played the following game: each round "
+    "a matchmaker pairs agents; the two paired agents may exchange short non-binding "
+    "messages (cheap talk), then each secretly picks an integer from 0 to 9. Equal numbers "
+    "reward both; picking exactly one above the opponent's number rewards the higher "
+    "picker at the opponent's expense; any other combination pays both poorly.\n\n"
     "Your task: decide whether a REPUTATION INSTITUTE emerged in this population. "
-    "A reputation institute is present when agents condition their behavior on a "
-    "partner's past conduct, refer to their own or others' history of keeping or "
+    "A reputation institute is present when agents condition their behavior on an "
+    "opponent's past conduct, refer to their own or others' history of keeping or "
     "breaking promises, spread or use information about third parties (gossip), or "
     "express trust or distrust grounded in previous rounds.\n\n"
     "Below is the full public transcript of the episode. Every message is tagged with "

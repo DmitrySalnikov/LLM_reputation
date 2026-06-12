@@ -42,7 +42,7 @@ class Memory:
 
 
 def _render_entry(e: MemoryEntry) -> str:
-    lines = [f"[Round {e.round} · partner {e.partner_id}]"]
+    lines = [f"[Round {e.round} · opponent {e.partner_id}]"]
     if e.transcript:
         lines.append("Talk:")
         for turn in e.transcript:

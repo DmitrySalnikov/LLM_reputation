@@ -51,22 +51,22 @@ game:
   #   talk/decide/predict: {partner} {round} {feed}
   #   reflect:         {partner} {round} {feed} {my_number} {partner_number} {payoff}
   rules: |-
-    You are playing a repeated game. Each round you face one partner.
+    You are playing a repeated modified prisoner dilemma game with an unknown number of players and rounds. Each round you face one random opponent.
     Both of you secretly pick an integer from 0 to 9 at the same time.
     - Equal numbers: you each score {R}.
-    - Your number exactly one higher than your partner's (0 counts as following 9): you score {T}, your partner {S}.
-    - Your partner's number exactly one higher than yours: they score {T}, you {S}.
+    - Your number is exactly one higher than your opponent's (0 counts as following 9): you score {T}, it {S}.
+    - Your opponent's number is exactly one higher than yours: it scores {T}, you {S}.
     - Any other case: you each score {P}.
-    Before choosing you may exchange short messages. Messages are not binding; the final choice is secret and simultaneous. Maximize your own total score.
+    Before choosing you may exchange short messages. Messages are not binding; the final choice is secret and simultaneous. Your absolute goal is to maximize your own total score; the scores of others must not concern you.
   talk_prompt: |-
-    Your partner this round is {partner}. Round {round}.
+    Your opponent this round is {partner}. Round {round}.
     Negotiation so far:
     {feed}
 
-    Send a short message to your partner. Set "ready": true when you have nothing more to say.
+    Send a short message to your opponent. Set "ready": true when you have nothing more to say.
     Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}
   decide_prompt: |-
-    Your partner this round is {partner}. Round {round}.
+    Your opponent this round is {partner}. Round {round}.
     Negotiation:
     {feed}
 
@@ -74,18 +74,18 @@ game:
     Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}
   # Used only when play_strategy=prediction:
   predict_prompt: |-
-    Your partner this round is {partner}. Round {round}.
+    Your opponent this round is {partner}. Round {round}.
     Negotiation:
     {feed}
 
-    Predict the number your partner will secretly choose, from 0 to 9. Reason first, then commit to a number.
+    Predict the number your opponent will secretly choose, from 0 to 9. Reason first, then commit to a number.
     Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}
   # Used only when reflection=true:
   reflect_prompt: |-
-    Your partner this round is {partner}. Round {round}.
+    Your opponent this round is {partner}. Round {round}.
     Negotiation:
     {feed}
 
     The round is over. You picked {my_number}, {partner} picked {partner_number}. You scored {payoff} points.
-    Reflect briefly on this outcome: what does it tell you about this partner, and what should you do differently (or keep doing) in future rounds?
+    Reflect briefly on this outcome: what does it tell you about this opponent, and what should you do differently (or keep doing) in future rounds?
     Respond ONLY as JSON: {"reflection": "<short reflection>"}
