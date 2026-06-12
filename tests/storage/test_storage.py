@@ -16,7 +16,7 @@ from src.matchmaking.base import RoundPlan
 from src.population import base as popbase
 from src.population import make_population
 from src.providers.base import Completion, HttpAttempt
-from src.storage import Storage
+from src.storage import DuplicateRunError, Storage
 
 
 class FixedProvider:
@@ -83,6 +83,28 @@ def test_run_id_deterministic_and_config_sensitive(tmp_path):
         assert id_a != id_d          # different seed -> different run_id
     finally:
         a.close(); b.close(); d.close()
+
+
+def test_begin_twice_raises_duplicate_run_error(tmp_path):
+    cfg = _cfg(seed=1)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        with pytest.raises(DuplicateRunError):       # de-dup сигналим отдельным исключением,
+            st.begin(cfg, _pop(cfg))                 # а не общим IntegrityError (его глотал runner)
+    finally:
+        st.close()
+
+
+def test_begin_accepts_null_persona(tmp_path):
+    spec = AgentSpec(persona=None, provider=ProviderCfg(base_url="http://x/v1", model="m"), count=1)
+    cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec]))
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        assert st._conn.execute("SELECT persona FROM agents").fetchone() == (None,)
+    finally:
+        st.close()
 
 
 # ---- Slice 2: observe (one txn per round) ----

@@ -14,6 +14,13 @@ from src.population import Population
 from src.storage.schema import init_schema
 
 
+class DuplicateRunError(Exception):
+    """Прогон с таким run_id уже записан: конфиг идентичен (DB де-дуплицирует прогоны).
+
+    Отдельное исключение, а не общий sqlite3.IntegrityError — чтобы caller отличал
+    де-дуп от настоящих нарушений целостности (NOT NULL, FK и т.п.)."""
+
+
 def _run_id(cfg: EpisodeCfg) -> str:
     d = asdict(cfg)
     d.pop("judge", None)            # судья — аналитика, не геймплей: не влияет на run_id
@@ -41,6 +48,8 @@ class Storage:
         `name` is an optional human label — metadata only, not part of run_id."""
         run_id = _run_id(cfg)
         self._run_id = run_id
+        if self._conn.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone():
+            raise DuplicateRunError(run_id)          # явный де-дуп: прочие IntegrityError всплывают как сбои
         with self._conn:
             self._conn.execute(
                 "INSERT INTO runs(run_id, name, config, seed, created_at) VALUES (?,?,?,?,?)",

@@ -143,6 +143,13 @@ async def test_system_and_messages_assembly():
     assert len(messages) == 1  # empty memory -> only the situation message
 
 
+async def test_system_omits_persona_when_none():
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    await _agent(p, persona=None).act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
+    system, _ = p.calls[0]
+    assert system == "You are agent A1.\n\nGAME RULES"
+
+
 async def test_usage_summed_over_retries():
     p = ScriptedProvider(["bad", '{"number": 5, "rationale": "r"}'])
     r = await _agent(p).act(_decide())

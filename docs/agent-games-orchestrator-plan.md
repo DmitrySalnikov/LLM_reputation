@@ -119,7 +119,7 @@ tests/
 ```python
 # core/config.py  (добавления)
 @dataclass(frozen=True)
-class AgentSpec:        persona: str; provider: ProviderCfg
+class AgentSpec:        persona: str | None; provider: ProviderCfg
 @dataclass(frozen=True)
 class PopulationCfg:    kind: str; n_agents: int; agents: list[AgentSpec]
 @dataclass(frozen=True)
