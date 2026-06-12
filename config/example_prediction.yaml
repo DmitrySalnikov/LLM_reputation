@@ -28,11 +28,12 @@ provider_default: &default
 
 population:
   kind: roster
+  identity_prompt: "You are AI agent {id}."   # system opener, shared by all agents; {id} -> agent id
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  agents:
+  agents:    # per-agent keys: persona, count, provider
     - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2, provider: *default}
     - {persona: "You are a cautious player who values trust.", count: 2, provider: *default}

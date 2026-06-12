@@ -126,6 +126,41 @@ def test_persona_optional_defaults_to_none(tmp_path):
     assert cfg.population.agents[0].persona is None
 
 
+def test_identity_prompt_defaults_when_omitted(tmp_path):
+    f = tmp_path / "no_identity.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          agents:
+            - {persona: "p", provider: {base_url: "http://x/v1", model: "m"}}
+        """
+    ))
+    cfg = load_episode(str(f))                        # identity_prompt — общий на популяцию, с дефолтом
+    assert cfg.population.identity_prompt == "You are AI agent {id}."
+
+
+def test_identity_prompt_loaded_from_population_block(tmp_path):
+    f = tmp_path / "human.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          identity_prompt: "You are a human player named {id}."
+          agents:
+            - {persona: "p", provider: {base_url: "http://x/v1", model: "m"}}
+        """
+    ))
+    cfg = load_episode(str(f))
+    assert cfg.population.identity_prompt == "You are a human player named {id}."
+
+
 def test_missing_required_raises(tmp_path):
     f = tmp_path / "bad.yaml"
     f.write_text("rounds: 3\nmatchmaker: random\n")  # no seed, no population

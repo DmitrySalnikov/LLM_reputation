@@ -89,6 +89,11 @@ DEFAULT_REFLECT_PROMPT = (
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
 
+# Преамбула system-промпта, общая для всех агентов популяции (как и правила игры,
+# это часть фиксированной рамки эпизода, а не атрибут отдельного агента). {id} ->
+# id агента подставляется в Agent.system_prompt.
+DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
+
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
     "You are an impartial judge reviewing the public communication from a multi-agent "
@@ -158,7 +163,7 @@ class JudgeCfg:
 
 @dataclass(frozen=True)
 class AgentSpec:
-    persona: str | None      # None -> агент без persona (только id + правила в system)
+    persona: str | None      # None -> агент без persona (только преамбула + правила в system)
     provider: ProviderCfg
     count: int = 1                   # how many agents of this type to build
 
@@ -167,6 +172,9 @@ class AgentSpec:
 class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
+    # Преамбула system-промпта, общая на всю популяцию ({id} -> id агента). Дефолт
+    # покрывает обычный случай; перекрывается полем identity_prompt в блоке population.
+    identity_prompt: str = DEFAULT_IDENTITY_PROMPT
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
@@ -215,6 +223,7 @@ def _population_cfg(d: dict) -> PopulationCfg:
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
+        identity_prompt=d.get("identity_prompt", DEFAULT_IDENTITY_PROMPT),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
     )

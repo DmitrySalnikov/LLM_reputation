@@ -10,7 +10,7 @@ from src.strategy.prediction import PredictionStrategy
 
 def _agent(replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent("A1", AgentSetup("You are A1.", cfg), ScriptedProvider(replies))
+    return Agent("A1", AgentSetup("You are A1.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
 
 
 async def test_prediction_maps_predicted_to_final_choice():

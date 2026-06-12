@@ -35,7 +35,7 @@ DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
 | `max_concurrency` | semaphore size for concurrent pairings |
 | `play_strategy` | `direct` (default) or `prediction` |
 | `prediction_mapping` | only used when `play_strategy: prediction`; `match` or `one_above` |
-| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`) |
+| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`), and the prompt templates `rules`, `talk_prompt`, `decide_prompt`, `predict_prompt`, `reflect_prompt` (each defaults to a `DEFAULT_*` in `src/core/config.py`; delete a key to use the default) |
 | `population` | `PopulationCfg` (see below) |
 | `judge` | `JudgeCfg` or absent/`null` — optional LLM judge (see below) |
 
@@ -89,13 +89,22 @@ any `/chat/completions` endpoint (Together.ai in prod, Ollama for smoke tests).
 ```yaml
 population:
   kind: roster                       # only roster is implemented
+  identity_prompt: "You are AI agent {id}."   # system opener shared by all agents (optional)
   n_agents: 4
   first_name_pool: [...]             # >= n_agents unique names, validated
   last_name_pool:  [...]             # >= n_agents unique names, validated
   agents:                            # shorter than n_agents -> cycled at build time
     - {persona: "...", provider: *default}
-    - {provider: *default}           # persona optional -> omitted = system has only the id + rules
+    - {provider: *default}            # persona optional -> omitted
 ```
+
+`identity_prompt` — the system-prompt opener placed before the persona; `{id}` is replaced
+with the agent id. It lives on the **population**, not the agent: like the game rules it is
+the same fixed frame for every agent in the episode (reputation isn't being studied through
+per-agent identities). It is **optional** — when omitted it defaults to `"You are AI agent
+{id}."` (`DEFAULT_IDENTITY_PROMPT` in `src/core/config.py`).
+
+Per-agent keys: `persona` (optional; omit/`null` to drop it), `count`, `provider`.
 
 Agent ids are sampled as unique `First Last` strings from the two pools. `_validate`
 (`src/core/config.py:88`) enforces: both pools present, no duplicates within a pool,

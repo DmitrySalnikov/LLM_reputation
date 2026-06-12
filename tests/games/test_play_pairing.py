@@ -10,7 +10,7 @@ from src.providers.base import HttpAttempt, ProviderUnavailable
 
 def _agent(id, replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg), ScriptedProvider(replies))
+    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
 
 
 class RaisingProvider:
@@ -31,7 +31,7 @@ class RaisingProvider:
 
 def _raising_agent(id, attempts):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg), RaisingProvider(attempts))
+    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), RaisingProvider(attempts))
 
 
 def _decide(n, rationale="r"):

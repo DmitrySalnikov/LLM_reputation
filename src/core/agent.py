@@ -89,8 +89,9 @@ class ActResult:
 
 @dataclass(frozen=True)
 class AgentSetup:
-    persona: str | None       # None -> в system только id агента (+ правила)
+    persona: str | None       # None -> в system только преамбула (+ правила)
     provider_cfg: ProviderCfg
+    identity_prompt: str      # преамбула system; {id} -> id агента (общая на популяцию, см. PopulationCfg)
 
 
 _CORRECTION = {
@@ -131,7 +132,7 @@ class Agent:
         self._window = context_window
 
     def system_prompt(self, rules: str = "") -> str:
-        system = f"You are AI agent {self.id}."
+        system = self.setup.identity_prompt.replace("{id}", self.id)
         if self.setup.persona:
             system = f"{system}\n\n{self.setup.persona}"
         if rules:

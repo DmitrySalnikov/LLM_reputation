@@ -31,7 +31,7 @@ class RaisingProvider:
 
 def _agent(provider, persona="You are A.", **kw):
     cfg = ProviderCfg(base_url="http://x/v1", model="m", temperature=0.0, max_tokens=64)
-    return Agent("A1", AgentSetup(persona, cfg), provider, **kw)
+    return Agent("A1", AgentSetup(persona, cfg, "You are AI agent {id}."), provider, **kw)
 
 
 def _decide(context="Pick a number.", rules="RULES"):
@@ -148,6 +148,15 @@ async def test_system_omits_persona_when_none():
     await _agent(p, persona=None).act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
     system, _ = p.calls[0]
     assert system == "You are AI agent A1.\n\nGAME RULES"
+
+
+async def test_identity_prompt_from_setup_fills_id():
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    cfg = ProviderCfg(base_url="http://x/v1", model="m")
+    agent = Agent("A1", AgentSetup(None, cfg, identity_prompt="Ты ИИ-игрок {id}."), p)
+    await agent.act(Phase(PhaseKind.DECIDE, "SITUATION", rules="R"))
+    system, _ = p.calls[0]
+    assert system == "Ты ИИ-игрок A1.\n\nR"          # шаблон из AgentSetup, {id} подставлен агентом
 
 
 async def test_usage_summed_over_retries():
