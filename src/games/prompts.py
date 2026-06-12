@@ -5,7 +5,7 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
 (NOT str.format — the templates contain real JSON braces):
     rules:                {R} {T} {P} {S}
     talk/decide/predict:  {partner} {round} {feed}
-    reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
+    reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
 """
 
 from __future__ import annotations
@@ -42,11 +42,15 @@ def predict_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
-                    my_number: int, partner_number: int, payoff: float) -> str:
-    """Post-game reflection context: both numbers are revealed, the payoff is known."""
+                    me_id: str, my_number: int, partner_number: int, payoff: float) -> str:
+    """Post-game reflection context: both numbers are revealed, the payoff is known.
+
+    `{me}` -> "<me_id> (you)" — сам агент именуется так же, как в дневнике и фиде.
+    """
     feed_block = feed if feed else "(no messages were exchanged)"
     return (
         _fill(cfg.reflect_prompt, partner, round, feed_block)
+        .replace("{me}", f"{me_id} (you)")
         .replace("{my_number}", str(my_number))
         .replace("{partner_number}", str(partner_number))
         .replace("{payoff}", f"{payoff:g}")

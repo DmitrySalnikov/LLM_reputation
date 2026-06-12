@@ -219,6 +219,7 @@ async def test_memory_diary_precedes_situation_in_one_message():
     a.memory.add(
         MemoryEntry(
             round=2,
+            my_id="A1",
             partner_id="A7",
             transcript=[{"speaker": "A7", "text": "take 5", "ready": True}],
             my_number=6,

@@ -149,6 +149,8 @@ async def test_decide_context_contains_feed_and_ids():
     system, messages = a.provider.calls[-1]  # a's DECIDE call
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx and "take 4 plz" in ctx
+    assert "A1 (you): take 4 plz" in ctx   # feed эгоцентричен: свой ход помечен "(you)"
+    assert "A2: ok" in ctx                 # реплика оппонента — по имени, без "(you)"
     assert "0 to 9" in system  # rules went into the system prompt
 
 
@@ -203,6 +205,7 @@ async def test_reflection_context_reveals_round_result():
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx
     assert "5" in ctx and "4" in ctx     # both revealed numbers
+    assert "A1 (you) picked 5" in ctx    # сам агент — "<имя> (you)", оппонент — по имени
 
 
 async def test_reflection_privacy():

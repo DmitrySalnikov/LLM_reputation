@@ -8,6 +8,7 @@ from src.providers.base import Message
 @dataclass
 class MemoryEntry:
     round: int
+    my_id: str              # id самого агента (для метки "<my_id> (you)" в дневнике)
     partner_id: str
     transcript: list[dict]  # [{speaker, text, ready}]
     my_number: int
@@ -42,21 +43,23 @@ class Memory:
 
 
 def _render_entry(e: MemoryEntry) -> str:
+    # Дневник едет в user-сообщении, адресованном самому агенту: чужие реплики — по имени,
+    # свои — "<имя> (you)" (одна метка на всю запись, симметрично оппоненту).
+    me = f"{e.my_id} (you)"
     lines = [f"[Round {e.round} · opponent {e.partner_id}]"]
     if e.transcript:
         lines.append("Talk:")
         for turn in e.transcript:
-            # the transcript holds only the two players; relabel my own lines as "me".
-            speaker = e.partner_id if turn.get("speaker") == e.partner_id else "me"
+            label = e.partner_id if turn.get("speaker") == e.partner_id else me
             ready = str(bool(turn.get("ready"))).lower()
-            lines.append(f"  {speaker}: {turn.get('text', '')} (ready={ready})")
+            lines.append(f"  {label}: {turn.get('text', '')} (ready={ready})")
     if e.my_predicted is not None:
-        lines.append(f"I predicted {e.partner_id} would pick {e.my_predicted}.")
+        lines.append(f"{me} predicted {e.partner_id} would pick {e.my_predicted}.")
     reason = f" (reason: {e.my_rationale})" if e.my_rationale else ""
     lines.append(
-        f"Choices: me={e.my_number}{reason}, {e.partner_id}={e.partner_number}. "
-        f"Outcome: {e.outcome}. Payoff to me: {e.payoff:g}."
+        f"Choices: {me}={e.my_number}{reason}, {e.partner_id}={e.partner_number}. "
+        f"Outcome: {e.outcome}. Payoff to {me}: {e.payoff:g}."
     )
     if e.my_reflection:
-        lines.append(f"My takeaway after that round: {e.my_reflection}")
+        lines.append(f"Takeaway of {me} after that round: {e.my_reflection}")
     return "\n".join(lines)

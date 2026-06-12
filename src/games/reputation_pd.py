@@ -42,10 +42,11 @@ class ReputationPD:
         post_calls: list = []        # вызовы decide/predict/reflect (talk-каллы — из transcript)
         try:
             await self._cheap_talk(a, b, round, transcript)
-            feed = _render_feed(transcript)
-            da = await self._strategy.decide(a, b.id, round, feed, self._rules)
+            feed_a = _render_feed(transcript, a.id)   # эгоцентрично: свой ход помечен "(you)"
+            feed_b = _render_feed(transcript, b.id)
+            da = await self._strategy.decide(a, b.id, round, feed_a, self._rules)
             post_calls += list(da.calls)
-            db = await self._strategy.decide(b, a.id, round, feed, self._rules)
+            db = await self._strategy.decide(b, a.id, round, feed_b, self._rules)
             post_calls += list(db.calls)
             x, y = da.number, db.number
             outcome, pa, pb = self.resolve(x, y)
@@ -57,9 +58,9 @@ class ReputationPD:
             if self.cfg.reflection:
                 # Рефлексия идёт до записи в память: факты раунда приходят через контекст,
                 # а дневник агента ещё показывает только прошлые раунды.
-                ra, ua, ca = await self._reflect(a, b.id, round, feed, x, y, pa)
+                ra, ua, ca = await self._reflect(a, b.id, round, feed_a, x, y, pa)
                 post_calls += list(ca)
-                rb, ub, cb = await self._reflect(b, a.id, round, feed, y, x, pb)
+                rb, ub, cb = await self._reflect(b, a.id, round, feed_b, y, x, pb)
                 post_calls += list(cb)
                 usages += [ua, ub]
 
@@ -101,8 +102,8 @@ class ReputationPD:
         Returns:
             Тройка (текст рефлексии, usage запроса, сырые LLMCall'ы фазы).
         """
-        ctx = reflect_context(self.cfg, partner_id, round, feed, my_number=my_number,
-                              partner_number=partner_number, payoff=payoff)
+        ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
+                              my_number=my_number, partner_number=partner_number, payoff=payoff)
         res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
         return res.data["reflection"], res.usage, res.calls
 
@@ -119,7 +120,7 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript))
+            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript, cur.id))
             res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
             transcript.append(
                 {
@@ -141,6 +142,7 @@ class ReputationPD:
         agent.memory.add(
             MemoryEntry(
                 round=round,
+                my_id=agent.id,
                 partner_id=partner_id,
                 transcript=public_transcript,
                 my_number=mine.number,
@@ -186,7 +188,12 @@ def _sum_usage(usages: list) -> dict:
     return {"prompt_tokens": pt, "completion_tokens": ct, "calls": calls}
 
 
-def _render_feed(transcript: list[dict]) -> str:
+def _render_feed(transcript: list[dict], me_id: str) -> str:
+    # Эгоцентрично к зрителю: его реплики — "<имя> (you)", чужие — по имени (как в дневнике).
+    def _label(speaker: str) -> str:
+        return f"{speaker} (you)" if speaker == me_id else speaker
+
     return "\n".join(
-        f"{t['speaker']}: {t['text']} (ready={str(bool(t['ready'])).lower()})" for t in transcript
+        f"{_label(t['speaker'])}: {t['text']} (ready={str(bool(t['ready'])).lower()})"
+        for t in transcript
     )

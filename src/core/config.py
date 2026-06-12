@@ -31,7 +31,7 @@ class Payoffs:
 #   identity:             {id}
 #   rules:                {R} {T} {P} {S}              <- payoff values
 #   talk/decide/predict:  {partner} {round} {feed}
-#   reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
+#   reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
 DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
 
 DEFAULT_RULES = (
@@ -87,7 +87,7 @@ DEFAULT_PREDICT_PROMPT_BARE = (
 DEFAULT_REFLECT_PROMPT = (
     "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "The round is over. You picked {my_number}, {partner} picked {partner_number}. "
+    "The round is over. {me} picked {my_number}, {partner} picked {partner_number}. "
     "You scored {payoff} points.\n"
     "Reflect briefly on this outcome: what does it tell you about this opponent, "
     "and what should you do differently (or keep doing) in future rounds?\n"
