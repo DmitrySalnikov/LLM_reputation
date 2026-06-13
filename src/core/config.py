@@ -45,7 +45,9 @@ DEFAULT_RULES = (
     "- Any other case: you each score {P}.\n"
     "Before choosing you may exchange short messages. Messages are not binding; "
     "the final choice is secret and simultaneous. Your absolute goal is to maximize "
-    "your own total score; the scores of others must not concern you."
+    "your own total score; the scores of others must not concern you.\n"
+    "On each turn you are given your past rounds (if any) followed by the current "
+    "situation; respond only with the exact JSON requested in that message."
 )
 
 DEFAULT_TALK_PROMPT = (
