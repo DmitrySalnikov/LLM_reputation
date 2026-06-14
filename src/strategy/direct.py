@@ -35,7 +35,7 @@ class DirectStrategy:
             Решение с выбранным числом и обоснованием (без предсказания).
         """
         res = await agent.act(
-            Phase(PhaseKind.DECIDE, decide_context(self._game, partner_id, round, feed), rules=rules)
+            Phase(PhaseKind.DECIDE, decide_context(self._game, partner_id, round, feed, agent.score), rules=rules)
         )
         return Decision(
             number=res.data["number"],

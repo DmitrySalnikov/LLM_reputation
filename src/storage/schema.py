@@ -21,14 +21,14 @@ CREATE TABLE IF NOT EXISTS agents (
     provider    TEXT NOT NULL,
     final_score REAL,
     PRIMARY KEY (run_id, agent_id),
-    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS rounds (
     run_id    TEXT NOT NULL,
     round_idx INTEGER NOT NULL,
     PRIMARY KEY (run_id, round_idx),
-    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS idle (
@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS idle (
     round_idx INTEGER NOT NULL,
     agent_id  TEXT NOT NULL,
     PRIMARY KEY (run_id, round_idx, agent_id),
-    FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx),
-    FOREIGN KEY (run_id, agent_id)  REFERENCES agents(run_id, agent_id)
+    FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx) ON DELETE CASCADE,
+    FOREIGN KEY (run_id, agent_id)  REFERENCES agents(run_id, agent_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS pairings (
@@ -62,9 +62,9 @@ CREATE TABLE IF NOT EXISTS pairings (
     usage_completion_tokens INTEGER,
     usage_calls             INTEGER,
     PRIMARY KEY (run_id, round_idx, pair_idx),
-    FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx),
-    FOREIGN KEY (run_id, a_id) REFERENCES agents(run_id, agent_id),
-    FOREIGN KEY (run_id, b_id) REFERENCES agents(run_id, agent_id),
+    FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx) ON DELETE CASCADE,
+    FOREIGN KEY (run_id, a_id) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id, b_id) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE,
     CHECK (finished = 0 OR a_number IS NOT NULL),   -- доиграна ⇒ результат есть
     CHECK (finished = 1 OR a_number IS NULL)        -- сорвана  ⇒ результат пуст
 );
@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS messages (
     text      TEXT NOT NULL,
     ready     INTEGER NOT NULL,
     PRIMARY KEY (run_id, round_idx, pair_idx, turn_idx),
-    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx),
-    FOREIGN KEY (run_id, speaker) REFERENCES agents(run_id, agent_id)
+    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx) ON DELETE CASCADE,
+    FOREIGN KEY (run_id, speaker) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS llm_calls (
@@ -101,10 +101,10 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, round_idx, pair_idx, call_idx),
-    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx),
-    FOREIGN KEY (run_id, agent_id) REFERENCES agents(run_id, agent_id),
+    FOREIGN KEY (run_id, round_idx, pair_idx) REFERENCES pairings(run_id, round_idx, pair_idx) ON DELETE CASCADE,
+    FOREIGN KEY (run_id, agent_id) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE,
     FOREIGN KEY (run_id, round_idx, pair_idx, turn_idx)
-        REFERENCES messages(run_id, round_idx, pair_idx, turn_idx)
+        REFERENCES messages(run_id, round_idx, pair_idx, turn_idx) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS judge_verdicts (
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
     evidence    TEXT NOT NULL,      -- JSON: [{"round":0,"pair":1,"turn":2}, ...]
     model       TEXT NOT NULL,      -- модель судьи, для истории
     created_at  TEXT NOT NULL,
-    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS ix_llm_calls_agent  ON llm_calls(run_id, agent_id);

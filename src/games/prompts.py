@@ -4,9 +4,10 @@ Imports neither the game nor the strategies, to avoid import cycles. The prompt 
 in GameCfg (config layer); these builders just fill placeholders by literal replacement
 (NOT str.format — the templates contain real JSON braces):
     rules:                {R} {T} {P} {S} {max_talk_turns}
-    talk:                 {partner} {round} {feed}
-    decide/predict:       {partner} {round} {feed} {answer} (хвост ответа по флагу rationale)
-    reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
+    talk:                 {partner} {round} {feed} {score}
+    decide/predict:       {partner} {round} {feed} {score} {answer} (хвост ответа по флагу rationale)
+    reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
+    {score} = накопленный счёт агента до текущего раунда (Agent.score)
 """
 
 from __future__ import annotations
@@ -25,23 +26,23 @@ def rules_text(cfg: GameCfg) -> str:
     )
 
 
-def talk_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
     """Cheap-talk turn context. Пустой фид = первый ход -> шаблон-опенер (без блока Talk)."""
     if not feed:
-        return _fill(cfg.talk_open_prompt, partner, round, "")
-    return _fill(cfg.talk_prompt, partner, round, feed)
+        return _fill(cfg.talk_open_prompt, partner, round, "", score)
+    return _fill(cfg.talk_prompt, partner, round, feed, score)
 
 
-def decide_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
     """Final number-choice context (direct strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return _fill(cfg.decide_prompt, partner, round, feed_block).replace("{answer}", _answer(cfg.rationale))
+    return _fill(cfg.decide_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg.rationale))
 
 
-def predict_context(cfg: GameCfg, partner: str, round: int, feed: str) -> str:
+def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
     """Partner-number prediction context (prediction strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return _fill(cfg.predict_prompt, partner, round, feed_block).replace("{answer}", _answer(cfg.rationale))
+    return _fill(cfg.predict_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg.rationale))
 
 
 # Хвост ответа DECIDE/PREDICT, управляемый флагом rationale — подставляется в плейсхолдер
@@ -58,14 +59,15 @@ def _answer(rationale: bool) -> str:
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
-                    me_id: str, my_number: int, partner_number: int, payoff: float) -> str:
+                    me_id: str, my_number: int, partner_number: int, payoff: float,
+                    score: float = 0.0) -> str:
     """Post-game reflection context: both numbers are revealed, the payoff is known.
 
     `{me}` -> "<me_id> (you)" — сам агент именуется так же, как в дневнике и фиде.
     """
     feed_block = feed if feed else "(no messages were exchanged)"
     return (
-        _fill(cfg.reflect_prompt, partner, round, feed_block)
+        _fill(cfg.reflect_prompt, partner, round, feed_block, score)
         .replace("{me}", f"{me_id} (you)")
         .replace("{my_number}", str(my_number))
         .replace("{partner_number}", str(partner_number))
@@ -73,10 +75,11 @@ def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
     )
 
 
-def _fill(template: str, partner: str, round: int, feed: str) -> str:
+def _fill(template: str, partner: str, round: int, feed: str, score: float = 0.0) -> str:
     return (
         template
         .replace("{partner}", partner)
         .replace("{round}", str(round))
         .replace("{feed}", feed)
+        .replace("{score}", f"{score:g}")    # накопленный счёт агента до текущего раунда
     )

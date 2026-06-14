@@ -103,7 +103,8 @@ class ReputationPD:
             Тройка (текст рефлексии, usage запроса, сырые LLMCall'ы фазы).
         """
         ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
-                              my_number=my_number, partner_number=partner_number, payoff=payoff)
+                              my_number=my_number, partner_number=partner_number, payoff=payoff,
+                              score=agent.score)
         res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
         return res.data["reflection"], res.usage, res.calls
 
@@ -120,7 +121,7 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript, cur.id))
+            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript, cur.id), cur.score)
             res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
             transcript.append(
                 {

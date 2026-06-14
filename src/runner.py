@@ -28,7 +28,8 @@ def narrate_round(r, plan, recs) -> None:
         print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
-                print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
+                mark = "   [ready=true]" if t["ready"] else ""   # ready=false не печатаем
+                print(f"    {i}. {t['speaker']}: {t['text']}{mark}")
         else:
             print("    (no messages exchanged)")
         if not rec.finished:                       # aborted pairing: no result
@@ -74,6 +75,22 @@ async def _judge_and_store(cfg, records, st) -> None:
     st.save_verdict(verdict, model=cfg.provider.model)
 
 
+def _handle_existing_run(st: Storage, run_id: str) -> bool:
+    """Решить, что делать с уже записанным прогоном того же конфига; True — запускать заново.
+
+    Завершённый прогон (есть finished_at) трогать не будем -> False (ничего не делаем).
+    Оборванный (без finished_at) удаляем и перезапускаем -> True. Единая точка расширения:
+    в будущем оборванный прогон можно вместо удаления продолжать (resume) с места обрыва.
+    """
+    if st.is_finished(run_id):
+        print("identical config already in DB — nothing to do "
+              "(change seed or config to re-run)")
+        return False
+    print(f"unfinished run {run_id} found in DB — deleting it and re-running")
+    st.delete_run(run_id)
+    return True
+
+
 async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
     """Build the population, run the episode, persist + narrate each round, score it.
     Returns the run_id, or None if this exact config is already stored (de-dup)."""
@@ -84,10 +101,10 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
     try:
         try:
             run_id = st.begin(cfg, pop, name)    # INSERT runs+agents; fails if already stored
-        except DuplicateRunError:
-            print("identical config already in DB — nothing to do "
-                  "(change seed or config to re-run)")
-            return None
+        except DuplicateRunError as e:
+            if not _handle_existing_run(st, e.run_id):
+                return None
+            run_id = st.begin(cfg, pop, name)    # запись удалена -> начинаем заново
 
         records: list = []                       # копим записи для LLM-судьи
 

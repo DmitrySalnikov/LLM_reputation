@@ -38,7 +38,7 @@ class PredictionStrategy:
             Решение с итоговым числом (после отображения), предсказанием и обоснованием.
         """
         res = await agent.act(
-            Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed), rules=rules)
+            Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed, agent.score), rules=rules)
         )
         predicted = res.data["number"]
         rationale = res.data["rationale"] if self._rationale else ""

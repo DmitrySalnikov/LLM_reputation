@@ -97,6 +97,41 @@ def test_begin_twice_raises_duplicate_run_error(tmp_path):
         st.close()
 
 
+def test_is_finished_reflects_finished_at(tmp_path):
+    cfg = _cfg(n=2)
+    st = _store(tmp_path)
+    try:
+        rid = st.begin(cfg, _pop(cfg))
+        assert st.is_finished(rid) is False          # ещё не доигран
+        st.finish(_pop(cfg))                          # проставляет finished_at
+        assert st.is_finished(rid) is True
+        assert st.is_finished("nope") is False        # отсутствующий прогон
+    finally:
+        st.close()
+
+
+def test_delete_run_removes_all_rows(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        rid = st.begin(cfg, _pop(cfg))
+        calls = [LLMCall("A1", "talk", 1, 1, "ok", 200, {"model": "m"}, "hi", '{"x":1}', None, 2, 3, turn_idx=0)]
+        rec = PairingRecord(
+            round=0, a_id="A1", b_id="A2",
+            transcript=[{"speaker": "A1", "text": "hi", "ready": True}],
+            a_number=4, b_number=4, a_rationale="ra", b_rationale="rb",
+            outcome="CC", a_payoff=3.0, b_payoff=3.0,
+            usage={"prompt_tokens": 4, "completion_tokens": 6, "calls": 1}, llm_calls=calls,
+        )
+        st.observe(0, RoundPlan(pairings=[("A1", "A2")], idle=["A3"], events=[]), [rec])
+        st.delete_run(rid)
+        c = st._conn
+        for table in ("runs", "agents", "rounds", "idle", "pairings", "messages", "llm_calls"):
+            assert c.execute(f"SELECT COUNT(*) FROM {table} WHERE run_id=?", (rid,)).fetchone()[0] == 0
+    finally:
+        st.close()
+
+
 def test_begin_accepts_null_persona(tmp_path):
     spec = AgentSpec(persona=None, count=1)
     cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec],

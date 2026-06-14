@@ -6,6 +6,15 @@ from src.games.prompts import (
 )
 
 
+def test_score_placeholder_filled_in_contexts():
+    cfg = GameCfg(talk_prompt="t {score}", talk_open_prompt="o {score}",
+                  decide_prompt="d {score}", predict_prompt="p {score}")
+    assert talk_context(cfg, "A2", 1, "  A2: hi", 7.0) == "t 7"     # с фидом -> talk_prompt
+    assert talk_context(cfg, "A2", 1, "", 5.0) == "o 5"             # пустой фид -> опенер
+    assert decide_context(cfg, "A2", 1, "f", 3.0) == "d 3"
+    assert predict_context(cfg, "A2", 1, "f", 9.0) == "p 9"
+
+
 def test_talk_context_uses_open_template_on_empty_feed():
     cfg = GameCfg(talk_open_prompt="OPEN {partner} r{round}", talk_prompt="REPLY {feed}")
     assert talk_context(cfg, "A2", 1, "") == "OPEN A2 r1"          # первый ход -> опенер

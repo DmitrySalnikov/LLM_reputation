@@ -44,6 +44,44 @@ def _judge():
     return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
 
 
+async def test_unfinished_duplicate_is_deleted_and_rerun(tmp_path, capsys):
+    import random
+    import sqlite3
+
+    from src.population import make_population
+    from src.storage import Storage
+
+    db = str(tmp_path / "t.db")
+    cfg = _cfg()
+    # создаём оборванный прогон того же конфига: begin без finish
+    st = Storage(db)
+    pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
+    rid = st.begin(cfg, pop)
+    st.close()
+    await pop.aclose()
+
+    run_id = await runner.run_experiment(cfg, db)      # дубль оборван -> удалить и прогнать заново
+    assert run_id == rid
+    assert "deleting it and re-running" in capsys.readouterr().out
+
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
+        assert conn.execute("SELECT COUNT(*) FROM runs WHERE run_id=?", (rid,)).fetchone()[0] == 1   # не задвоился
+    finally:
+        conn.close()
+
+
+async def test_finished_duplicate_is_left_alone(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    cfg = _cfg()
+    await runner.run_experiment(cfg, db)               # доигран до конца
+    capsys.readouterr()
+    again = await runner.run_experiment(cfg, db)       # тот же конфиг
+    assert again is None                               # ничего не делаем
+    assert "nothing to do" in capsys.readouterr().out
+
+
 async def test_no_judge_block_means_no_judge_call(tmp_path, monkeypatch):
     called = []
     async def fake_judge(cfg, records):

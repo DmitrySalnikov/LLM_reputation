@@ -63,6 +63,12 @@ Notes:
 - Omitting `judge:` (or setting it to `null`) disables the judge entirely (`cfg.judge is None`).
 - The judge config field is **excluded from the `run_id` hash** — adding or removing the
   judge does not create a new run entry; only the game/population config matters for de-duplication.
+- Re-running an **identical** config: if the stored run is **finished**, the runner does nothing
+  ("nothing to do — change seed or config"); if it is **unfinished** (crashed/aborted, no
+  `finished_at`), the runner **deletes** that run (`Storage.delete_run` — a single
+  `DELETE FROM runs`, child rows go via `ON DELETE CASCADE`) and re-runs from scratch. The
+  decision lives in `runner._handle_existing_run` (a future extension point — could resume
+  instead of delete).
 - The verdict is printed by the runner / demo and stored in the `judge_verdicts` table in
   the SQLite DB; `replay.py` highlights cited messages in yellow and appends a JUDGE VERDICT section.
 

@@ -18,7 +18,12 @@ class DuplicateRunError(Exception):
     """Прогон с таким run_id уже записан: конфиг идентичен (DB де-дуплицирует прогоны).
 
     Отдельное исключение, а не общий sqlite3.IntegrityError — чтобы caller отличал
-    де-дуп от настоящих нарушений целостности (NOT NULL, FK и т.п.)."""
+    де-дуп от настоящих нарушений целостности (NOT NULL, FK и т.п.). Несёт run_id,
+    чтобы caller мог решить, что делать с уже записанным прогоном."""
+
+    def __init__(self, run_id: str):
+        super().__init__(run_id)
+        self.run_id = run_id
 
 
 def _run_id(cfg: EpisodeCfg) -> str:
@@ -63,6 +68,19 @@ class Storage:
                 ],
             )
         return run_id
+
+    def is_finished(self, run_id: str) -> bool:
+        """True, если прогон доигран (проставлен finished_at); False для оборванного/отсутствующего."""
+        row = self._conn.execute(
+            "SELECT finished_at FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return bool(row and row[0])
+
+    def delete_run(self, run_id: str) -> None:
+        """Удалить прогон и все его строки — дочерние таблицы уходят каскадом
+        (FK с ON DELETE CASCADE; PRAGMA foreign_keys=ON выставлен в __init__)."""
+        with self._conn:
+            self._conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
 
     def observe(self, round: int, plan: RoundPlan, recs: list[PairingRecord]) -> None:
         """Step R: one transaction per round — rounds + idle + pairings + messages.
