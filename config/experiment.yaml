@@ -56,7 +56,7 @@ game:
 
     How each round works:
     - At the beginning of the round you may exchange short, non-binding messages with your opponent. Set "ready": true once you are finished talking and won't send more this round; talk ends when both of you are finished, or after {max_talk_turns} messages in total.
-    - After talking you each secretly and simultaneously choose an integer from 0 to 9.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
 
     Scoring compares the two numbers on a 0–9 cycle (after 9 comes 0 again):
     - Equal numbers: you each score {R}.
