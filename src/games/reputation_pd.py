@@ -65,8 +65,8 @@ class ReputationPD:
                 usages += [ua, ub]
 
             public = _public(transcript)
-            self._remember(a, b.id, round, public, da, y, outcome, pa, ra)
-            self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, rb)
+            self._remember(a, b.id, round, public, da, y, outcome, pa, pb, ra)
+            self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, pa, rb)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=public,
                 a_number=x, b_number=y,
@@ -138,7 +138,7 @@ class ReputationPD:
                 break
 
     def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
-                  outcome, payoff, reflection=None):
+                  outcome, payoff, partner_payoff, reflection=None):
         agent.memory.add(
             MemoryEntry(
                 round=round,
@@ -150,6 +150,7 @@ class ReputationPD:
                 partner_number=partner_number,
                 outcome=outcome,
                 payoff=payoff,
+                partner_payoff=partner_payoff,
                 my_predicted=mine.predicted,
                 my_reflection=reflection,
             )
@@ -193,7 +194,8 @@ def _render_feed(transcript: list[dict], me_id: str) -> str:
     def _label(speaker: str) -> str:
         return f"{speaker} (you)" if speaker == me_id else speaker
 
-    return "\n".join(
-        f"{_label(t['speaker'])}: {t['text']} (ready={str(bool(t['ready'])).lower()})"
-        for t in transcript
-    )
+    def _line(t: dict) -> str:
+        mark = " (ready=true)" if t["ready"] else ""   # ready=false не выводим
+        return f"  {_label(t['speaker'])}: {t['text']}{mark}"
+
+    return "\n".join(_line(t) for t in transcript)

@@ -227,6 +227,7 @@ async def test_memory_diary_precedes_situation_in_one_message():
             partner_number=5,
             outcome="DC",
             payoff=5.0,
+            partner_payoff=0.0,
         )
     )
     await a.act(Phase(PhaseKind.DECIDE, "SITUATION", rules="R"))

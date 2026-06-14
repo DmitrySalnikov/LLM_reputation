@@ -3,7 +3,40 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from replay import _provider_line, _roster_line, cited_set, highlight, load_verdict
+from replay import (
+    _expand_newlines, _preview, _provider_line, _readable, _roster_line,
+    cited_set, highlight, load_verdict,
+)
+
+
+def test_readable_starts_content_body_on_new_line():
+    out = _readable('"content": "Your memory\\nof rounds"')
+    assert out == '"content": "\nYour memory\nof rounds"'   # тело начинается с новой строки
+
+
+def test_readable_unescapes_quotes():
+    assert _readable('Set \\"ready\\": true') == 'Set "ready": true'
+
+
+def test_preview_collapses_whitespace_and_keeps_short_text():
+    assert _preview("hello\n   there  world") == "hello there world"
+
+
+def test_preview_truncates_long_text_with_ellipsis():
+    p = _preview("x" * 100, n=10)
+    assert len(p) == 10 and p.endswith("…")
+
+
+def test_preview_empty_for_none_or_blank():
+    assert _preview(None) == "" and _preview("") == ""
+
+
+def test_expand_newlines_turns_escaped_into_real():
+    assert _expand_newlines("a\\nb") == "a\nb"        # два символа \n -> реальный перевод строки
+
+
+def test_expand_newlines_passes_through_none():
+    assert _expand_newlines(None) is None
 
 
 def test_provider_line_puts_model_last():

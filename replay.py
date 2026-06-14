@@ -7,16 +7,17 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    uv run python replay.py <run_id> [--config] [--calls] [--call ID]
+    uv run python replay.py <run_id> [--config] [--calls] [--call ID [--raw]]
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
 the episode config: the prompts in full, then the roster, then the remaining scalar knobs
 (prompts / agents / name pools are stripped from that last dump to avoid repetition).
 
---calls adds the raw L2 log under each pairing: one compact line per HTTP call, led by its
-#id (phase, attempt/http_attempt, status, tokens, response/error preview); failed calls are
-highlighted. --call ID dumps that one call in full — the verbatim request payload and the
-response body. ID is the #id shown by --calls.
+--calls adds the raw L2 log under each pairing: one compact line per HTTP call (id, agent,
+phase, attempt/http_attempt, status, tokens, and a short preview — the model's response, or
+the error for failed calls); failed calls are highlighted. --call ID dumps that one call in
+full — the request payload and the response body. By default escaped \n is expanded into real
+line breaks for readability; add --raw to keep it verbatim. ID is the #id shown by --calls.
 """
 
 import json
@@ -29,7 +30,7 @@ DB_DEFAULT = "experiment.db"
 
 # Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
 # секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
-_PROMPT_KEYS = ("rules", "talk_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
+_PROMPT_KEYS = ("rules", "talk_prompt", "talk_open_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
 # Из дампа конфига выкидываем эти ключи population — ростер (агенты), пулы имён и
 # identity-промпт печатаются отдельными секциями выше. provider оставляем: его сводка
 # идёт строкой под шапкой, а полный блок (base_url, timeout_s, …) виден в дампе.
@@ -66,6 +67,28 @@ def _duration(created, finished):
     h, rem = divmod(secs, 3600)
     m, s = divmod(rem, 60)
     return f"{h}h{m}m{s}s" if h else f"{m}m{s}s" if m else f"{s}s"
+
+
+def _preview(text, n=60):
+    """Короткое превью текста в одну строку: схлопнуть пробелы/переводы строк, обрезать до n."""
+    if not text:
+        return ""
+    s = " ".join(text.split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _expand_newlines(s):
+    r"""Раскрыть экранированные \n (два символа) в реальные переводы строк — для читаемого дампа."""
+    return s.replace("\\n", "\n") if s else s
+
+
+def _readable(s):
+    r"""JSON-пейлоад для читаемого дампа: тело сообщения ("content") с новой строки,
+    раскрытые \n и \" (экранированные кавычки -> обычные)."""
+    if not s:
+        return s
+    s = s.replace('"content": "', '"content": "\\n')   # тело сообщения с новой строки
+    return _expand_newlines(s).replace('\\"', '"')      # раскрыть \n и \"
 
 
 _YELLOW, _RESET = "\033[93m", "\033[0m"
@@ -121,20 +144,22 @@ def _render_calls(conn, run_id, r, pi, color):
     """
     rows = conn.execute(
         """SELECT rowid, agent_id, phase, turn_idx, attempt, http_attempt,
-                  status, status_code, prompt_tokens, completion_tokens
+                  status, status_code, prompt_tokens, completion_tokens, response, error
            FROM llm_calls WHERE run_id=? AND round_idx=? AND pair_idx=? ORDER BY call_idx""",
         (run_id, r, pi),
     ).fetchall()
     if not rows:
         return
-    header = ("id", "agent", "phase", "a/h", "turn", "status", "code", "tokens")
+    header = ("id", "agent", "phase", "a/h", "turn", "status", "code", "tokens", "preview")
     table = [header]
     statuses = []
-    for (cid, agent, phase, turn, att, hatt, status, code, pt, ct) in rows:
+    for (cid, agent, phase, turn, att, hatt, status, code, pt, ct, response, error) in rows:
+        # превью: ответ модели для ok, иначе текст ошибки
+        preview = _preview(error if status != "ok" else response)
         table.append((
             f"#{cid}", agent, phase, f"{att}/{hatt}",
             f"t{turn}" if turn is not None else "-",
-            status, str(code) if code is not None else "-", f"{pt}+{ct}",
+            status, str(code) if code is not None else "-", f"{pt}+{ct}", preview,
         ))
         statuses.append(status)
     widths = [max(len(row[i]) for row in table) for i in range(len(header))]
@@ -148,8 +173,12 @@ def _render_calls(conn, run_id, r, pi, color):
         print(highlight(fmt(cells), on=color and status != "ok"))   # failures in yellow
 
 
-def dump_call(conn, run_id, spec):
-    """Full dump of ONE call: the verbatim request payload and response — by numeric id (see --calls)."""
+def dump_call(conn, run_id, spec, raw=False):
+    """Full dump of ONE call: the request payload and response — by numeric id (see --calls).
+
+    By default escaped \\n in the payload and the raw body are expanded into real line breaks
+    for readability; pass raw=True (--raw) to keep them verbatim/escaped.
+    """
     try:
         cid = int(spec)
     except ValueError:
@@ -166,20 +195,22 @@ def dump_call(conn, run_id, spec):
         print(f"call #{cid} not found in run {run_id}.")
         return
     (r, p, ci, agent, phase, turn, att, hatt, status, code,
-     request, response, raw, err, pt, ct) = row
+     request, response, raw_body, err, pt, ct) = row
+    expand = (lambda s: s) if raw else _readable   # по умолчанию: тело с новой строки + раскрытые \n
     bar = "=" * 64
     print(f"{bar}\n  CALL #{cid}  (r{r}.p{p}.c{ci})   run={run_id}\n{bar}")
     print(f"agent={agent}  phase={phase}  turn_idx={turn}  attempt={att}  http_attempt={hatt}")
     print(f"status={status}  status_code={code}  tokens={pt}+{ct}" + (f"  error={err}" if err else ""))
     print("\n--- request (sent payload) ---")
     try:
-        print(json.dumps(json.loads(request), indent=2, ensure_ascii=False))
+        req = json.dumps(json.loads(request), indent=2, ensure_ascii=False)
     except (TypeError, ValueError):
-        print(request)
+        req = request
+    print(expand(req))
     print("\n--- response (extracted text) ---")
     print(response if response is not None else "(none)")
     print("\n--- response_raw (verbatim body) ---")
-    print(raw if raw is not None else "(none)")
+    print(expand(raw_body) if raw_body is not None else "(none)")
 
 
 def replay(conn, run_id, show_config=False, show_calls=False):
@@ -282,7 +313,8 @@ def replay(conn, run_id, show_config=False, show_calls=False):
             ).fetchall()
             if msgs:
                 for ti, (speaker, text, ready) in enumerate(msgs):
-                    line = f"    {ti + 1}. {speaker}: {text}   [ready={bool(ready)}]"
+                    mark = "   [ready=true]" if ready else ""   # ready=false не показываем
+                    line = f"    {ti + 1}. {speaker}: {text}{mark}"
                     print(highlight(line, on=color) if (r, pi, ti) in cited else line)
             else:
                 print("    (no messages exchanged)")
@@ -351,6 +383,7 @@ def main():
     args = sys.argv[1:]
     show_config = "--config" in args or "-c" in args
     show_calls = "--calls" in args
+    raw = "--raw" in args                          # --call: не раскрывать \n
     call_spec = None
     pos = []
     skip = False
@@ -362,18 +395,18 @@ def main():
             call_spec = args[i + 1] if i + 1 < len(args) else None
             skip = True
             continue
-        if a in ("--config", "-c", "--calls"):
+        if a in ("--config", "-c", "--calls", "--raw"):
             continue
         pos.append(a)                             # positional args only
 
     conn = sqlite3.connect(DB_DEFAULT)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [--config] [--calls] [--call ID]   "
+            print(f"usage: replay.py <run_id> [--config] [--calls] [--call ID [--raw]]   "
                   f"(db: {DB_DEFAULT})\n")
             list_runs(conn)
         elif call_spec is not None:
-            dump_call(conn, pos[0], call_spec)    # full dump of one call
+            dump_call(conn, pos[0], call_spec, raw=raw)    # full dump of one call
         else:
             replay(conn, pos[0], show_config=show_config, show_calls=show_calls)
     finally:

@@ -57,6 +57,14 @@ DEFAULT_TALK_PROMPT = (
     'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
 )
 
+# Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
+DEFAULT_TALK_OPEN_PROMPT = (
+    "Your opponent this round is {partner}. Round {round}.\n\n"
+    "You speak first this round. Open with a short message to your opponent. "
+    'Set "ready": true when you have nothing more to say.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+)
+
 DEFAULT_DECIDE_PROMPT = (
     "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
@@ -126,6 +134,7 @@ class GameCfg:
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
+    talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
     decide_prompt: str = ""          # пусто -> шаблон по умолчанию выбирается по флагу rationale
     predict_prompt: str = ""         # пусто -> шаблон по умолчанию выбирается по флагу rationale
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})

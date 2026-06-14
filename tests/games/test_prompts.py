@@ -1,7 +1,21 @@
 from __future__ import annotations
 
 from src.core.config import GameCfg
-from src.games.prompts import decide_context, predict_context, reflect_context
+from src.games.prompts import (
+    decide_context, predict_context, reflect_context, rules_text, talk_context,
+)
+
+
+def test_talk_context_uses_open_template_on_empty_feed():
+    cfg = GameCfg(talk_open_prompt="OPEN {partner} r{round}", talk_prompt="REPLY {feed}")
+    assert talk_context(cfg, "A2", 1, "") == "OPEN A2 r1"          # первый ход -> опенер
+    assert talk_context(cfg, "A2", 1, "  A2: hi") == "REPLY   A2: hi"  # есть фид -> обычный шаблон
+
+
+def test_rules_text_fills_payoff_and_talk_turn_placeholders():
+    cfg = GameCfg(max_talk_turns=4,
+                  rules="R={R} T={T} P={P} S={S}, talk budget {max_talk_turns}")
+    assert rules_text(cfg) == "R=3 T=5 P=1 S=0, talk budget 4"
 
 
 def test_decide_template_puts_rationale_before_number():
@@ -25,6 +39,18 @@ def test_predict_template_without_rationale_asks_bare_number():
     ctx = predict_context(GameCfg(rationale=False), "A2", 1, "feed")
     assert "rationale" not in ctx.lower()
     assert '{"number": <0-9>}' in ctx
+
+
+def test_answer_placeholder_follows_rationale_flag():
+    tmpl = "Now choose.\n{answer}"
+    on = decide_context(GameCfg(rationale=True, decide_prompt=tmpl), "A2", 1, "feed")
+    off = decide_context(GameCfg(rationale=False, decide_prompt=tmpl), "A2", 1, "feed")
+    assert '"rationale"' in on and "Reason first" in on
+    assert '"rationale"' not in off and '{"number": <0-9>}' in off
+    # тот же плейсхолдер работает и в predict
+    pon = predict_context(GameCfg(rationale=True, predict_prompt=tmpl), "A2", 1, "feed")
+    poff = predict_context(GameCfg(rationale=False, predict_prompt=tmpl), "A2", 1, "feed")
+    assert '"rationale"' in pon and '"rationale"' not in poff
 
 
 def test_explicit_template_overrides_rationale_flag():

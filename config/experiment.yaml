@@ -1,8 +1,8 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 16                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 2
+seed: 12                      # drives population build + matchmaker rng (change to force a fresh run)
+rounds: 3
 max_concurrency: 4            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -47,18 +47,15 @@ game:
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
   # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time:
-  #   rules:           {R}/{T}/{P}/{S} — filled from `payoffs` above (single source of truth)
-  #   talk/decide/predict: {partner} {round} {feed}
+  #   rules:           {R}/{T}/{P}/{S} — from `payoffs`; {max_talk_turns} — from `max_talk_turns` above
+  #   talk: {partner} {round} {feed}; talk_open (first turn, empty feed): {partner} {round}
+  #   decide/predict: {partner} {round} {feed} {answer} (хвост ответа подставляется по флагу rationale)
   #   reflect:         {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
   rules: |-
-    You are playing a repeated modified prisoner dilemma game with a limited but unknown
-    number of named players, over an unknown number of rounds. Each round you face one
-    random opponent; you may face the same player more than once.
+    You are playing a repeated modified prisoner dilemma game with a limited but unknown number of named players, over an unknown number of rounds. Each round you face one random opponent; you may face the same player more than once.
 
     How each round works:
-    - At the beginning of the round you may exchange short, non-binding messages with your
-      opponent. Set "ready": true once you are finished talking and won't send more this
-      round; talk ends when both of you are finished, or after {max_talk_turns} messages in total.
+    - At the beginning of the round you may exchange short, non-binding messages with your opponent. Set "ready": true once you are finished talking and won't send more this round; talk ends when both of you are finished, or after {max_talk_turns} messages in total.
     - After talking you each secretly and simultaneously choose an integer from 0 to 9.
 
     Scoring compares the two numbers on a 0–9 cycle (after 9 comes 0 again):
@@ -69,35 +66,39 @@ game:
 
     Your absolute goal is to maximize your own total score; the scores of others must not concern you.
 
-    On every turn you are shown your memory of past rounds and then the current round. This
-    memory includes the messages, both numbers, and both payoffs.
+    On every turn you are shown your memory of past rounds and then the current round. This memory includes the messages, both numbers, and both payoffs.
     Reply only with the exact JSON that turn asks for.
   talk_prompt: |-
-    Your opponent this round is {partner}. Round {round}.
-    Negotiation so far:
+    Current round: [Round {round} · opponent {partner}]
+    Talk:
     {feed}
 
-    Send a short message to your opponent. Set "ready": true when you have nothing more to say.
+    It's your turn to reply — send a short message to your opponent. Set "ready": true if you are done talking this round.
+    Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}
+  # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
+  talk_open_prompt: |-
+    Current round: [Round {round} · opponent {partner}]
+    You speak first this round — send a short message to your opponent. Set "ready": true if you are done talking this round.
     Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}
   decide_prompt: |-
-    Your opponent this round is {partner}. Round {round}.
-    Negotiation:
+    Current round: [Round {round} · opponent {partner}]
+    Talk:
     {feed}
 
-    Now secretly choose your number from 0 to 9.
-    Respond ONLY as JSON: {"number": <0-9>, "rationale": "<short reason>"}
+    The talk is over. Now secretly choose your number from 0 to 9.
+    {answer}
   # Used only when play_strategy=prediction:
   predict_prompt: |-
-    Your opponent this round is {partner}. Round {round}.
-    Negotiation:
+    Current round: [Round {round} · opponent {partner}]
+    Talk:
     {feed}
 
-    Predict the number your opponent will secretly choose, from 0 to 9. Reason first, then commit to a number.
-    Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}
+    The talk is over. Predict the number your opponent will secretly choose, from 0 to 9.
+    {answer}
   # Used only when reflection=true:
   reflect_prompt: |-
-    Your opponent this round is {partner}. Round {round}.
-    Negotiation:
+    Current round: [Round {round} · opponent {partner}]
+    Talk:
     {feed}
 
     The round is over. {me} picked {my_number}, {partner} picked {partner_number}. You scored {payoff} points.

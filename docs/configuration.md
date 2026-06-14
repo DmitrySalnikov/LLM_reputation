@@ -35,7 +35,7 @@ DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
 | `max_concurrency` | semaphore size for concurrent pairings |
 | `play_strategy` | `direct` (default) or `prediction` |
 | `prediction_mapping` | only used when `play_strategy: prediction`; `match` or `one_above` |
-| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`), and the prompt templates `rules`, `talk_prompt`, `decide_prompt`, `predict_prompt`, `reflect_prompt` (each defaults to a `DEFAULT_*` in `src/core/config.py`; delete a key to use the default) |
+| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `rationale` (ask for reasoning before the number in DECIDE/PREDICT; default `true`), `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`), and the prompt templates `rules`, `talk_prompt`, `talk_open_prompt` (first turn of a round, empty feed — the agent opens the talk; no `{feed}`), `decide_prompt`, `predict_prompt`, `reflect_prompt` (each defaults to a `DEFAULT_*` in `src/core/config.py`; delete a key to use the default). `decide_prompt`/`predict_prompt` support a `{answer}` placeholder filled per the `rationale` flag (reason+number vs bare number) |
 | `population` | `PopulationCfg` (see below) |
 | `judge` | `JudgeCfg` or absent/`null` — optional LLM judge (see below) |
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from src.core.memory import Memory, MemoryEntry
 
 
-def _entry(round=1, partner="A2", my=4, partner_num=4, outcome="CC", payoff=3.0):
+def _entry(round=1, partner="A2", my=4, partner_num=4, outcome="CC",
+           payoff=3.0, partner_payoff=3.0):
     return MemoryEntry(
         round=round,
         my_id="A1",
@@ -17,6 +18,7 @@ def _entry(round=1, partner="A2", my=4, partner_num=4, outcome="CC", payoff=3.0)
         partner_number=partner_num,
         outcome=outcome,
         payoff=payoff,
+        partner_payoff=partner_payoff,
     )
 
 
@@ -38,8 +40,16 @@ def test_single_entry_content():
     assert "A1 (you): let us both take 4" in text   # own line: "<name> (you)"
     assert "A5: ok, 4" in text                       # opponent line keeps the id
     assert "A1 (you)=4" in text and "A5=4" in text and "agreed on 4" in text
-    assert "Outcome: CC" in text and "Payoff to A1 (you): 3" in text
-    assert "ready=false" in text and "ready=true" in text
+    assert "Payoffs: A1 (you)=3, A5=3" in text   # обе выплаты в одной строке
+    assert "Outcome" not in text                  # сырой код исхода в дневник не утекает
+    assert "ready=true" in text and "ready=false" not in text   # выводим только ready=true
+
+
+def test_render_shows_both_payoffs_distinctly():
+    m = Memory()
+    m.add(_entry(partner="A5", payoff=5.0, partner_payoff=0.0))   # ты перебил соперника
+    text = m.render(None)[0].content
+    assert "Payoffs: A1 (you)=5, A5=0" in text
 
 
 def test_reflection_rendered_after_outcome():
@@ -49,8 +59,8 @@ def test_reflection_rendered_after_outcome():
     m.add(e)
     text = m.render(None)[0].content
     assert "A3 kept the agreement" in text
-    # reflection comes after the choices/outcome line
-    assert text.index("Outcome: CC") < text.index("A3 kept the agreement")
+    # reflection comes after the choices/payoffs line
+    assert text.index("Payoffs:") < text.index("A3 kept the agreement")
 
 
 def test_entry_without_reflection_renders_no_reflection_line():
@@ -89,7 +99,7 @@ def test_render_includes_prediction_line_when_present():
     m = Memory()
     m.add(MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[], my_number=5,
                       my_rationale="r", partner_number=5, outcome="CC", payoff=3.0,
-                      my_predicted=4))
+                      partner_payoff=3.0, my_predicted=4))
     rendered = m.render(None)[0].content
     assert "predict" in rendered.lower()
     assert "4" in rendered
