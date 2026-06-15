@@ -2,8 +2,8 @@
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
 seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 10
-max_concurrency: 12           # pairings played in parallel per round
+rounds: 3
+max_concurrency: 10           # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
 idle_payoff: 1                # what an agent scores in a round it sits out (odd population)
@@ -39,7 +39,7 @@ population:
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
+  max_talk_turns: 6                   # hard ceiling on total cheap-talk turns in a pairing
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # ask for a reason before the number in DECIDE/PREDICT
   reflection: false                   # post-game reflection: an extra LLM call after the outcome

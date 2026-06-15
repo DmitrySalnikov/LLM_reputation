@@ -152,6 +152,7 @@ class ReputationPD:
                 outcome=outcome,
                 payoff=payoff,
                 partner_payoff=partner_payoff,
+                score=agent.score - payoff,   # счёт ДО этого раунда — как в фазовом хедере
                 my_predicted=mine.predicted,
                 my_reflection=reflection,
             )

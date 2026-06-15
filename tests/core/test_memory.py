@@ -4,7 +4,7 @@ from src.core.memory import Memory, MemoryEntry
 
 
 def _entry(round=1, partner="A2", my=4, partner_num=4, outcome="CC",
-           payoff=3.0, partner_payoff=3.0):
+           payoff=3.0, partner_payoff=3.0, score=0.0):
     return MemoryEntry(
         round=round,
         my_id="A1",
@@ -19,6 +19,7 @@ def _entry(round=1, partner="A2", my=4, partner_num=4, outcome="CC",
         outcome=outcome,
         payoff=payoff,
         partner_payoff=partner_payoff,
+        score=score,
     )
 
 
@@ -43,6 +44,13 @@ def test_single_entry_content():
     assert "Payoffs: A1 (you)=3, A5=3" in text   # обе выплаты в одной строке
     assert "Outcome" not in text                  # сырой код исхода в дневник не утекает
     assert "ready=true" in text and "ready=false" not in text   # выводим только ready=true
+
+
+def test_header_shows_score_like_the_game():
+    m = Memory()
+    m.add(_entry(round=3, partner="A5", score=12.0))
+    text = m.render(None)[0].content
+    assert "[Round 3 · opponent A5 · score 12]" in text   # тот же формат, что в фазовых хедерах
 
 
 def test_render_shows_both_payoffs_distinctly():

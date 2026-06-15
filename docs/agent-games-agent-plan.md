@@ -175,12 +175,14 @@ class Memory:
   **не** рендерится. Свои реплики метятся `me`, чужие — `partner_id` (по сравнению
   `speaker == partner_id`; в транскрипте только двое). Пример блока:
   ```
-  [Round 3 · partner A5]
+  [Round 3 · opponent A5 · score 12]
   Talk:
-    me: let us both take 4 (ready=false)
+    A1 (you): let us both take 4
     A5: ok, 4 (ready=true)
-  Choices: me=4 (reason: agreed on 4), A5=4. Payoffs: me=3, A5=3.
+  Choices: A1 (you)=4 (reason: agreed on 4), A5=4. Payoffs: A1 (you)=3, A5=3.
   ```
+  `score` — накопленный счёт агента **до** этого раунда (тот же формат, что в фазовых
+  хедерах); `ready=false` не выводится, метятся только готовые реплики.
 - `window` в раундах: `None` = вся история; `k` = последние k записей. Токен-кап —
   пост-MVP предохранитель (§11).
 

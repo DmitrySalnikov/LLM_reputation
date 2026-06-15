@@ -17,6 +17,7 @@ class MemoryEntry:
     outcome: str
     payoff: float            # выигрыш самого агента в этом раунде
     partner_payoff: float    # выигрыш партнёра (для симметричной строки "Payoffs: ...")
+    score: float = 0.0       # накопленный счёт агента ДО этого раунда (как в фазовом хедере)
     my_predicted: int | None = None  # стратегия prediction; None для direct
     my_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
 
@@ -47,7 +48,7 @@ def _render_entry(e: MemoryEntry) -> str:
     # Дневник едет в user-сообщении, адресованном самому агенту: чужие реплики — по имени,
     # свои — "<имя> (you)" (одна метка на всю запись, симметрично оппоненту).
     me = f"{e.my_id} (you)"
-    lines = [f"[Round {e.round} · opponent {e.partner_id}]"]
+    lines = [f"[Round {e.round} · opponent {e.partner_id} · score {e.score:g}]"]
     if e.transcript:
         lines.append("Talk:")
         for turn in e.transcript:
