@@ -76,6 +76,15 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 5. **Record**: a `PairingRecord` (`src/games/base.py:9`) is returned and each
    agent's `Memory` gets an entry (including the reflection, which the diary
    feeds back into the agent's future LLM inputs).
+6. **Memory notes** (optional, `game.memory_notes_every: N`): each agent makes one
+   extra `NOTE` LLM call after every **N rounds it has actually played** (counted
+   per-agent as `len(memory.entries)` after the memory writes — idle rounds don't
+   count, and the two agents of a pairing decide independently). NOTE rewrites the
+   agent's whole memory into private notes; from then on `Memory.render` sends those
+   notes **instead of** the raw round history, plus the raw buffer of rounds played
+   since the last consolidation (`noted_upto`). The notes ride the pairing: stored in
+   `pairings.a_notes/b_notes`, their L2 calls in `llm_calls` with `phase='note'`.
+   A failed NOTE call aborts the pairing like any other LLM failure.
 
 ## Strategies (`src/strategy/`)
 
@@ -102,7 +111,8 @@ reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total failu
 raises `ActParseError` (no substitution) — the pairing is aborted (`finished=0`) and the
 episode stops, same as a provider error. It also bumps `parse_failures`.
 
-Four `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`. In DECIDE/PREDICT the
+Five `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`, `NOTE`. `NOTE` consolidates
+memory (its `act` renders the full memory, ignoring the window). In DECIDE/PREDICT the
 JSON answer puts `rationale` before `number`, so reasoning tokens are generated
 before the choice is committed; with `game.rationale: false` the prompt asks for
 a bare `{"number": ...}` instead. JSON extraction is lenient — raw, fenced, and

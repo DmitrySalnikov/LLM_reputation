@@ -24,8 +24,14 @@ reasoning-модели (§8).
 - `Memory` / `MemoryEntry`: дневник + `render(window)`.
 - Тест-дубль `ScriptedProvider` (без сети) + Ollama-smoke по каждому срезу.
 
+**Реализовано после MVP:** фазы `REFLECT` и `NOTE` + второй ярус памяти (memory notes:
+`Memory.notes`/`noted_upto`/`set_notes`; `render` шлёт заметки + буфер новых раундов
+вместо полной истории). `NOTE` сворачивает память каждые `game.memory_notes_every`
+**сыгранных агентом** раундов (`len(memory.entries)`, idle не считается); его `act`
+рендерит память целиком (без окна). См. `architecture.md` §«Pairing flow».
+
 **НЕ входит (чистые швы, §11):**
-- Фазы `REFLECT`, `NOTES` и второй ярус памяти (notes); `CHOOSE_PARTNER`/`CONSENT`.
+- `CHOOSE_PARTNER`/`CONSENT`.
 - Многоходовый рендер памяти настоящими `assistant`/`user`-репликами (MVP — текстовый блок).
 - Логика игры (правила, платежи, лента переговоров) — это слой Игры; Агент её только потребляет.
 - Загрузка `AgentSetup` из YAML — придёт со слоем конфига; в тестах строим вручную.

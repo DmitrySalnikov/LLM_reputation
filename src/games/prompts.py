@@ -7,6 +7,7 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
     talk:                 {partner} {round} {feed} {score}
     decide/predict:       {partner} {round} {feed} {score} {answer} (хвост ответа по флагу rationale)
     reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
+    notes:                {round} {score}
     {score} = накопленный счёт агента до текущего раунда (Agent.score)
 """
 
@@ -73,6 +74,14 @@ def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
         .replace("{partner_number}", str(partner_number))
         .replace("{payoff}", f"{payoff:g}")
     )
+
+
+def notes_context(cfg: GameCfg, round: int, score: float = 0.0) -> str:
+    """Memory-consolidation context: агент переписывает свою память в личные заметки.
+
+    Память (заметки + буфер) доезжает как history в Agent.act; здесь — только инструкция
+    с плейсхолдерами {round}/{score} (партнёра/фида у note-вызова нет)."""
+    return _fill(cfg.notes_prompt, "", round, "", score)
 
 
 def _fill(template: str, partner: str, round: int, feed: str, score: float = 0.0) -> str:

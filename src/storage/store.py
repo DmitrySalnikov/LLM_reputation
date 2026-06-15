@@ -101,14 +101,14 @@ class Storage:
                            run_id, round_idx, pair_idx, a_id, b_id, finished,
                            a_number, b_number, a_rationale, b_rationale,
                            a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                           a_reflection, b_reflection,
+                           a_reflection, b_reflection, a_notes, b_notes,
                            usage_prompt_tokens, usage_completion_tokens, usage_calls)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         rid, round, pair_idx, rec.a_id, rec.b_id, int(rec.finished),
                         rec.a_number, rec.b_number, rec.a_rationale, rec.b_rationale,
                         rec.outcome, rec.a_payoff, rec.b_payoff, rec.a_predicted, rec.b_predicted,
-                        rec.a_reflection, rec.b_reflection,
+                        rec.a_reflection, rec.b_reflection, rec.a_notes, rec.b_notes,
                         u.get("prompt_tokens"), u.get("completion_tokens"), u.get("calls"),
                     ),
                 )

@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     b_predicted INTEGER,
     a_reflection TEXT,                      -- post-game reflection (NULL when game.reflection=false)
     b_reflection TEXT,
+    a_notes     TEXT,                       -- memory notes после раунда (NULL, если не свёртывали)
+    b_notes     TEXT,
     usage_prompt_tokens     INTEGER,
     usage_completion_tokens INTEGER,
     usage_calls             INTEGER,
@@ -88,7 +90,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     pair_idx      INTEGER NOT NULL,
     call_idx      INTEGER NOT NULL,   -- порядок вызова внутри пары (порядок исполнения)
     agent_id      TEXT    NOT NULL,   -- кто вызывал
-    phase         TEXT    NOT NULL,   -- talk | decide | predict | reflect
+    phase         TEXT    NOT NULL,   -- talk | decide | predict | reflect | note
     turn_idx      INTEGER,            -- NULL кроме TALK; FK на конкретную реплику messages
     attempt       INTEGER NOT NULL,   -- парс-попытка Agent.act (1..3)
     http_attempt  INTEGER NOT NULL,   -- сетевой ретрай внутри complete() (1..5)

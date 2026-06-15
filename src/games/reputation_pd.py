@@ -6,7 +6,7 @@ from src.core.agent import ActParseError, Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry
 from src.games.base import PairingRecord
-from src.games.prompts import reflect_context, rules_text, talk_context
+from src.games.prompts import notes_context, reflect_context, rules_text, talk_context
 from src.providers.base import ProviderError
 from src.strategy.base import PlayStrategy
 
@@ -67,6 +67,20 @@ class ReputationPD:
             public = _public(transcript)
             self._remember(a, b.id, round, public, da, y, outcome, pa, pb, ra)
             self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, pa, rb)
+
+            # Memory notes: каждые N раундов агенты сворачивают память в заметки (после
+            # _remember — чтобы текущий раунд уже был в памяти). Note-вызовы привязаны к паре.
+            # Свёртка — по числу сыгранных АГЕНТОМ партий (len(memory.entries) после
+            # _remember), а не по номеру раунда: idle-раунды не считаются, и оба агента
+            # решают независимо. Каждый note-вызов копим сразу (как reflect): если note(b)
+            # сорвётся, успевший L2-лог note(a) не теряется и доезжает в сорванную пару.
+            na = nb = None
+            if self._notes_due(a):
+                na, una, cna = await self._make_notes(a, round)
+                post_calls += list(cna); usages.append(una)
+            if self._notes_due(b):
+                nb, unb, cnb = await self._make_notes(b, round)
+                post_calls += list(cnb); usages.append(unb)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=public,
                 a_number=x, b_number=y,
@@ -74,6 +88,7 @@ class ReputationPD:
                 outcome=outcome, a_payoff=pa, b_payoff=pb, usage=_sum_usage(usages),
                 a_predicted=da.predicted, b_predicted=db.predicted,
                 a_reflection=ra, b_reflection=rb,
+                a_notes=na, b_notes=nb,
                 finished=True, llm_calls=_talk_calls(transcript) + post_calls,
             )
         except (ProviderError, ActParseError) as e:
@@ -107,6 +122,34 @@ class ReputationPD:
                               score=agent.score)
         res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
         return res.data["reflection"], res.usage, res.calls
+
+    def _notes_due(self, agent: Agent) -> bool:
+        """Пора ли агенту свернуть память: каждые memory_notes_every СЫГРАННЫХ им партий.
+
+        Счётчик партий = len(agent.memory.entries) (одна запись на сыгранный раунд; idle
+        записей не даёт). Вызывается после _remember, поэтому текущий раунд уже учтён."""
+        every = self.cfg.memory_notes_every
+        return bool(every) and len(agent.memory.entries) % every == 0
+
+    async def _make_notes(self, agent: Agent, round: int) -> tuple[str, tuple[int, int], tuple]:
+        """Свернуть память агента в личные заметки (фаза NOTE) и запомнить их в agent.memory.
+
+        Агент видит свою память целиком (старые заметки + буфер новых раундов) как history
+        в Agent.act и переписывает её в новые заметки; с этого момента render() шлёт заметки
+        вместо полной истории. Сбой (ProviderError/ActParseError) пробрасывается и обрывает
+        пару, как и любой LLM-вызов.
+
+        Args:
+            agent: Агент, сворачивающий свою память.
+            round: Номер раунда (для {round} в шаблоне).
+
+        Returns:
+            Тройка (текст заметок, usage запроса, сырые LLMCall'ы фазы NOTE).
+        """
+        ctx = notes_context(self.cfg, round, score=agent.score)
+        res = await agent.act(Phase(PhaseKind.NOTE, ctx, rules=self._rules))
+        agent.memory.set_notes(res.data["notes"])
+        return res.data["notes"], res.usage, res.calls
 
     async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict]) -> None:
         # Наполняет переданный transcript на месте (чтобы при LLM-сбое частичный

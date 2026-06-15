@@ -101,6 +101,38 @@ def test_window_zero_returns_nothing():
     assert m.render(0) == []
 
 
+def test_set_notes_marks_buffer_boundary():
+    m = Memory()
+    m.add(_entry(round=1))
+    m.add(_entry(round=2))
+    m.set_notes("rounds 1-2 went fine")
+    assert m.notes == "rounds 1-2 went fine"
+    assert m.noted_upto == 2          # обе записи свёрнуты -> буфер пуст
+
+
+def test_render_with_notes_replaces_history_but_keeps_recent_buffer():
+    m = Memory()
+    m.add(_entry(round=1))
+    m.add(_entry(round=2))
+    m.set_notes("R1-2: opponent A2 keeps agreements")
+    m.add(_entry(round=3, partner="A7"))   # сыгран после консолидации -> буфер
+    text = m.render(None)[0].content
+    assert "Your notes from earlier rounds:" in text
+    assert "R1-2: opponent A2 keeps agreements" in text   # сжатые заметки вместо истории
+    assert "Round 1" not in text and "Round 2" not in text  # свёрнутые раунды не рендерятся сырыми
+    assert "Round 3" in text and "A7" in text               # свежий буфер — сырым
+
+
+def test_render_with_notes_only_when_buffer_empty():
+    m = Memory()
+    m.add(_entry(round=1))
+    m.set_notes("note text")
+    msgs = m.render(None)                  # буфер пуст -> только заметки (не [])
+    assert len(msgs) == 1
+    assert "note text" in msgs[0].content
+    assert "Round 1" not in msgs[0].content
+
+
 def test_render_includes_prediction_line_when_present():
     from src.core.memory import Memory, MemoryEntry
 

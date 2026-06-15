@@ -25,6 +25,8 @@ class PairingRecord:
     b_predicted: int | None = None
     a_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
     b_reflection: str | None = None
+    a_notes: str | None = None      # memory notes после раунда; None, если в этом раунде не свёртывали
+    b_notes: str | None = None
     finished: bool = True           # False = пара сорвана LLM-сбоем (результатов нет)
     llm_calls: list = field(default_factory=list)   # сырые LLMCall'ы пары (L2-лог)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.core.config import GameCfg
 from src.games.prompts import (
-    decide_context, predict_context, reflect_context, rules_text, talk_context,
+    decide_context, notes_context, predict_context, reflect_context, rules_text, talk_context,
 )
 
 
@@ -19,6 +19,11 @@ def test_talk_context_uses_open_template_on_empty_feed():
     cfg = GameCfg(talk_open_prompt="OPEN {partner} r{round}", talk_prompt="REPLY {feed}")
     assert talk_context(cfg, "A2", 1, "") == "OPEN A2 r1"          # первый ход -> опенер
     assert talk_context(cfg, "A2", 1, "  A2: hi") == "REPLY   A2: hi"  # есть фид -> обычный шаблон
+
+
+def test_notes_context_fills_round_and_score():
+    cfg = GameCfg(notes_prompt="Consolidate at round {round}, score {score}.")
+    assert notes_context(cfg, 4, 12.0) == "Consolidate at round 4, score 12."
 
 
 def test_rules_text_fills_payoff_and_talk_turn_placeholders():

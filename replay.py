@@ -30,7 +30,8 @@ DB_DEFAULT = "experiment.db"
 
 # Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
 # секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
-_PROMPT_KEYS = ("rules", "talk_prompt", "talk_open_prompt", "decide_prompt", "predict_prompt", "reflect_prompt")
+_PROMPT_KEYS = ("rules", "talk_prompt", "talk_open_prompt", "decide_prompt", "predict_prompt",
+                "reflect_prompt", "notes_prompt")
 # Из дампа конфига выкидываем эти ключи population — ростер (агенты), пулы имён и
 # identity-промпт печатаются отдельными секциями выше. provider оставляем: его сводка
 # идёт строкой под шапкой, а полный блок (base_url, timeout_s, …) виден в дампе.
@@ -234,6 +235,7 @@ def replay(conn, run_id, show_config=False, show_calls=False):
     game_cfg = cfg.get("game", {})
     show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
     show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
+    show_notes = game_cfg.get("memory_notes_every", 0) > 0  # memory notes свёртывались каждые N раундов
     show_predictions = cfg.get("play_strategy", "direct") == "prediction"
 
     bar = "=" * 64
@@ -299,12 +301,13 @@ def replay(conn, run_id, show_config=False, show_calls=False):
         pairings = conn.execute(
             """SELECT pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
                       a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                      a_reflection, b_reflection, usage_calls, finished
+                      a_reflection, b_reflection, a_notes, b_notes, usage_calls, finished
                FROM pairings WHERE run_id=? AND round_idx=? ORDER BY pair_idx""",
             (run_id, r),
         ).fetchall()
         for (pi, a_id, b_id, a_num, b_num, a_rat, b_rat,
-             outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl, calls, finished) in pairings:
+             outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl,
+             a_notes, b_notes, calls, finished) in pairings:
             print(f"\n  {a_id} vs {b_id}  ({a_id} opens):")
             msgs = conn.execute(
                 """SELECT speaker, text, ready FROM messages
@@ -333,6 +336,9 @@ def replay(conn, run_id, show_config=False, show_calls=False):
                 if show_reflection:
                     print(f"      {a_id} reflects: {a_refl}")
                     print(f"      {b_id} reflects: {b_refl}")
+                if show_notes and (a_notes is not None or b_notes is not None):
+                    print(f"      {a_id} notes: {a_notes}")   # заметки пишутся только на раундах свёртки
+                    print(f"      {b_id} notes: {b_notes}")
             if show_calls:                                  # raw L2 log (--calls)
                 _render_calls(conn, run_id, r, pi, color)
 

@@ -134,6 +134,40 @@ async def test_reflect_persistent_failure_raises():
     assert len(p.calls) == 3
 
 
+def _note(context="Summarize your memory.", rules="RULES"):
+    return Phase(PhaseKind.NOTE, context, rules=rules)
+
+
+async def test_note_clean_json():
+    p = ScriptedProvider(['{"notes": "A2 keeps deals; undercut A5"}'])
+    r = await _agent(p).act(_note())
+    assert r.data == {"notes": "A2 keeps deals; undercut A5"}
+    assert r.public_text is None              # note — не публичная реплика
+    assert len(p.calls) == 1
+
+
+async def test_note_invalid_then_valid_retries_with_correction():
+    p = ScriptedProvider(["nope", '{"notes": "ok"}'])
+    r = await _agent(p).act(_note())
+    assert r.data["notes"] == "ok"
+    assert len(p.calls) == 2
+    assert "notes" in p.calls[1][1][-1].content   # correction называет ожидаемый ключ
+
+
+async def test_note_renders_full_memory_ignoring_window():
+    # окно=1, но NOTE должен видеть всю память (заметки строятся по полной истории)
+    p = ScriptedProvider(['{"notes": "done"}'])
+    a = _agent(p, context_window=1)
+    for r in (1, 2, 3):
+        a.memory.add(MemoryEntry(round=r, my_id="A1", partner_id="A2", transcript=[],
+                                 my_number=4, my_rationale="", partner_number=4,
+                                 outcome="CC", payoff=3.0, partner_payoff=3.0))
+    await a.act(_note())
+    _, messages = p.calls[-1]
+    content = messages[-1].content
+    assert "Round 1" in content and "Round 2" in content and "Round 3" in content
+
+
 async def test_system_and_messages_assembly():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     await _agent(p, persona="PERSONA").act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))

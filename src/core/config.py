@@ -104,6 +104,19 @@ DEFAULT_REFLECT_PROMPT = (
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
 )
 
+# Memory-notes prompt: every `memory_notes_every` rounds the agent rewrites its memory
+# into private notes that REPLACE the raw round-by-round history from then on.
+# Placeholders (literal replacement): {round} {score}.
+DEFAULT_NOTES_PROMPT = (
+    "[Round {round} · score {score}]\n"
+    "You will stop seeing your round-by-round history. Before that, rewrite everything "
+    "worth carrying forward into concise private notes for yourself: who you have faced, "
+    "who kept or broke agreements, what tends to work against whom, and anything to watch "
+    "for. From now on these notes replace your past rounds, so keep every detail that "
+    "could change your future choices.\n"
+    'Respond ONLY as JSON: {"notes": "<your notes>"}'
+)
+
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
     "You are an impartial judge reviewing the public communication from a multi-agent "
@@ -140,6 +153,8 @@ class GameCfg:
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
     rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
+    memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
+    notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
 
     def __post_init__(self) -> None:
         """Подставить шаблоны DECIDE/PREDICT по умолчанию с учётом флага rationale.
@@ -262,6 +277,10 @@ def _validate(d: dict) -> None:
     judge = d.get("judge")
     if judge is not None and "provider" not in judge:
         raise ValueError("блок judge требует provider: модель судьи настраивается отдельно")
+
+    notes_every = d.get("game", {}).get("memory_notes_every", 0)
+    if not isinstance(notes_every, int) or isinstance(notes_every, bool) or notes_every < 0:
+        raise ValueError(f"memory_notes_every должен быть целым ≥ 0, получено: {notes_every!r}")
 
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])

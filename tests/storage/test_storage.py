@@ -217,6 +217,35 @@ def test_observe_writes_llm_calls_with_join(tmp_path):
         st.close()
 
 
+def test_observe_persists_memory_notes_and_note_calls(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        calls = [
+            LLMCall("A1", "decide", 1, 1, "ok", 200, {"model": "m"}, '{"number":4}', "{}", None, 2, 3),
+            LLMCall("A1", "note", 1, 1, "ok", 200, {"model": "m"}, '{"notes":"n"}', "{}", None, 2, 3),
+        ]
+        rec = PairingRecord(
+            round=1, a_id="A1", b_id="A2", transcript=[],
+            a_number=4, b_number=4, a_rationale="ra", b_rationale="rb",
+            outcome="CC", a_payoff=3.0, b_payoff=3.0,
+            a_notes="A2 cooperates", b_notes="A1 cooperates",
+            usage={"prompt_tokens": 4, "completion_tokens": 6, "calls": 2}, llm_calls=calls,
+        )
+        st.observe(1, _plan(idle=["A3"]), [rec])
+        c = st._conn
+        assert c.execute("SELECT a_notes, b_notes FROM pairings").fetchone() == ("A2 cooperates", "A1 cooperates")
+        # note-вызов лёг в llm_calls и джойнится со своей парой
+        joined = c.execute(
+            "SELECT lc.phase, p.a_notes FROM llm_calls lc "
+            "JOIN pairings p USING (run_id, round_idx, pair_idx) WHERE lc.phase='note'"
+        ).fetchone()
+        assert joined == ("note", "A2 cooperates")
+    finally:
+        st.close()
+
+
 def test_observe_writes_aborted_pairing(tmp_path):
     cfg = _cfg(n=3)
     st = _store(tmp_path)

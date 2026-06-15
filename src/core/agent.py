@@ -32,6 +32,7 @@ class PhaseKind(Enum):
     DECIDE = "decide"
     PREDICT = "predict"
     REFLECT = "reflect"
+    NOTE = "note"
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,10 @@ _CORRECTION = {
         "Respond with ONLY valid JSON, nothing else: "
         '{"reflection": "<short reflection>"}'
     ),
+    PhaseKind.NOTE: (
+        "Respond with ONLY valid JSON, nothing else: "
+        '{"notes": "<your notes>"}'
+    ),
 }
 
 
@@ -141,7 +146,10 @@ class Agent:
 
     async def act(self, phase: Phase) -> ActResult:
         system = self.system_prompt(phase.rules)
-        diary = self.memory.render(self._window)        # [] или [user-сообщение с дневником]
+        # NOTE сворачивает память в заметки — для этого видит её целиком (без окна),
+        # чтобы ничего не потерять при консолидации; остальные фазы — с окном.
+        window = None if phase.kind is PhaseKind.NOTE else self._window
+        diary = self.memory.render(window)              # [] или [user-сообщение с дневником]
         history = f"{diary[0].content}\n\n" if diary else ""
         cfg = self.setup.provider_cfg
 
@@ -225,6 +233,8 @@ def _parse(kind: PhaseKind, text: str) -> dict | None:
         return _validate_talk(obj)
     if kind is PhaseKind.REFLECT:
         return _validate_reflect(obj)
+    if kind is PhaseKind.NOTE:
+        return _validate_notes(obj)
     return None
 
 
@@ -261,6 +271,15 @@ def _validate_reflect(obj: dict) -> dict | None:
     if not isinstance(reflection, str):
         reflection = str(reflection)
     return {"reflection": reflection}
+
+
+def _validate_notes(obj: dict) -> dict | None:
+    notes = obj.get("notes")
+    if notes is None:  # ключ обязателен; иначе повтор с поправкой
+        return None
+    if not isinstance(notes, str):
+        notes = str(notes)
+    return {"notes": notes}
 
 
 def _coerce_bool(value) -> bool:

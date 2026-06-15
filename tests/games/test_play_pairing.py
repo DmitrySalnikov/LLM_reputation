@@ -217,6 +217,58 @@ async def test_reflection_privacy():
     assert "secret-ref-b" not in str(a.memory.entries[0])
 
 
+# ---- Memory notes: периодическая консолидация памяти ----
+
+def _note(text):
+    return '{"notes": "%s"}' % text
+
+
+async def test_memory_notes_off_by_default():
+    g = ReputationPD(GameCfg(max_talk_turns=0))   # memory_notes_every=0
+    a = _agent("A1", [_decide(4)])                # лишний note-вызов не очередён -> упал бы
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 3)
+    assert rec.a_notes is None and rec.b_notes is None
+    assert a.memory.notes is None and b.memory.notes is None
+    assert rec.usage["calls"] == 2
+
+
+async def test_memory_notes_keyed_on_played_rounds_not_round_number():
+    # Свёртка считается по СЫГРАННЫМ агентом партиям, не по номеру раунда: агент сыграл
+    # всего 1 партию (хотя round=5), 1 % 2 != 0 -> не свёртка.
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
+    a = _agent("A1", [_decide(4)])
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 5)
+    assert rec.a_notes is None and rec.b_notes is None
+    assert a.memory.notes is None
+
+
+async def test_memory_notes_taken_after_n_played_rounds():
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
+    a = _agent("A1", [_decide(4), _decide(4), _note("A2 cooperates")])
+    b = _agent("A2", [_decide(4), _decide(4), _note("A1 cooperates")])
+    rec1 = await g.play_pairing(a, b, 1)          # по 1 сыгранной партии -> не свёртка
+    assert rec1.a_notes is None and a.memory.notes is None
+    rec2 = await g.play_pairing(a, b, 2)          # по 2 -> свёртка у обоих
+    assert rec2.a_notes == "A2 cooperates" and rec2.b_notes == "A1 cooperates"
+    assert a.memory.notes == "A2 cooperates" and b.memory.notes == "A1 cooperates"
+    assert a.memory.noted_upto == 2 and b.memory.noted_upto == 2  # обе партии свёрнуты
+    note_calls = [c for c in rec2.llm_calls if c.phase == "note"]
+    assert len(note_calls) == 2 and all(c.turn_idx is None for c in note_calls)
+
+
+async def test_note_failure_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1))   # свёртка каждую партию
+    a = _agent("A1", [_decide(4), _note("ok")])   # decide ок, note ок
+    b = _agent("A2", [_decide(4), "nope", "nope", "nope"])  # note: невалидный JSON -> ActParseError
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    statuses = [c.status for c in rec.llm_calls]
+    assert statuses.count("parse_error") == 3     # три сорванные note-попытки b
+    assert any(c.phase == "note" and c.status == "ok" for c in rec.llm_calls)  # успевший note(a)
+
+
 # ---- Task 6: strategy delegation + prediction persistence ----
 
 async def test_direct_strategy_leaves_predicted_none():

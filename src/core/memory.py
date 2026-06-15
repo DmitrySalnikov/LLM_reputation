@@ -25,23 +25,44 @@ class MemoryEntry:
 class Memory:
     def __init__(self) -> None:
         self.entries: list[MemoryEntry] = []
+        self.notes: str | None = None   # сжатая память (memory notes); None = заметок ещё нет
+        self.noted_upto: int = 0         # сколько записей уже свёрнуто в notes (граница буфера)
 
     def add(self, entry: MemoryEntry) -> None:
         self.entries.append(entry)
 
+    def set_notes(self, notes: str) -> None:
+        """Запомнить свежие заметки и сдвинуть границу: всё сыгранное на сейчас — свёрнуто."""
+        self.notes = notes
+        self.noted_upto = len(self.entries)
+
     def render(self, window: int | None) -> list[Message]:
-        if window is None:
-            entries = self.entries
-        elif window <= 0:
-            entries = []
-        else:
-            entries = self.entries[-window:]
-        if not entries:
-            return []
-        diary = "Your memory of past rounds:\n" + "\n".join(
-            _render_entry(e) for e in entries
-        )
-        return [Message("user", diary)]
+        # Без заметок — обычный дневник прошлых раундов (с учётом окна).
+        if self.notes is None:
+            entries = _window(self.entries, window)
+            if not entries:
+                return []
+            diary = "Your memory of past rounds:\n" + "\n".join(
+                _render_entry(e) for e in entries
+            )
+            return [Message("user", diary)]
+        # С заметками: сжатые заметки + сырой буфер раундов, сыгранных после последней
+        # консолидации (вместо полной истории). Окно ограничивает только буфер.
+        parts = ["Your notes from earlier rounds:\n" + self.notes]
+        buffer = _window(self.entries[self.noted_upto:], window)
+        if buffer:
+            parts.append("Your rounds since those notes:\n" + "\n".join(
+                _render_entry(e) for e in buffer
+            ))
+        return [Message("user", "\n\n".join(parts))]
+
+
+def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]:
+    if window is None:
+        return entries
+    if window <= 0:
+        return []
+    return entries[-window:]
 
 
 def _render_entry(e: MemoryEntry) -> str:
