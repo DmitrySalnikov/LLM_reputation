@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "llm-reputation"
 version = "0.0.0"
@@ -14,6 +18,13 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
 ]
+
+# The importable package is `src` (e.g. `from src.core.config import ...`),
+# which doesn't match the distribution name, so point the build backend at it.
+# This makes `uv sync` install the project (editable), so `src` imports work
+# when running scripts directly, not only under pytest's pythonpath setting.
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
