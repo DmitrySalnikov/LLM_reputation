@@ -316,7 +316,7 @@ def replay(conn, run_id, show_config=False, show_calls=False):
             ).fetchall()
             if msgs:
                 for ti, (speaker, text, ready) in enumerate(msgs):
-                    mark = "   [ready=true]" if ready else ""   # ready=false не показываем
+                    mark = "   [finish=true]" if ready else ""   # finish=false не показываем
                     line = f"    {ti + 1}. {speaker}: {text}{mark}"
                     print(highlight(line, on=color) if (r, pi, ti) in cited else line)
             else:

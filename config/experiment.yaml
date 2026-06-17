@@ -2,7 +2,7 @@
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
 seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 5
+rounds: 3
 max_concurrency: 10           # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -18,7 +18,7 @@ population:
   agents:
     # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1}
     # - {persona: "You are a cautious player who values trust.", count: 1}
-    - {persona: null, count: 10}
+    - {persona: null, count: 2}
   # One LLM provider, shared by all agents
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
@@ -41,7 +41,7 @@ population:
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 6                   # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 2               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  memory_notes_every: 0               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # ask for a reason before the number in DECIDE/PREDICT
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
@@ -50,47 +50,63 @@ game:
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
   # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time:
   #   rules:           {R}/{T}/{P}/{S} — from `payoffs`; {max_talk_turns} — from `max_talk_turns` above
-  #   talk/talk_open: {partner} {round} {feed} {score}
-  #   decide/predict: {partner} {round} {feed} {score} {answer} (хвост ответа подставляется по флагу rationale)
-  #   reflect:        {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
-  #   notes:          {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
-  #   {score} = накопленный счёт агента до текущего раунда
+  #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
+  #   talk_open:       {partner} {round} {feed}
+  #   decide:          {partner} {round} {feed} {answer} {reason} (как закрылся чат)
+  #   predict:         {partner} {round} {feed} {answer} (хвост ответа подставляется по флагу rationale)
+  #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
+  #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
+  # Весь вход — один игровой транскрипт: история прошлых раундов (теги <game>/<you>/<имя>, см.
+  # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
+  # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
+  # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
   rules: |-
-    You are playing a repeated modified prisoner dilemma game with a limited but unknown number of named players, over an unknown number of rounds. Each round you face one random opponent; you may face the same player more than once.
+    You are playing a modified prisoner dilemma game. Each round you face one random opponent; during the game you may face the same player more than once.
 
     How each round works:
-    - At the beginning of the round you may exchange short, non-binding messages with your opponent. Set "ready": true once you are finished talking and won't send more this round; talk ends when both of you are finished, or after {max_talk_turns} messages in total.
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
     - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
 
-    Scoring compares the two numbers on a 0–9 cycle (after 9 comes 0 again):
+    Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
     - Equal numbers: you each score {R}.
-    - Your number is exactly one higher than your opponent's (e.g. 4 over 3, or 0 over 9): you score {T}, it {S}.
-    - Your opponent's number is exactly one higher than yours: it scores {T}, you {S}.
+    - Your number is exactly one higher than your opponent's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
+    - Your opponent's number is exactly one higher than yours: it scores {T}, you - {S}.
     - Any other case: you each score {P}.
 
+    Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
+
     Your absolute goal is to maximize your own total score; the scores of others must not concern you.
-
-    On every turn you are shown your memory of past rounds and then the current round. This memory includes the messages, both numbers, and both payoffs.
-    Reply only with the exact JSON that turn asks for.
   talk_prompt: |-
-    Current round: [Round {round} · opponent {partner} · score {score}]
-    Talk:
+    <game>Round {round} · opponent {partner}
+    The chat has been open.</game>
     {feed}
-
-    It's your turn to reply — send a short message to your opponent. Set "ready": true if you are done talking this round.
-    Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}
+    <game>Your turn — reply to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
+    Please, write your first message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
+  # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
-    Current round: [Round {round} · opponent {partner} · score {score}]
-    You speak first this round — send a short message to your opponent. Set "ready": true if you are done talking this round.
-    Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}
+    <game>Round {round} · opponent {partner}
+    The chat has been open. You speak first this round — send a short message to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
+    Please, write your first message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
+  # {reason} — как закрылся чат (reason_limit / reason_agreed); та же строка, что в истории.
   decide_prompt: |-
-    Current round: [Round {round} · opponent {partner} · score {score}]
-    Talk:
+    <game>Round {round} · opponent {partner}
+    The chat has been open.</game>
     {feed}
-
-    The talk is over. Now secretly choose your number from 0 to 9.
-    {answer}
+    <game>The chat has been closed as {reason}. Choose the number.
+    {answer}</game>
+  # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
+  history_round_prompt: |-
+    <game>Round {round} · opponent {partner}
+    The chat has been open.</game>
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+  history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>
+  reason_limit: the messages number limit has been reached
+  reason_agreed: both players agreed to stop
+  history_result_prompt: |-
+    <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
+    Your total score after round {round} is {total} points.</game>
   # Used only when play_strategy=prediction:
   predict_prompt: |-
     Current round: [Round {round} · opponent {partner} · score {score}]

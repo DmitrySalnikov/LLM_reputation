@@ -4,11 +4,15 @@ Imports neither the game nor the strategies, to avoid import cycles. The prompt 
 in GameCfg (config layer); these builders just fill placeholders by literal replacement
 (NOT str.format — the templates contain real JSON braces):
     rules:                {R} {T} {P} {S} {max_talk_turns}
-    talk:                 {partner} {round} {feed} {score}
-    decide/predict:       {partner} {round} {feed} {score} {answer} (хвост ответа по флагу rationale)
+    talk:                 {partner} {round} {feed} {opener} (кто открыл раунд)
+    decide:               {partner} {round} {feed} {answer} {reason} (как закрылся чат)
+    predict:              {partner} {round} {feed} {answer} (хвост ответа по флагу rationale)
     reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
     notes:                {round} {score}
-    {score} = накопленный счёт агента до текущего раунда (Agent.score)
+
+{feed} — реплики текущего раунда тегами <you>/<имя> (src.core.memory.render_turns). Свой
+накопленный счёт агент читает из строк результата прошлых раундов (история), поэтому в
+заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
 """
 
 from __future__ import annotations
@@ -27,17 +31,29 @@ def rules_text(cfg: GameCfg) -> str:
     )
 
 
-def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
-    """Cheap-talk turn context. Пустой фид = первый ход -> шаблон-опенер (без блока Talk)."""
+def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
+                 opener: str = "") -> str:
+    """Cheap-talk turn context. Пустой фид = первый ход -> шаблон-опенер (без блока Talk).
+
+    `opener` — кто открыл раунд (та же фраза, что в истории); подставляется в {opener}
+    строки открытия talk_prompt. У talk_open_prompt опенер уже вшит (агент сам открывает)."""
     if not feed:
         return _fill(cfg.talk_open_prompt, partner, round, "", score)
-    return _fill(cfg.talk_prompt, partner, round, feed, score)
+    return _fill(cfg.talk_prompt, partner, round, feed, score).replace("{opener}", opener)
 
 
-def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
-    """Final number-choice context (direct strategy)."""
+def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
+                   reason: str = "") -> str:
+    """Final number-choice context (direct strategy).
+
+    `reason` — почему закрылся чат (лимит реплик / обоюдное согласие); подставляется в
+    {reason} строки закрытия, чтобы она читалась дословно как в истории прошлых раундов."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return _fill(cfg.decide_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg.rationale))
+    return (
+        _fill(cfg.decide_prompt, partner, round, feed_block, score)
+        .replace("{answer}", _answer(cfg.rationale))
+        .replace("{reason}", reason)
+    )
 
 
 def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:

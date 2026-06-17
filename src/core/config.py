@@ -26,12 +26,17 @@ class Payoffs:
 
 # Prompt templates. The text was hardcoded in src/games/prompts.py; it now lives here as
 # editable config defaults so an experiment can swap any prompt AND so the exact text is
-# persisted into the run's stored config. src/games/prompts.py fills these placeholders by
-# literal string replacement (NOT str.format — the JSON examples contain real braces):
+# persisted into the run's stored config. src/games/prompts.py and src/core/memory.py fill
+# these placeholders by literal string replacement (NOT str.format — the JSON examples
+# contain real braces):
 #   identity:             {id}
 #   rules:                {R} {T} {P} {S}              <- payoff values
 #   talk/decide/predict:  {partner} {round} {feed}
 #   reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
+# History (a past round is replayed to the agent as a game transcript — see the `history_*`,
+# `msg_*`, `opener_*`, `reason_*` fields below). The whole input is one flowing transcript:
+# the system rules declare the tags <game>/<you>/<opponent name>; memory renders past rounds
+# with them, and the live talk/decide prompts continue the same transcript for this round.
 DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
 
 DEFAULT_RULES = (
@@ -46,37 +51,81 @@ DEFAULT_RULES = (
     "Before choosing you may exchange short messages. Messages are not binding; "
     "the final choice is secret and simultaneous. Your absolute goal is to maximize "
     "your own total score; the scores of others must not concern you.\n"
-    "On each turn you are given your past rounds (if any) followed by the current "
-    "situation; respond only with the exact JSON requested in that message."
+    "Messages from the game are tagged <game></game>, your own lines <you></you>, "
+    "and any other player's lines with their name <Name></Name>. On each turn you are "
+    "given the transcript of your past rounds (if any) followed by the current situation; "
+    "respond only with the exact JSON requested in that message."
+)
+
+# Фраза «ты открываешь раунд» — общий текст для истории (прошлый раунд, где первым ходил
+# сам агент) и для живого talk_open_prompt, чтобы обе фазы читались дословно одинаково.
+_OPENER_SELF = (
+    "You speak first this round — send a short message to your opponent. "
+    'Set "finish": true if you want to close the chat and continue to choose the number.'
 )
 
 DEFAULT_TALK_PROMPT = (
-    "Your opponent this round is {partner}. Round {round}.\n"
-    "Negotiation so far:\n{feed}\n\n"
-    'Send a short message to your opponent. Set "ready": true when you have nothing more to say.\n'
-    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open. {opener}</game>\n"
+    "{feed}\n"
+    "<game>Your turn — reply to your opponent. "
+    'Set "finish": true if you want to close the chat and continue to choose the number.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
 # Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
 DEFAULT_TALK_OPEN_PROMPT = (
-    "Your opponent this round is {partner}. Round {round}.\n\n"
-    "You speak first this round. Open with a short message to your opponent. "
-    'Set "ready": true when you have nothing more to say.\n'
-    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open. " + _OPENER_SELF + "\n"
+    "Please, write your first message in the following JSON format: "
+    'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
 DEFAULT_DECIDE_PROMPT = (
-    "Your opponent this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
-    "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. Choose the number. "
+    "Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}</game>'
 )
 
 DEFAULT_DECIDE_PROMPT_BARE = (
-    "Your opponent this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
-    "Now secretly choose your number from 0 to 9.\n"
-    'Respond ONLY as JSON: {"number": <0-9>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. Choose the number.\n"
+    'Respond ONLY as JSON: {"number": <0-9>}</game>'
+)
+
+# ── History (past-round replay) templates ────────────────────────────────────
+# A finished round is replayed to the agent as a game transcript: an opening <game> line,
+# the cheap-talk messages (own = <you>, opponent = <name>), a close line, the agent's own
+# secret number as a <you> line, and a revealing <game> result line. src/core/memory.py
+# fills the placeholders; the live talk/decide prompts above reuse `msg_self`/`msg_partner`
+# to render the current round's feed, so past and present read identically.
+#   history_round_prompt:  {round} {partner} {opener}
+#   opener_self / opener_partner:  the {opener} sentence (partner-form takes {partner});
+#                          opener_self is the same text the live talk_open_prompt opens with
+#   msg_self / msg_partner:  one cheap-talk line ({text}; partner-form also {partner})
+#   history_close_prompt:  {reason}  (same wording as the live decide close line)
+#   reason_limit / reason_agreed:  the {reason} phrase
+#   history_result_prompt: {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
+#                          ({total} = score after the round; own number shown above as a <you> line)
+DEFAULT_HISTORY_ROUND_PROMPT = (
+    "<game>Round {round} · opponent {partner}\nThe chat has been open. {opener}</game>"
+)
+DEFAULT_OPENER_SELF = _OPENER_SELF
+DEFAULT_OPENER_PARTNER = "{partner} starts first:"
+DEFAULT_MSG_SELF = "<you>{text}</you>"
+DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
+DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
+DEFAULT_REASON_LIMIT = "the messages number limit has been reached"
+DEFAULT_REASON_AGREED = "both players agreed to stop"
+DEFAULT_HISTORY_RESULT_PROMPT = (
+    "<game>The choice has been accepted. {partner} chose {partner_number}. "
+    "Payoffs: you = {payoff}, {partner} = {partner_payoff}.\n"
+    "Your total score after round {round} is {total} points.</game>"
 )
 
 DEFAULT_PREDICT_PROMPT = (
@@ -155,6 +204,17 @@ class GameCfg:
     rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
     memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
     notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
+    # История прошлого раунда отрисовывается агенту как игровой транскрипт (теги <game>/<you>/<имя>);
+    # эти шаблоны живут в конфиге, чтобы текст промпта не был зашит в коде (см. src/core/memory.py).
+    history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner} {opener}
+    opener_self: str = DEFAULT_OPENER_SELF                     # фраза {opener}, когда первым говорил сам агент
+    opener_partner: str = DEFAULT_OPENER_PARTNER               # фраза {opener}, когда первым говорил партнёр ({partner})
+    msg_self: str = DEFAULT_MSG_SELF                           # строка реплики самого агента ({text})
+    msg_partner: str = DEFAULT_MSG_PARTNER                     # строка реплики партнёра ({partner}/{text})
+    history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason}
+    reason_limit: str = DEFAULT_REASON_LIMIT                   # фраза {reason}: чат закрылся по лимиту реплик
+    reason_agreed: str = DEFAULT_REASON_AGREED                 # фраза {reason}: оба согласились закрыть чат
+    history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
 
     def __post_init__(self) -> None:
         """Подставить шаблоны DECIDE/PREDICT по умолчанию с учётом флага rationale.

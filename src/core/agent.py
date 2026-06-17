@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 
-from src.core.config import ProviderCfg
+from src.core.config import GameCfg, ProviderCfg
 from src.core.jsonextract import extract_json_obj
 from src.core.memory import Memory
 from src.providers.base import LLMProvider, Message, ProviderError
@@ -40,6 +40,7 @@ class Phase:
     kind: PhaseKind
     context: str          # rendered situation + output instruction (becomes a user message)
     rules: str = ""       # static game rules; the agent puts them in `system` after the persona
+    game_cfg: GameCfg | None = None  # шаблоны транскрипта истории; None -> дефолтные (как и rules, едет от игры)
 
 
 @dataclass(frozen=True)
@@ -102,7 +103,7 @@ _CORRECTION = {
     ),
     PhaseKind.TALK: (
         "Respond with ONLY valid JSON, nothing else: "
-        '{"message": "<your message>", "ready": <true|false>}'
+        '{"message": "<your message>", "finish": <true|false>}'
     ),
     PhaseKind.PREDICT: (
         "Respond with ONLY valid JSON, nothing else: "
@@ -149,7 +150,7 @@ class Agent:
         # NOTE сворачивает память в заметки — для этого видит её целиком (без окна),
         # чтобы ничего не потерять при консолидации; остальные фазы — с окном.
         window = None if phase.kind is PhaseKind.NOTE else self._window
-        diary = self.memory.render(window)              # [] или [user-сообщение с дневником]
+        diary = self.memory.render(window, phase.game_cfg)  # [] или [user-сообщение с транскриптом истории]
         history = f"{diary[0].content}\n\n" if diary else ""
         cfg = self.setup.provider_cfg
 
@@ -261,7 +262,8 @@ def _validate_talk(obj: dict) -> dict | None:
         return None
     if not isinstance(message, str):
         message = str(message)
-    return {"message": message, "ready": _coerce_bool(obj.get("ready"))}
+    # Агент-facing ключ — "finish" (закрыть чат); внутри по-прежнему храним как "ready".
+    return {"message": message, "ready": _coerce_bool(obj.get("finish"))}
 
 
 def _validate_reflect(obj: dict) -> dict | None:

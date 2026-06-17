@@ -28,7 +28,7 @@ def narrate_round(r, plan, recs) -> None:
         print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
-                mark = "   [ready=true]" if t["ready"] else ""   # ready=false не печатаем
+                mark = "   [finish=true]" if t["ready"] else ""   # finish=false не печатаем
                 print(f"    {i}. {t['speaker']}: {t['text']}{mark}")
         else:
             print("    (no messages exchanged)")

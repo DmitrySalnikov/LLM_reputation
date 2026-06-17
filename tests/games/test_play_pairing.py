@@ -39,7 +39,8 @@ def _decide(n, rationale="r"):
 
 
 def _talk(msg, ready):
-    return '{"message": "%s", "ready": %s}' % (msg, "true" if ready else "false")
+    # Агент-facing ключ закрытия чата теперь "finish" (внутри по-прежнему хранится как ready).
+    return '{"message": "%s", "finish": %s}' % (msg, "true" if ready else "false")
 
 
 # ---- Slice 2: decision only (talk off) ----
@@ -149,9 +150,21 @@ async def test_decide_context_contains_feed_and_ids():
     system, messages = a.provider.calls[-1]  # a's DECIDE call
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx and "take 4 plz" in ctx
-    assert "A1 (you): take 4 plz" in ctx   # feed эгоцентричен: свой ход помечен "(you)"
-    assert "A2: ok" in ctx                 # реплика оппонента — по имени, без "(you)"
+    assert "<you>take 4 plz</you>" in ctx   # feed эгоцентричен: свои реплики — <you>
+    assert "<A2>ok</A2>" in ctx             # реплика оппонента — тегом с его именем
     assert "0 to 9" in system  # rules went into the system prompt
+
+
+async def test_talk_prompt_shows_who_opened_the_round():
+    # В talk_prompt (отвечающий, фид непуст) строка открытия несёт {opener} — как в истории.
+    g = ReputationPD(GameCfg(max_talk_turns=4))
+    a = _agent("A1", [_talk("hi", False), _talk("ok done", True), _decide(3)])
+    b = _agent("A2", [_talk("sure", True), _decide(3)])
+    await g.play_pairing(a, b, 1)  # A1 opens
+    _, b_msgs = b.provider.calls[0]   # b отвечает первым ходом -> открыл партнёр (A1)
+    assert "A1 starts first:" in b_msgs[-1].content
+    _, a_msgs = a.provider.calls[1]   # второй ход A1 -> открывал он сам -> opener_self
+    assert "You speak first this round" in a_msgs[-1].content
 
 
 # ---- Rationale switched off in config ----

@@ -50,7 +50,7 @@ def narrate_round(r, plan, recs):
         print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
-                print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
+                print(f"    {i}. {t['speaker']}: {t['text']}   [finish={t['ready']}]")
         else:
             print("    (no messages exchanged)")
         # reasoning is shown before the choices it led to (absent when game.rationale=false)

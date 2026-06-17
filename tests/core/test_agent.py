@@ -201,30 +201,31 @@ async def test_usage_summed_over_retries():
 
 
 async def test_talk_clean_json():
-    p = ScriptedProvider(['{"message": "let us both take 4", "ready": true}'])
+    # Агент-facing ключ — "finish"; внутри он маппится в data["ready"].
+    p = ScriptedProvider(['{"message": "let us both take 4", "finish": true}'])
     r = await _agent(p).act(_talk())
     assert r.data == {"message": "let us both take 4", "ready": True}
     assert r.public_text == "let us both take 4"
     assert len(p.calls) == 1
 
 
-async def test_talk_ready_coercion():
+async def test_talk_finish_coercion():
     for raw, expected in [("yes", True), ("1", True), (1, True),
                           ("false", False), ("no", False), (0, False)]:
-        p = ScriptedProvider(['{"message": "m", "ready": %s}'
+        p = ScriptedProvider(['{"message": "m", "finish": %s}'
                               % (raw if isinstance(raw, int) else '"%s"' % raw)])
         r = await _agent(p).act(_talk())
         assert r.data["ready"] is expected, (raw, expected)
 
 
-async def test_talk_ready_missing_defaults_false():
+async def test_talk_finish_missing_defaults_false():
     p = ScriptedProvider(['{"message": "still thinking"}'])
     r = await _agent(p).act(_talk())
     assert r.data == {"message": "still thinking", "ready": False}
 
 
 async def test_talk_message_missing_then_valid():
-    p = ScriptedProvider(['{"ready": true}', '{"message": "ok", "ready": true}'])
+    p = ScriptedProvider(['{"finish": true}', '{"message": "ok", "finish": true}'])
     r = await _agent(p).act(_talk())
     assert r.data["message"] == "ok"
     assert len(p.calls) == 2
@@ -301,7 +302,7 @@ async def test_predict_logs_llm_input_at_debug(caplog):
 
 async def test_talk_logs_no_llm_input(caplog):
     caplog.set_level(logging.DEBUG, logger="src.core.agent")
-    p = ScriptedProvider(['{"message": "hi", "ready": true}'])
+    p = ScriptedProvider(['{"message": "hi", "finish": true}'])
     await _agent(p).act(_talk())
     assert _trace_records(caplog) == []
 

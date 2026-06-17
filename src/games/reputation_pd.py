@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from src.core.agent import ActParseError, Agent, Phase, PhaseKind
 from src.core.config import GameCfg
-from src.core.memory import MemoryEntry
+from src.core.memory import MemoryEntry, both_agreed, pick_opener, render_turns
 from src.games.base import PairingRecord
 from src.games.prompts import notes_context, reflect_context, rules_text, talk_context
 from src.providers.base import ProviderError
@@ -42,11 +42,14 @@ class ReputationPD:
         post_calls: list = []        # вызовы decide/predict/reflect (talk-каллы — из transcript)
         try:
             await self._cheap_talk(a, b, round, transcript)
-            feed_a = _render_feed(transcript, a.id)   # эгоцентрично: свой ход помечен "(you)"
-            feed_b = _render_feed(transcript, b.id)
-            da = await self._strategy.decide(a, b.id, round, feed_a, self._rules)
+            feed_a = self._feed(transcript, a.id)   # эгоцентрично: свои реплики помечены <you>
+            feed_b = self._feed(transcript, b.id)
+            # Та же причина закрытия, что увидят агенты в истории этого раунда (см. memory).
+            reason = (self.cfg.reason_agreed if both_agreed(transcript, a.id, b.id)
+                      else self.cfg.reason_limit)
+            da = await self._strategy.decide(a, b.id, round, feed_a, self._rules, reason)
             post_calls += list(da.calls)
-            db = await self._strategy.decide(b, a.id, round, feed_b, self._rules)
+            db = await self._strategy.decide(b, a.id, round, feed_b, self._rules, reason)
             post_calls += list(db.calls)
             x, y = da.number, db.number
             outcome, pa, pb = self.resolve(x, y)
@@ -120,7 +123,7 @@ class ReputationPD:
         ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
                               my_number=my_number, partner_number=partner_number, payoff=payoff,
                               score=agent.score)
-        res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules))
+        res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules, game_cfg=self.cfg))
         return res.data["reflection"], res.usage, res.calls
 
     def _notes_due(self, agent: Agent) -> bool:
@@ -147,7 +150,7 @@ class ReputationPD:
             Тройка (текст заметок, usage запроса, сырые LLMCall'ы фазы NOTE).
         """
         ctx = notes_context(self.cfg, round, score=agent.score)
-        res = await agent.act(Phase(PhaseKind.NOTE, ctx, rules=self._rules))
+        res = await agent.act(Phase(PhaseKind.NOTE, ctx, rules=self._rules, game_cfg=self.cfg))
         agent.memory.set_notes(res.data["notes"])
         return res.data["notes"], res.usage, res.calls
 
@@ -164,8 +167,11 @@ class ReputationPD:
                 if ready[oth.id]:
                     break
                 continue  # latched: stays silent while the other matures
-            ctx = talk_context(self.cfg, oth.id, round, _render_feed(transcript, cur.id), cur.score)
-            res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules))
+            opener = pick_opener(transcript, cur.id, oth.id,
+                                 self.cfg.opener_self, self.cfg.opener_partner)
+            ctx = talk_context(self.cfg, oth.id, round, self._feed(transcript, cur.id),
+                               cur.score, opener)
+            res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules, game_cfg=self.cfg))
             transcript.append(
                 {
                     "speaker": cur.id,
@@ -180,6 +186,10 @@ class ReputationPD:
             # and an agent is marked ready only after it has spoken.
             if ready[a.id] and ready[b.id]:
                 break
+
+    def _feed(self, transcript: list[dict], me_id: str) -> str:
+        # Живой фид текущего раунда — теми же тегами <you>/<имя>, что и история (общий код).
+        return render_turns(transcript, me_id, self.cfg.msg_self, self.cfg.msg_partner)
 
     def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
                   outcome, payoff, partner_payoff, reflection=None):
@@ -232,15 +242,3 @@ def _sum_usage(usages: list) -> dict:
         ct += u[1]
         calls += 1
     return {"prompt_tokens": pt, "completion_tokens": ct, "calls": calls}
-
-
-def _render_feed(transcript: list[dict], me_id: str) -> str:
-    # Эгоцентрично к зрителю: его реплики — "<имя> (you)", чужие — по имени (как в дневнике).
-    def _label(speaker: str) -> str:
-        return f"{speaker} (you)" if speaker == me_id else speaker
-
-    def _line(t: dict) -> str:
-        mark = " (ready=true)" if t["ready"] else ""   # ready=false не выводим
-        return f"  {_label(t['speaker'])}: {t['text']}{mark}"
-
-    return "\n".join(_line(t) for t in transcript)

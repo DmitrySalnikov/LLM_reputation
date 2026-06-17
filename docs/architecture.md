@@ -64,8 +64,9 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 1. **Cheap talk** (`_cheap_talk`): agents alternate short messages. `a` always
    opens (the matcher fixes orientation via pairing order — no rng in the game).
    Stop rule `both_ready_latch`: a turn ends only when **both** agents have set
-   `ready: true`; once ready, an agent latches silent. Hard ceiling
-   `cfg.max_talk_turns`. Each agent necessarily speaks at least once.
+   `finish: true` (the agent-facing JSON key; stored internally as `ready`); once
+   ready, an agent latches silent. Hard ceiling `cfg.max_talk_turns`. Each agent
+   necessarily speaks at least once.
 2. **Decide**: the configured `PlayStrategy.decide` is called for each agent with
    the public talk feed. This produces a `Decision` (final number + rationale,
    plus optional prediction).
@@ -75,7 +76,21 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    returns a short reflection. It is private to its author, like the rationale.
 5. **Record**: a `PairingRecord` (`src/games/base.py:9`) is returned and each
    agent's `Memory` gets an entry (including the reflection, which the diary
-   feeds back into the agent's future LLM inputs).
+   feeds back into the agent's future LLM inputs). `Memory.render` replays each
+   past round to the agent as a **game transcript** using the tags the rules
+   declare — `<game>` / `<you>` / `<opponent name>` — so the whole LLM input
+   (history + the current round's live `{feed}` and prompt) reads as one
+   continuous transcript. The line templates live in `GameCfg`
+   (`history_*`, `msg_*`, `opener_*`, `reason_*`) and ride into `render` via
+   `Phase.game_cfg`, exactly like `rules`; `render_turns` (`src/core/memory.py`)
+   renders the cheap-talk lines for both the history and the live feed. Line
+   wording is shared across phases so a line type reads identically live and in
+   history. The game computes the per-round bits once and threads them into the
+   live prompts: who opened the round (`pick_opener` → `{opener}` in `talk_prompt`,
+   same phrase history uses) and how the chat closed (`both_agreed` → `{reason}` in
+   the DECIDE close line, reusing `history_close_prompt`'s wording); both helpers
+   live in `src/core/memory.py`. `opener_self` is also the text `talk_open_prompt`
+   opens with.
 6. **Memory notes** (optional, `game.memory_notes_every: N`): each agent makes one
    extra `NOTE` LLM call after every **N rounds it has actually played** (counted
    per-agent as `len(memory.entries)` after the memory writes — idle rounds don't

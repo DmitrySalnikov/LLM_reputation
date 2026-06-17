@@ -37,27 +37,37 @@ def test_single_entry_content():
     msg = msgs[0]
     assert msg.role == "user"
     text = msg.content
-    assert "Round 3" in text and "A5" in text
-    assert "A1 (you): let us both take 4" in text   # own line: "<name> (you)"
-    assert "A5: ok, 4" in text                       # opponent line keeps the id
-    assert "A1 (you)=4" in text and "A5=4" in text and "agreed on 4" in text
-    assert "Payoffs: A1 (you)=3, A5=3" in text   # обе выплаты в одной строке
-    assert "Outcome" not in text                  # сырой код исхода в дневник не утекает
-    assert "ready=true" in text and "ready=false" not in text   # выводим только ready=true
+    assert "<game>Round 3 · opponent A5" in text
+    assert "<you>let us both take 4</you>" in text   # own line tagged <you>
+    assert "<A5>ok, 4</A5>" in text                   # opponent line tagged with the id
+    assert "The choice has been accepted. A5 chose 4" in text  # revealing result line
+    assert "Payoffs: you = 3, A5 = 3" in text         # обе выплаты в одной строке
+    assert "Outcome" not in text and "CC" not in text  # сырой код исхода в транскрипт не утекает
 
 
-def test_header_shows_score_like_the_game():
+def test_result_line_shows_running_total():
     m = Memory()
-    m.add(_entry(round=3, partner="A5", score=12.0))
+    m.add(_entry(round=3, partner="A5", score=12.0))   # 12 до раунда + payoff 3 = 15 после
     text = m.render(None)[0].content
-    assert "[Round 3 · opponent A5 · score 12]" in text   # тот же формат, что в фазовых хедерах
+    assert "Your total score after round 3 is 15 points" in text
+
+
+def test_close_reason_reflects_who_ended_the_chat():
+    m = Memory()
+    m.add(_entry())                                    # A1 ready=False -> упёрлись в лимит
+    assert "the messages number limit has been reached" in m.render(None)[0].content
+    m2 = Memory()
+    e = _entry()
+    e.transcript[0]["ready"] = True                    # теперь оба выставили finish
+    m2.add(e)
+    assert "both players agreed to stop" in m2.render(None)[0].content
 
 
 def test_render_shows_both_payoffs_distinctly():
     m = Memory()
     m.add(_entry(partner="A5", payoff=5.0, partner_payoff=0.0))   # ты перебил соперника
     text = m.render(None)[0].content
-    assert "Payoffs: A1 (you)=5, A5=0" in text
+    assert "Payoffs: you = 5, A5 = 0" in text
 
 
 def test_reflection_rendered_after_outcome():
@@ -67,8 +77,8 @@ def test_reflection_rendered_after_outcome():
     m.add(e)
     text = m.render(None)[0].content
     assert "A3 kept the agreement" in text
-    # reflection comes after the choices/payoffs line
-    assert text.index("Payoffs:") < text.index("A3 kept the agreement")
+    # reflection comes after the revealing result line
+    assert text.index("Your total score") < text.index("A3 kept the agreement")
 
 
 def test_entry_without_reflection_renders_no_reflection_line():

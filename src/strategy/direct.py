@@ -21,7 +21,7 @@ class DirectStrategy:
         self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
-                     feed: str, rules: str) -> Decision:
+                     feed: str, rules: str, reason: str = "") -> Decision:
         """Запросить у агента финальный выбор числа в фазе DECIDE.
 
         Args:
@@ -30,12 +30,15 @@ class DirectStrategy:
             round: Номер раунда.
             feed: Отрендеренная история переговоров.
             rules: Текст правил игры для системного промпта.
+            reason: Почему закрылся чат (для строки закрытия в промпте).
 
         Returns:
             Решение с выбранным числом и обоснованием (без предсказания).
         """
         res = await agent.act(
-            Phase(PhaseKind.DECIDE, decide_context(self._game, partner_id, round, feed, agent.score), rules=rules)
+            Phase(PhaseKind.DECIDE,
+                  decide_context(self._game, partner_id, round, feed, agent.score, reason),
+                  rules=rules, game_cfg=self._game)
         )
         return Decision(
             number=res.data["number"],

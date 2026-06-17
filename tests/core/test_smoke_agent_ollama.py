@@ -46,7 +46,7 @@ async def test_talk_against_ollama():
     phase = Phase(
         PhaseKind.TALK,
         "Tell your partner which number you propose. Respond ONLY as JSON: "
-        '{"message": "<your line>", "ready": <true|false>}',
+        '{"message": "<your line>", "finish": <true|false>}',
         rules="This is a test round.",
     )
     try:
