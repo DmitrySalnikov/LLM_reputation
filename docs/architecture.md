@@ -90,7 +90,11 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    same phrase history uses) and how the chat closed (`both_agreed` → `{reason}` in
    the DECIDE close line, reusing `history_close_prompt`'s wording); both helpers
    live in `src/core/memory.py`. `opener_self` is also the text `talk_open_prompt`
-   opens with.
+   opens with. After gluing history to the live prompt, `Agent.act` collapses
+   adjacent `<game>` blocks (`_merge_game_blocks`: a closing `</game>` separated from
+   the next opening `<game>` by whitespace only — e.g. a round's result line meeting
+   the next round's opener — loses the seam tags), so the input is one running
+   transcript rather than a series of closed/reopened blocks.
 6. **Memory notes** (optional, `game.memory_notes_every: N`): each agent makes one
    extra `NOTE` LLM call after every **N rounds it has actually played** (counted
    per-agent as `len(memory.entries)` after the memory writes — idle rounds don't

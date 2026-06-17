@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -12,6 +13,16 @@ from src.providers.base import LLMProvider, Message, ProviderError
 _MAX_PARSE_RETRIES = 2
 
 _log = logging.getLogger(__name__)
+
+# Стык двух соседних <game>-блоков: закрывающий </game>, за которым через один лишь
+# пробельный промежуток идёт открывающий <game>. Склеиваем такие блоки в один (например,
+# строку результата раунда и открытие следующего раунда), сохраняя сам разделитель.
+_GAME_SEAM = re.compile(r"</game>(\s*)<game>")
+
+
+def _merge_game_blocks(text: str) -> str:
+    """Убрать стыки </game>…<game> между смежными блоками — получается один транскрипт."""
+    return _GAME_SEAM.sub(r"\1", text)
 
 
 class ActParseError(Exception):
@@ -163,6 +174,7 @@ class Agent:
             content = history + phase.context
             if correction is not None:
                 content = f"{content}\n\n{correction}"
+            content = _merge_game_blocks(content)   # склеить стыки </game>…<game>
             messages = [Message("user", content)]
             if phase.kind is not PhaseKind.TALK and _log.isEnabledFor(logging.DEBUG):
                 _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))

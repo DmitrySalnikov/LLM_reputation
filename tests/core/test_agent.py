@@ -168,6 +168,24 @@ async def test_note_renders_full_memory_ignoring_window():
     assert "Round 1" in content and "Round 2" in content and "Round 3" in content
 
 
+async def test_game_blocks_merged_at_history_live_seam():
+    # Стык «строка результата прошлого раунда </game>" + "<game> открытие текущего» склеивается
+    # в один <game>-блок, чтобы транскрипт не дёргался лишними закрытием/открытием тега.
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.add(MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[],
+                             my_number=4, my_rationale="", partner_number=4,
+                             outcome="CC", payoff=3.0, partner_payoff=3.0))
+    await a.act(Phase(PhaseKind.DECIDE,
+                      "<game>Round 2 · opponent A2\nThe chat has been open.</game>", rules="R"))
+    _, messages = p.calls[-1]
+    content = messages[-1].content
+    assert "</game>" in content and "<game>" in content   # теги остались
+    assert "</game>\n\n<game>" not in content             # но стык истории↔текущего вычищен
+    assert "Your total score after round 1" in content    # содержимое обоих блоков уцелело
+    assert "Round 2 · opponent A2" in content
+
+
 async def test_system_and_messages_assembly():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     await _agent(p, persona="PERSONA").act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))

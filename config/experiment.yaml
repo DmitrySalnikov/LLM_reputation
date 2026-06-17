@@ -1,7 +1,7 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
+seed: 12                      # drives population build + matchmaker rng (change to force a fresh run)
 rounds: 3
 max_concurrency: 10           # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
