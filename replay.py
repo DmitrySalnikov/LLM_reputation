@@ -7,11 +7,13 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    uv run python replay.py <run_id> [--config] [--calls] [--call ID [--raw]]
+    uv run python replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
 the episode config: the prompts in full, then the roster, then the remaining scalar knobs
 (prompts / agents / name pools are stripped from that last dump to avoid repetition).
+
+--notes prints the memory notes each agent wrote on consolidation rounds (hidden by default).
 
 --calls adds the raw L2 log under each pairing: one compact line per HTTP call (id, agent,
 phase, attempt/http_attempt, status, tokens, and a short preview — the model's response, or
@@ -214,7 +216,7 @@ def dump_call(conn, run_id, spec, raw=False):
     print(expand(raw_body) if raw_body is not None else "(none)")
 
 
-def replay(conn, run_id, show_config=False, show_calls=False):
+def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
     run = conn.execute(
         "SELECT name, config, seed, created_at, finished_at FROM runs WHERE run_id=?", (run_id,)
     ).fetchone()
@@ -235,7 +237,8 @@ def replay(conn, run_id, show_config=False, show_calls=False):
     game_cfg = cfg.get("game", {})
     show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
     show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
-    show_notes = game_cfg.get("memory_notes_every", 0) > 0  # memory notes свёртывались каждые N раундов
+    # memory notes печатаем только по флагу --notes (по умолчанию прячем); строки всё равно
+    # появятся лишь там, где заметки реально свёрнуты (a_notes/b_notes != None).
     show_predictions = cfg.get("play_strategy", "direct") == "prediction"
 
     bar = "=" * 64
@@ -389,6 +392,7 @@ def main():
     args = sys.argv[1:]
     show_config = "--config" in args or "-c" in args
     show_calls = "--calls" in args
+    show_notes = "--notes" in args                 # memory notes по умолчанию спрятаны
     raw = "--raw" in args                          # --call: не раскрывать \n
     call_spec = None
     pos = []
@@ -401,20 +405,21 @@ def main():
             call_spec = args[i + 1] if i + 1 < len(args) else None
             skip = True
             continue
-        if a in ("--config", "-c", "--calls", "--raw"):
+        if a in ("--config", "-c", "--calls", "--raw", "--notes"):
             continue
         pos.append(a)                             # positional args only
 
     conn = sqlite3.connect(DB_DEFAULT)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [--config] [--calls] [--call ID [--raw]]   "
+            print(f"usage: replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]   "
                   f"(db: {DB_DEFAULT})\n")
             list_runs(conn)
         elif call_spec is not None:
             dump_call(conn, pos[0], call_spec, raw=raw)    # full dump of one call
         else:
-            replay(conn, pos[0], show_config=show_config, show_calls=show_calls)
+            replay(conn, pos[0], show_config=show_config, show_calls=show_calls,
+                   show_notes=show_notes)
     finally:
         conn.close()
 

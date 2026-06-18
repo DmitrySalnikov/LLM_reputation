@@ -127,8 +127,9 @@ def test_render_with_notes_replaces_history_but_keeps_recent_buffer():
     m.set_notes("R1-2: opponent A2 keeps agreements")
     m.add(_entry(round=3, partner="A7"))   # сыгран после консолидации -> буфер
     text = m.render(None)[0].content
-    assert "Your notes from earlier rounds:" in text
-    assert "R1-2: opponent A2 keeps agreements" in text   # сжатые заметки вместо истории
+    # заголовок секции в <game>, сами заметки — в <you>
+    assert "<game>Your notes from earlier rounds:</game>\n<you>R1-2: opponent A2 keeps agreements</you>" in text
+    assert "<game>Your rounds since those notes:</game>" in text  # метка над свежим буфером, в <game>
     assert "Round 1" not in text and "Round 2" not in text  # свёрнутые раунды не рендерятся сырыми
     assert "Round 3" in text and "A7" in text               # свежий буфер — сырым
 
@@ -139,7 +140,8 @@ def test_render_with_notes_only_when_buffer_empty():
     m.set_notes("note text")
     msgs = m.render(None)                  # буфер пуст -> только заметки (не [])
     assert len(msgs) == 1
-    assert "note text" in msgs[0].content
+    assert msgs[0].content == "<game>Your notes from earlier rounds:</game>\n<you>note text</you>"  # метка <game> + заметки <you>
+    assert "Your rounds since those notes:" not in msgs[0].content  # буфера нет -> и метки нет
     assert "Round 1" not in msgs[0].content
 
 

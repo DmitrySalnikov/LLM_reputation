@@ -1,8 +1,8 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 12                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 3
+seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
+rounds: 10
 max_concurrency: 10           # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -16,9 +16,9 @@ population:
   identity_prompt: "You are AI agent {id}."
   # Per-agent keys: persona (null -> omit it), count.
   agents:
-    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 1}
-    # - {persona: "You are a cautious player who values trust.", count: 1}
-    - {persona: null, count: 2}
+    # - {persona: "You are a cautious player who values trust.", count: 3}
+    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 3}
+    - {persona: null, count: 10}
   # One LLM provider, shared by all agents
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
@@ -26,7 +26,7 @@ population:
     base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
     api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
     # model: openai/gpt-oss-20b
-    model: Qwen/Qwen3-235B-A22B-Instruct-2507-tput
+    model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300                # HTTP timeout per LLM call, seconds
@@ -40,8 +40,8 @@ population:
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 6                   # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 0               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
+  memory_notes_every: 2               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # ask for a reason before the number in DECIDE/PREDICT
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
@@ -56,6 +56,7 @@ game:
   #   predict:         {partner} {round} {feed} {answer} (хвост ответа подставляется по флагу rationale)
   #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
   #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
+  #   notes_block:      {notes} (обёртка <you> сохранённых заметок; заголовки notes_header/buffer_header — <game>)
   # Весь вход — один игровой транскрипт: история прошлых раундов (теги <game>/<you>/<имя>, см.
   # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
   # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
@@ -125,8 +126,14 @@ game:
     Reflect briefly on this outcome: what does it tell you about this opponent, and what should you do differently (or keep doing) in future rounds?
     Respond ONLY as JSON: {"reflection": "<short reflection>"}
   # Used only when memory_notes_every > 0: the agent rewrites its memory into notes that then
-  # replace the raw round-by-round history (full memory arrives above as history).
+  # replace the raw round-by-round history (full memory arrives above as history). Wrapped in
+  # <game> like the other instructions.
   notes_prompt: |-
-    [Round {round} · score {score}]
-    You will stop seeing your round-by-round history. Before that, rewrite everything worth carrying forward into concise private notes for yourself: who you have faced, who kept or broke agreements, what tends to work against whom, and anything to watch for. From now on these notes replace your past rounds, so keep every detail that could change your future choices.
-    Respond ONLY as JSON: {"notes": "<your notes>"}
+    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds.
+    Respond ONLY as JSON: {"notes": "<your notes>"}</game>
+  # Memory rendering when notes are on: <game> section headers frame the parts; the saved notes
+  # themselves go in <you> (the agent's own private memo). The buffer header's <game> meets the
+  # first buffered round's <game> and the seam collapses, so the header opens that round's block.
+  notes_block_prompt: <you>{notes}</you>
+  notes_header: <game>Your notes from earlier rounds:</game>
+  buffer_header: <game>Your rounds since those notes:</game>

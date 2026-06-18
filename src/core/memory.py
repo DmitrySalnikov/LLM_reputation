@@ -52,14 +52,13 @@ class Memory:
                 return []
             body = "\n".join(_render_entry(e, cfg) for e in entries)
             return [Message("user", body)]
-        # С заметками: сжатые заметки + сырой буфер раундов, сыгранных после последней
-        # консолидации (вместо полной истории). Окно ограничивает только буфер.
-        parts = ["Your notes from earlier rounds:\n" + self.notes]
+        # С заметками: под меткой-заголовком сжатые заметки (обёрнутые в <game>), затем под
+        # своей меткой сырой буфер раундов, сыгранных после последней консолидации (вместо
+        # полной истории) — обычным игровым транскриптом. Окно ограничивает только буфер.
+        parts = [f"{cfg.notes_header}\n" + cfg.notes_block_prompt.replace("{notes}", self.notes)]
         buffer = _window(self.entries[self.noted_upto:], window)
         if buffer:
-            parts.append("Your rounds since those notes:\n" + "\n".join(
-                _render_entry(e, cfg) for e in buffer
-            ))
+            parts.append(f"{cfg.buffer_header}\n" + "\n".join(_render_entry(e, cfg) for e in buffer))
         return [Message("user", "\n\n".join(parts))]
 
 

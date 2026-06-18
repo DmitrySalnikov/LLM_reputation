@@ -28,7 +28,12 @@ reasoning-модели (§8).
 `Memory.notes`/`noted_upto`/`set_notes`; `render` шлёт заметки + буфер новых раундов
 вместо полной истории). `NOTE` сворачивает память каждые `game.memory_notes_every`
 **сыгранных агентом** раундов (`len(memory.entries)`, idle не считается); его `act`
-рендерит память целиком (без окна). См. `architecture.md` §«Pairing flow».
+рендерит память целиком (без окна). Память с заметками рендерится так: `<game>`-метки
+секций (`notes_header`/`buffer_header`) обрамляют части, а сами заметки идут в `<you>`
+(`notes_block_prompt` = `<you>{notes}</you>` — личная памятка агента). `<game>`-метка
+буфера стыкуется с `<game>` первого раунда буфера и шов схлопывается
+(`_merge_game_blocks`), так что метка открывает блок раунда. Сам `NOTE`-промпт обёрнут в
+`<game>`. См. `architecture.md` §«Pairing flow».
 
 **НЕ входит (чистые швы, §11):**
 - `CHOOSE_PARTNER`/`CONSENT`.

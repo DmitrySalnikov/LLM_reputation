@@ -154,17 +154,24 @@ DEFAULT_REFLECT_PROMPT = (
 )
 
 # Memory-notes prompt: every `memory_notes_every` rounds the agent rewrites its memory
-# into private notes that REPLACE the raw round-by-round history from then on.
-# Placeholders (literal replacement): {round} {score}.
+# into private notes that REPLACE the raw round-by-round history from then on. Wrapped in
+# <game> like the other game instructions. Placeholders (literal replacement): {round} {score}.
 DEFAULT_NOTES_PROMPT = (
-    "[Round {round} · score {score}]\n"
-    "You will stop seeing your round-by-round history. Before that, rewrite everything "
-    "worth carrying forward into concise private notes for yourself: who you have faced, "
-    "who kept or broke agreements, what tends to work against whom, and anything to watch "
-    "for. From now on these notes replace your past rounds, so keep every detail that "
-    "could change your future choices.\n"
-    'Respond ONLY as JSON: {"notes": "<your notes>"}'
+    "<game>All that history is being compressed into your notes. "
+    "Write down every detail that will help you in future rounds.\n"
+    'Respond ONLY as JSON: {"notes": "<your notes>"}</game>'
 )
+
+# How consolidated memory is rendered back into the transcript: the notes block, tagged
+# <you> — it is the agent's own private memo (the rules declare <you> as "your own lines").
+# Placeholder (literal replacement): {notes}.
+DEFAULT_NOTES_BLOCK_PROMPT = "<you>{notes}</you>"
+# Section headers framing the two parts of memory when notes are on: the consolidated notes
+# and the raw buffer of rounds played since the last consolidation. Tagged <game> (system
+# framing); the buffer header's <game> meets the first buffered round's <game> and the seam
+# collapses (Agent._merge_game_blocks) so the header opens that round's block.
+DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
+DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
 
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
@@ -204,6 +211,9 @@ class GameCfg:
     rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
     memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
     notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
+    notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # обёртка заметок в истории ({notes})
+    notes_header: str = DEFAULT_NOTES_HEADER    # метка-заголовок над свёрнутыми заметками
+    buffer_header: str = DEFAULT_BUFFER_HEADER  # метка-заголовок над буфером раундов после консолидации
     # История прошлого раунда отрисовывается агенту как игровой транскрипт (теги <game>/<you>/<имя>);
     # эти шаблоны живут в конфиге, чтобы текст промпта не был зашит в коде (см. src/core/memory.py).
     history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner} {opener}

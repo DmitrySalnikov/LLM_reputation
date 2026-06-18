@@ -101,7 +101,12 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    count, and the two agents of a pairing decide independently). NOTE rewrites the
    agent's whole memory into private notes; from then on `Memory.render` sends those
    notes **instead of** the raw round history, plus the raw buffer of rounds played
-   since the last consolidation (`noted_upto`). The notes ride the pairing: stored in
+   since the last consolidation (`noted_upto`). The two parts are framed by `<game>`
+   section headers (`notes_header`/`buffer_header`); the notes themselves are tagged
+   `<you>` via `notes_block_prompt` — `<you>{notes}</you>` — since they are the agent's
+   own private memo. The buffer header's `<game>` meets the first buffered round's
+   `<game>` and the seam collapses (step 5), so the header opens that round's block; the
+   `NOTE` prompt is itself `<game>`-wrapped. The notes ride the pairing: stored in
    `pairings.a_notes/b_notes`, their L2 calls in `llm_calls` with `phase='note'`.
    A failed NOTE call aborts the pairing like any other LLM failure.
 

@@ -186,6 +186,42 @@ async def test_game_blocks_merged_at_history_live_seam():
     assert "Round 2 · opponent A2" in content
 
 
+async def test_game_blocks_merged_at_phase_junction_within_round():
+    # Раунд без переговоров: блок открытия (фаза TALK) упирается прямо в блок закрытия
+    # (фаза DECIDE) — стык </game><game> между фазами тоже схлопывается в один блок.
+    import re
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.add(MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[],   # без talk
+                             my_number=5, my_rationale="", partner_number=5,
+                             outcome="CC", payoff=3.0, partner_payoff=3.0))
+    await a.act(Phase(PhaseKind.DECIDE, "<game>Round 2 · opponent A2\nThe chat has been open.</game>",
+                      rules="R"))
+    content = p.calls[-1][1][-1].content
+    assert not re.search(r"</game>\s*<game>", content)   # ни одного стыка фаз не осталось
+    assert "The chat has been open." in content and "The chat has been closed" in content  # обе фазы целы
+
+
+async def test_notes_buffer_labels_and_buffer_live_seam_merges():
+    # Под метками-заголовками идут заметки (<game>…</game>) и буфер; буфер же стыкуется с
+    # живым текущим раундом — этот стык </game><game> склеивается.
+    import re
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.set_notes("R1: faced A2, matched on 5")
+    a.memory.add(MemoryEntry(round=2, my_id="A1", partner_id="A2", transcript=[],
+                             my_number=5, my_rationale="", partner_number=5,
+                             outcome="CC", payoff=3.0, partner_payoff=3.0))
+    await a.act(Phase(PhaseKind.DECIDE,
+                      "<game>Round 3 · opponent A2\nThe chat has been open.</game>", rules="R"))
+    content = p.calls[-1][1][-1].content
+    assert "Your notes from earlier rounds:" in content        # метки вернулись
+    assert "Your rounds since those notes:" in content
+    assert "R1: faced A2" in content                           # заметки на месте
+    assert not re.search(r"</game>\s*<game>", content)         # стык буфер↔живой раунд склеен
+    assert "Round 2" in content and "Round 3 · opponent A2" in content
+
+
 async def test_system_and_messages_assembly():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
     await _agent(p, persona="PERSONA").act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
