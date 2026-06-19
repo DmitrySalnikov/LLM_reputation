@@ -51,7 +51,7 @@ def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: flo
     feed_block = feed if feed else "(no messages were exchanged)"
     return (
         _fill(cfg.decide_prompt, partner, round, feed_block, score)
-        .replace("{answer}", _answer(cfg.rationale))
+        .replace("{answer}", _answer(cfg))
         .replace("{reason}", reason)
     )
 
@@ -59,20 +59,13 @@ def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: flo
 def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
     """Partner-number prediction context (prediction strategy)."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return _fill(cfg.predict_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg.rationale))
+    return _fill(cfg.predict_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg))
 
 
-# Хвост ответа DECIDE/PREDICT, управляемый флагом rationale — подставляется в плейсхолдер
-# {answer} (если он есть в шаблоне). У дефолтных шаблонов {answer} нет -> замена холостая.
-_ANSWER_RATIONALE = (
-    "Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
-)
-_ANSWER_BARE = 'Respond ONLY as JSON: {"number": <0-9>}'
-
-
-def _answer(rationale: bool) -> str:
-    return _ANSWER_RATIONALE if rationale else _ANSWER_BARE
+# Хвост ответа DECIDE/PREDICT — подставляется в плейсхолдер {answer} (если он есть в шаблоне);
+# текст берётся из конфига (answer_bare / answer_rationale), выбор по флагу rationale.
+def _answer(cfg: GameCfg) -> str:
+    return cfg.answer_rationale if cfg.rationale else cfg.answer_bare
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,

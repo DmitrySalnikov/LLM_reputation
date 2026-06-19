@@ -173,6 +173,14 @@ DEFAULT_NOTES_BLOCK_PROMPT = "<you>{notes}</you>"
 DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
 DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
 
+# DECIDE/PREDICT answer tail substituted into the {answer} placeholder, chosen by the
+# `rationale` flag. Config-driven so the JSON-ask wording lives in YAML, not in code.
+DEFAULT_ANSWER_BARE = 'Respond ONLY as JSON: {"number": <0-9>}'
+DEFAULT_ANSWER_RATIONALE = (
+    "Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+)
+
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
     "You are an impartial judge reviewing the public communication from a multi-agent "
@@ -209,6 +217,8 @@ class GameCfg:
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
     rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
+    answer_bare: str = DEFAULT_ANSWER_BARE            # текст {answer} при rationale=false
+    answer_rationale: str = DEFAULT_ANSWER_RATIONALE  # текст {answer} при rationale=true
     memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
     notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
     notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # обёртка заметок в истории ({notes})

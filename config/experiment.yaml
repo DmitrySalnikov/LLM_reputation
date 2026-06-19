@@ -2,7 +2,7 @@
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
 seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 10
+rounds: 1
 max_concurrency: 10           # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
@@ -18,7 +18,7 @@ population:
   agents:
     # - {persona: "You are a cautious player who values trust.", count: 3}
     # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 3}
-    - {persona: null, count: 10}
+    - {persona: null, count: 2}
   # One LLM provider, shared by all agents
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
@@ -40,8 +40,8 @@ population:
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 2               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  max_talk_turns: 2                  # hard ceiling on total cheap-talk turns in a pairing
+  memory_notes_every: 1               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # ask for a reason before the number in DECIDE/PREDICT
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
@@ -52,7 +52,7 @@ game:
   #   rules:           {R}/{T}/{P}/{S} — from `payoffs`; {max_talk_turns} — from `max_talk_turns` above
   #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
   #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {answer} {reason} (как закрылся чат)
+  #   decide:          {partner} {round} {feed} {answer} {reason} ({answer} = answer_bare/answer_rationale по флагу)
   #   predict:         {partner} {round} {feed} {answer} (хвост ответа подставляется по флагу rationale)
   #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
   #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
@@ -96,6 +96,11 @@ game:
     {feed}
     <game>The chat has been closed as {reason}. Choose the number.
     {answer}</game>
+  # {answer} -> один из двух хвостов по флагу rationale (оба в конфиге, talk-стиль):
+  answer_bare: 'Please, write your number in the following JSON format: {"number": <0-9>}'
+  answer_rationale: |-
+    Reason first, then commit to a number.
+    Please, write your answer in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}
   # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
     <game>Round {round} · opponent {partner}
@@ -130,7 +135,7 @@ game:
   # <game> like the other instructions.
   notes_prompt: |-
     <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds.
-    Respond ONLY as JSON: {"notes": "<your notes>"}</game>
+    Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
   # Memory rendering when notes are on: <game> section headers frame the parts; the saved notes
   # themselves go in <you> (the agent's own private memo). The buffer header's <game> meets the
   # first buffered round's <game> and the seam collapses, so the header opens that round's block.
