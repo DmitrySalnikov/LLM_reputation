@@ -5,8 +5,8 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
 (NOT str.format — the templates contain real JSON braces):
     rules:                {R} {T} {P} {S} {max_talk_turns}
     talk:                 {partner} {round} {feed} {opener} (кто открыл раунд)
-    decide:               {partner} {round} {feed} {answer} {reason} (как закрылся чат)
-    predict:              {partner} {round} {feed} {answer} (хвост ответа по флагу rationale)
+    decide:               {partner} {round} {feed} {reason}; флаг rationale выбирает decide_prompt|_bare
+    predict:              {partner} {round} {feed} {reason}; флаг rationale выбирает predict_prompt|_bare
     reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
     notes:                {round} {score}
 
@@ -47,25 +47,23 @@ def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: flo
     """Final number-choice context (direct strategy).
 
     `reason` — почему закрылся чат (лимит реплик / обоюдное согласие); подставляется в
-    {reason} строки закрытия, чтобы она читалась дословно как в истории прошлых раундов."""
+    {reason} строки закрытия, чтобы она читалась дословно как в истории прошлых раундов.
+    Флаг rationale выбирает целый шаблон: decide_prompt (рассуждать) или decide_prompt_bare."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return (
-        _fill(cfg.decide_prompt, partner, round, feed_block, score)
-        .replace("{answer}", _answer(cfg))
-        .replace("{reason}", reason)
-    )
+    tmpl = cfg.decide_prompt if cfg.rationale else cfg.decide_prompt_bare
+    return _fill(tmpl, partner, round, feed_block, score).replace("{reason}", reason)
 
 
-def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
-    """Partner-number prediction context (prediction strategy)."""
+def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
+                    reason: str = "") -> str:
+    """Partner-number prediction context (prediction strategy).
+
+    Зеркалит decide: тот же статичный транскрипт + строка закрытия с {reason}, только
+    директива другая (предсказать число оппонента). Флаг rationale так же выбирает целый
+    шаблон: predict_prompt или predict_prompt_bare."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    return _fill(cfg.predict_prompt, partner, round, feed_block, score).replace("{answer}", _answer(cfg))
-
-
-# Хвост ответа DECIDE/PREDICT — подставляется в плейсхолдер {answer} (если он есть в шаблоне);
-# текст берётся из конфига (answer_bare / answer_rationale), выбор по флагу rationale.
-def _answer(cfg: GameCfg) -> str:
-    return cfg.answer_rationale if cfg.rationale else cfg.answer_bare
+    tmpl = cfg.predict_prompt if cfg.rationale else cfg.predict_prompt_bare
+    return _fill(tmpl, partner, round, feed_block, score).replace("{reason}", reason)
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,

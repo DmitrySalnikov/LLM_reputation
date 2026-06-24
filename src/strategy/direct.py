@@ -15,7 +15,7 @@ class DirectStrategy:
         """Инициализировать стратегию конфигурацией игры.
 
         Args:
-            game_cfg: Конфигурация игры (шаблон decide_prompt и флаг rationale).
+            game_cfg: Конфигурация игры (статичные шаблоны decide_prompt/_bare + флаг rationale).
         """
         self._game = game_cfg
         self._rationale = game_cfg.rationale

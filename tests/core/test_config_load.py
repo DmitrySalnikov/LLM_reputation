@@ -37,7 +37,6 @@ def test_reflection_and_rationale_defaults(tmp_path):
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
-          n_agents: 2
           first_name_pool: [Kurisu, Mayuri]
           last_name_pool: [Makise, Shiina]
           agents:
@@ -46,7 +45,7 @@ def test_reflection_and_rationale_defaults(tmp_path):
     ))
     cfg = load_episode(str(f))
     assert cfg.game.reflection is False
-    assert cfg.game.rationale is True
+    assert cfg.game.rationale is True            # думать перед числом — по умолчанию да
 
 
 def test_rationale_loaded_from_game_block(tmp_path):
@@ -60,7 +59,6 @@ def test_rationale_loaded_from_game_block(tmp_path):
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
-          n_agents: 2
           first_name_pool: [Kurisu, Mayuri]
           last_name_pool: [Makise, Shiina]
           agents:
@@ -194,9 +192,9 @@ def test_load_example_has_name_pools():
 
 
 def test_default_play_strategy_is_direct():
-    cfg = load_episode(EXAMPLE)
-    assert cfg.play_strategy == "direct"
-    assert cfg.prediction_mapping == "match"
+    cfg = load_episode(EXAMPLE)                       # стратегия теперь на агенте (per-spec)
+    assert all(a.play_strategy == "direct" for a in cfg.population.agents)
+    assert all(a.prediction_mapping == "match" for a in cfg.population.agents)
 
 
 def test_prediction_config_loads(tmp_path):
@@ -206,8 +204,6 @@ def test_prediction_config_loads(tmp_path):
         seed: 1
         rounds: 2
         matchmaker: random
-        play_strategy: prediction
-        prediction_mapping: one_above
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
@@ -216,11 +212,35 @@ def test_prediction_config_loads(tmp_path):
           agents:
             - persona: "p"
               count: 2
+              play_strategy: prediction
+              prediction_mapping: one_above
         """
     ))
-    cfg = load_episode(str(f))
-    assert cfg.play_strategy == "prediction"
-    assert cfg.prediction_mapping == "one_above"
+    spec = load_episode(str(f)).population.agents[0]
+    assert spec.play_strategy == "prediction"
+    assert spec.prediction_mapping == "one_above"
+
+
+def test_heterogeneous_strategies_per_spec(tmp_path):
+    f = tmp_path / "mixed.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 2
+        matchmaker: random
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          first_name_pool: [Kurisu, Mayuri]
+          last_name_pool: [Makise, Shiina]
+          agents:
+            - {persona: "a", count: 1, play_strategy: direct}
+            - {persona: "b", count: 1, play_strategy: prediction, prediction_mapping: one_above}
+        """
+    ))
+    a, b = load_episode(str(f)).population.agents
+    assert a.play_strategy == "direct"
+    assert b.play_strategy == "prediction" and b.prediction_mapping == "one_above"
 
 
 def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
@@ -231,8 +251,6 @@ def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
         seed: 1
         rounds: 2
         matchmaker: random
-        play_strategy: {strategy}
-        prediction_mapping: {mapping}
         population:
           kind: roster
           provider: {{base_url: "http://x/v1", model: "m"}}
@@ -241,6 +259,8 @@ def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
           agents:
             - persona: "p"
               count: {count}
+              play_strategy: {strategy}
+              prediction_mapping: {mapping}
         """
     ))
     return str(f)

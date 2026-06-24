@@ -169,7 +169,8 @@ async def test_talk_prompt_shows_who_opened_the_round():
 
 # ---- Rationale switched off in config ----
 
-async def test_rationale_off_default_strategy_asks_bare_number():
+async def test_rationale_off_asks_bare_number():
+    # rationale=false -> бэйрный статичный шаблон: только число, обоснование не хранится
     g = ReputationPD(GameCfg(max_talk_turns=0, rationale=False))
     a = _agent("A1", ['{"number": 4}'])
     b = _agent("A2", ['{"number": 4, "rationale": "volunteered"}'])

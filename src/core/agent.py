@@ -105,6 +105,10 @@ class AgentSetup:
     persona: str | None       # None -> в system только преамбула (+ правила)
     provider_cfg: ProviderCfg
     identity_prompt: str      # преамбула system; {id} -> id агента (общая на популяцию, см. PopulationCfg)
+    # Стратегия игры этого агента — простые строки (core не импортирует strategy; объект
+    # стратегии собирается на уровне игры, см. ReputationPD._strategy_for).
+    play_strategy: str = "direct"        # "direct" | "prediction"
+    prediction_mapping: str = "match"    # отображение predict->выбор (только для prediction)
 
 
 _CORRECTION = {

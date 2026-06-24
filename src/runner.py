@@ -35,7 +35,7 @@ def narrate_round(r, plan, recs) -> None:
         if not rec.finished:                       # aborted pairing: no result
             print("    (pairing aborted by LLM failure — no result)")
             continue
-        # reasoning is shown before the choices it led to (absent when game.rationale=false)
+        # reasoning is shown before the choices it led to (empty when the prompt asked only for a number)
         if rec.a_rationale:
             print(f"    {rec.a_id} reason: {rec.a_rationale}")
         if rec.b_rationale:

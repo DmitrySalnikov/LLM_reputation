@@ -19,10 +19,22 @@ class ReputationPD:
                  strategy: PlayStrategy | None = None):
         self.cfg = cfg
         self._rules = rules if rules is not None else rules_text(cfg)
-        if strategy is None:
-            from src.strategy.direct import DirectStrategy  # ленивый импорт: разрывает цикл games<->strategy
-            strategy = DirectStrategy(cfg)
-        self._strategy = strategy
+        # Стратегия теперь живёт на агенте (agent.setup.play_strategy). Объект собирается
+        # лениво и кэшируется по (play_strategy, prediction_mapping). Явно переданный
+        # `strategy` — однородный override (для тестов и простого случая) поверх per-agent.
+        self._override = strategy
+        self._strategy_cache: dict[tuple[str, str], PlayStrategy] = {}
+
+    def _strategy_for(self, agent: Agent) -> PlayStrategy:
+        if self._override is not None:
+            return self._override
+        key = (agent.setup.play_strategy, agent.setup.prediction_mapping)
+        st = self._strategy_cache.get(key)
+        if st is None:
+            from src.strategy.base import make_strategy  # ленивый импорт: цикл games<->strategy
+            st = make_strategy(key[0], key[1], self.cfg)
+            self._strategy_cache[key] = st
+        return st
 
     def resolve(self, x: int, y: int) -> tuple[str, float, float]:
         p = self.cfg.payoffs
@@ -47,9 +59,9 @@ class ReputationPD:
             # Та же причина закрытия, что увидят агенты в истории этого раунда (см. memory).
             reason = (self.cfg.reason_agreed if both_agreed(transcript, a.id, b.id)
                       else self.cfg.reason_limit)
-            da = await self._strategy.decide(a, b.id, round, feed_a, self._rules, reason)
+            da = await self._strategy_for(a).decide(a, b.id, round, feed_a, self._rules, reason)
             post_calls += list(da.calls)
-            db = await self._strategy.decide(b, a.id, round, feed_b, self._rules, reason)
+            db = await self._strategy_for(b).decide(b, a.id, round, feed_b, self._rules, reason)
             post_calls += list(db.calls)
             x, y = da.number, db.number
             outcome, pa, pb = self.resolve(x, y)

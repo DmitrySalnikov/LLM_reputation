@@ -81,6 +81,10 @@ DEFAULT_TALK_OPEN_PROMPT = (
     'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
+# DECIDE/PREDICT are fully static templates (only {round}/{partner}/{feed}/{reason} are
+# substituted) — no text is assembled from chunks. The `rationale` flag picks ONE whole
+# template: the rationale variant asks to reason first, the _BARE variant asks only for the
+# number. Both are complete and readable on their own.
 DEFAULT_DECIDE_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
     "The chat has been open.</game>\n"
@@ -128,19 +132,33 @@ DEFAULT_HISTORY_RESULT_PROMPT = (
     "Your total score after round {round} is {total} points.</game>"
 )
 
+# Private trace lines appended to a past round's transcript — the agent's own scratch notes
+# (prediction / reasoning / takeaway). Tagged <you>; each is rendered only when its field is
+# present AND its own flag (show_predicted / show_rationale / show_reflection) is on.
+# Placeholders: {partner} {my_predicted} (predicted), {my_rationale}, {my_reflection}.
+DEFAULT_HISTORY_PREDICTED_PROMPT = "<you>(I predicted {partner} would pick {my_predicted})</you>"
+DEFAULT_HISTORY_RATIONALE_PROMPT = "<you>(my reasoning: {my_rationale})</you>"
+DEFAULT_HISTORY_REFLECTION_PROMPT = "<you>(my takeaway: {my_reflection})</you>"
+
+# PREDICT mirrors DECIDE byte-for-byte (same transcript open/close lines, same {reason});
+# only the directive differs — predict the opponent's number instead of choosing your own.
 DEFAULT_PREDICT_PROMPT = (
-    "Your opponent this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. "
     "Predict the number your opponent will secretly choose, from 0 to 9. "
     "Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}</game>'
 )
 
 DEFAULT_PREDICT_PROMPT_BARE = (
-    "Your opponent this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. "
     "Predict the number your opponent will secretly choose, from 0 to 9.\n"
-    'Respond ONLY as JSON: {"number": <0-9>}'
+    'Respond ONLY as JSON: {"number": <0-9>}</game>'
 )
 
 DEFAULT_REFLECT_PROMPT = (
@@ -173,13 +191,6 @@ DEFAULT_NOTES_BLOCK_PROMPT = "<you>{notes}</you>"
 DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
 DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
 
-# DECIDE/PREDICT answer tail substituted into the {answer} placeholder, chosen by the
-# `rationale` flag. Config-driven so the JSON-ask wording lives in YAML, not in code.
-DEFAULT_ANSWER_BARE = 'Respond ONLY as JSON: {"number": <0-9>}'
-DEFAULT_ANSWER_RATIONALE = (
-    "Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
-)
 
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
@@ -212,13 +223,16 @@ class GameCfg:
     rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
     talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
-    decide_prompt: str = ""          # пусто -> шаблон по умолчанию выбирается по флагу rationale
-    predict_prompt: str = ""         # пусто -> шаблон по умолчанию выбирается по флагу rationale
+    # rationale=True -> используется *_prompt (просит рассуждать перед числом),
+    # rationale=False -> *_prompt_bare (только число). Это выбор ЦЕЛОГО статичного шаблона,
+    # а не склейка текста по условию. Пусто -> соответствующий DEFAULT_*.
+    rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
+    decide_prompt: str = ""          # пусто -> DEFAULT_DECIDE_PROMPT (rationale-вариант, {round}/{partner}/{feed}/{reason})
+    decide_prompt_bare: str = ""     # пусто -> DEFAULT_DECIDE_PROMPT_BARE (только число)
+    predict_prompt: str = ""         # пусто -> DEFAULT_PREDICT_PROMPT (rationale-вариант)
+    predict_prompt_bare: str = ""    # пусто -> DEFAULT_PREDICT_PROMPT_BARE (только число)
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
-    rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
-    answer_bare: str = DEFAULT_ANSWER_BARE            # текст {answer} при rationale=false
-    answer_rationale: str = DEFAULT_ANSWER_RATIONALE  # текст {answer} при rationale=true
     memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
     notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
     notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # обёртка заметок в истории ({notes})
@@ -235,24 +249,30 @@ class GameCfg:
     reason_limit: str = DEFAULT_REASON_LIMIT                   # фраза {reason}: чат закрылся по лимиту реплик
     reason_agreed: str = DEFAULT_REASON_AGREED                 # фраза {reason}: оба согласились закрыть чат
     history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
+    # Приватные следы в истории прошлого раунда (личный скрэтчпад агента) — каждый под СВОИМ
+    # флагом; строка добавляется, только если флаг включён И её поле непусто.
+    show_predicted: bool = True                                  # добавлять ли строку предсказания
+    show_rationale: bool = True                                  # добавлять ли строку обоснования
+    show_reflection: bool = True                                 # добавлять ли строку рефлексии
+    history_predicted_prompt: str = DEFAULT_HISTORY_PREDICTED_PROMPT    # {partner} {my_predicted}
+    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale}
+    history_reflection_prompt: str = DEFAULT_HISTORY_REFLECTION_PROMPT  # {my_reflection}
 
     def __post_init__(self) -> None:
-        """Подставить шаблоны DECIDE/PREDICT по умолчанию с учётом флага rationale.
+        """Заполнить пустые шаблоны DECIDE/PREDICT (оба варианта) дефолтами.
 
-        Явно заданный в конфиге шаблон всегда имеет приоритет; пустая строка означает
-        «выбрать стандартный шаблон»: с обоснованием перед числом (rationale=true)
-        или с одним лишь числом (rationale=false).
+        Каждый шаблон статичен: пустая строка означает «взять стандартный», иначе берётся
+        ровно заданный текст. Какой из двух вариантов попадёт агенту, решает флаг rationale
+        в decide_context/predict_context — это выбор целого шаблона, не склейка текста.
         """
-        if not self.decide_prompt:
-            object.__setattr__(
-                self, "decide_prompt",
-                DEFAULT_DECIDE_PROMPT if self.rationale else DEFAULT_DECIDE_PROMPT_BARE,
-            )
-        if not self.predict_prompt:
-            object.__setattr__(
-                self, "predict_prompt",
-                DEFAULT_PREDICT_PROMPT if self.rationale else DEFAULT_PREDICT_PROMPT_BARE,
-            )
+        for name, default in (
+            ("decide_prompt", DEFAULT_DECIDE_PROMPT),
+            ("decide_prompt_bare", DEFAULT_DECIDE_PROMPT_BARE),
+            ("predict_prompt", DEFAULT_PREDICT_PROMPT),
+            ("predict_prompt_bare", DEFAULT_PREDICT_PROMPT_BARE),
+        ):
+            if not getattr(self, name):
+                object.__setattr__(self, name, default)
 
 
 @dataclass(frozen=True)
@@ -271,6 +291,8 @@ class JudgeCfg:
 class AgentSpec:
     persona: str | None      # None -> агент без persona (только преамбула + правила в system)
     count: int = 1                   # how many agents of this type to build
+    play_strategy: str = "direct"        # "direct" | "prediction" — стратегия игры этого спека
+    prediction_mapping: str = "match"    # отображение predict->выбор (только при play_strategy="prediction")
 
 
 @dataclass(frozen=True)
@@ -299,9 +321,9 @@ class EpisodeCfg:
     context_window: int | None = None
     idle_payoff: float = 1.0         # C3: idle pays P by default
     max_concurrency: int = 4
-    play_strategy: str = "direct"          # "direct" | "prediction"
-    prediction_mapping: str = "match"      # used only when play_strategy="prediction"
     judge: JudgeCfg | None = None          # None = LLM-судья выключен
+    # NB: стратегия (play_strategy/prediction_mapping) теперь живёт на агенте (AgentSpec),
+    # а не на эпизоде — популяция может быть гетерогенной (direct + prediction в одном эпизоде).
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
 
 
@@ -324,7 +346,9 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a.get("persona"), count=a.get("count", 1))
+        AgentSpec(persona=a.get("persona"), count=a.get("count", 1),
+                  play_strategy=a.get("play_strategy", "direct"),
+                  prediction_mapping=a.get("prediction_mapping", "match"))
         for a in d["agents"]
     ]
     return PopulationCfg(
@@ -340,19 +364,21 @@ def _population_cfg(d: dict) -> PopulationCfg:
 def _validate(d: dict) -> None:
     """Validate one episode config at load time; fail fast.
 
-    Raises ValueError on an unknown strategy/mapping or bad name pools. Name pools are
+    Raises ValueError on an unknown strategy/mapping or bad name pools. Strategy lives
+    per-agent now (population.agents[*].play_strategy/prediction_mapping). Name pools are
     OPTIONAL: if a pool is empty the roster falls back to A1..An ids; a provided pool must
     be unique and hold at least one name per agent (size = sum of agent counts).
     """
-    strategy = d.get("play_strategy", "direct")
-    if strategy not in ("direct", "prediction"):
-        raise ValueError(
-            f"play_strategy must be 'direct' or 'prediction', got: {strategy!r}"
-        )
-    if strategy == "prediction":
-        from src.strategy.mappings import get_mapping
+    from src.strategy.mappings import get_mapping
 
-        get_mapping(d.get("prediction_mapping", "match"))  # raises on an unknown name
+    for spec in d["population"]["agents"]:
+        strategy = spec.get("play_strategy", "direct")
+        if strategy not in ("direct", "prediction"):
+            raise ValueError(
+                f"play_strategy must be 'direct' or 'prediction', got: {strategy!r}"
+            )
+        if strategy == "prediction":
+            get_mapping(spec.get("prediction_mapping", "match"))  # raises on an unknown name
 
     judge = d.get("judge")
     if judge is not None and "provider" not in judge:
@@ -389,7 +415,5 @@ def load_episode(path: str) -> EpisodeCfg:
         context_window=d.get("context_window"),
         idle_payoff=d.get("idle_payoff", 1.0),
         max_concurrency=d.get("max_concurrency", 4),
-        play_strategy=d.get("play_strategy", "direct"),
-        prediction_mapping=d.get("prediction_mapping", "match"),
         judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
     )

@@ -67,9 +67,9 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    `finish: true` (the agent-facing JSON key; stored internally as `ready`); once
    ready, an agent latches silent. Hard ceiling `cfg.max_talk_turns`. Each agent
    necessarily speaks at least once.
-2. **Decide**: the configured `PlayStrategy.decide` is called for each agent with
-   the public talk feed. This produces a `Decision` (final number + rationale,
-   plus optional prediction).
+2. **Decide**: each agent's own `PlayStrategy.decide` (per `agent.setup`, see Strategies)
+   is called with the public talk feed. This produces a `Decision` (final number +
+   rationale, plus optional prediction).
 3. **Resolve**: scores mutate on the agents.
 4. **Reflect** (optional, `game.reflection: true`): each agent makes one extra
    `REFLECT` LLM call over the revealed result (both numbers + own payoff) and
@@ -120,10 +120,13 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
   that prediction into the agent's own choice. Mappings: `match` (copy →
   cooperate), `one_above` (rational best-response, off-by-one for `T`).
 
-`make_strategy(cfg)` (`strategy/base.py:37`) selects from `cfg.play_strategy` /
-`cfg.prediction_mapping`. Add a new strategy: implement the Protocol, register it
-in `make_strategy`, and (if it needs validation) extend `_validate` in
-`src/core/config.py:88`.
+**Strategy is per-agent.** It lives on `AgentSpec`/`AgentSetup`
+(`play_strategy`/`prediction_mapping`, plain strings — `core` does not import `strategy`),
+so one population can mix direct and prediction agents. The game builds each agent's
+strategy lazily from `agent.setup` and caches it by `(play_strategy, prediction_mapping)`
+(`ReputationPD._strategy_for`); `make_strategy(play_strategy, prediction_mapping, game_cfg)`
+(`strategy/base.py`) is the factory. Add a new strategy: implement the Protocol, register it
+in `make_strategy`, and (if it needs validation) extend `_validate` in `src/core/config.py`.
 
 ## Agent & phases (`src/core/agent.py`)
 
@@ -136,10 +139,13 @@ raises `ActParseError` (no substitution) — the pairing is aborted (`finished=0
 episode stops, same as a provider error. It also bumps `parse_failures`.
 
 Five `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`, `NOTE`. `NOTE` consolidates
-memory (its `act` renders the full memory, ignoring the window). In DECIDE/PREDICT the
-JSON answer puts `rationale` before `number`, so reasoning tokens are generated
-before the choice is committed; with `game.rationale: false` the prompt asks for
-a bare `{"number": ...}` instead. JSON extraction is lenient — raw, fenced, and
+memory (its `act` renders the full memory, ignoring the window). **All phase prompts are
+static templates** — only named placeholders are substituted, never assembled from text
+chunks. `PREDICT` mirrors `DECIDE` byte-for-byte except the directive (predict the opponent's
+number vs choose your own). DECIDE/PREDICT each come as two complete templates — a rationale
+variant (reason first, then `{"rationale", "number"}`) and a `_bare` variant (`{"number"}`
+only); the `game.rationale` flag picks one whole template and gates whether the returned
+rationale is stored. JSON extraction is lenient — raw, fenced, and
 balanced-brace candidates are all tried (`_extract_json_obj`).
 
 ### LLM input trace

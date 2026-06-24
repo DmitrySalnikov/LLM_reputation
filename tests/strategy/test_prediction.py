@@ -33,23 +33,25 @@ async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
     d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=False)).decide(
         agent, "A2", 1, "", "R")
     assert d.predicted == 4 and d.number == 5
-    assert d.rationale == "" and d.predicted_rationale is None
+    assert d.rationale == "" and d.predicted_rationale is None   # bare-шаблон -> обоснование не хранится
     _, messages = agent.provider.calls[0]
     assert "rationale" not in messages[-1].content.lower()
 
 
-def test_make_strategy_passes_rationale_flag():
-    from src.core.config import EpisodeCfg, GameCfg, PopulationCfg, ProviderCfg
+def test_make_strategy_builds_by_name():
     from src.strategy.base import make_strategy
+    from src.strategy.direct import DirectStrategy
 
-    pop = PopulationCfg(kind="roster", agents=[],
-                        provider=ProviderCfg(base_url="http://x/v1", model="m"))
-    cfg = EpisodeCfg(seed=1, rounds=1, matchmaker="random", population=pop,
-                     game=GameCfg(rationale=False), play_strategy="prediction",
-                     prediction_mapping="one_above")
-    s = make_strategy(cfg)
-    assert s._rationale is False
+    s = make_strategy("prediction", "one_above", GameCfg())
+    assert isinstance(s, PredictionStrategy)
+    assert s._mapping is get_mapping("one_above")
 
-    cfg = EpisodeCfg(seed=1, rounds=1, matchmaker="random", population=pop,
-                     game=GameCfg(), play_strategy="direct")
-    assert make_strategy(cfg)._rationale is True
+    assert isinstance(make_strategy("direct", "match", GameCfg()), DirectStrategy)
+
+
+def test_make_strategy_rejects_unknown_name():
+    import pytest
+
+    from src.strategy.base import make_strategy
+    with pytest.raises(ValueError):
+        make_strategy("bogus", "match", GameCfg())
