@@ -24,7 +24,7 @@ class PredictionStrategy:
         self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
-                     feed: str, rules: str) -> Decision:
+                     feed: str, rules: str, reason: str = "") -> Decision:
         """Запросить предсказание числа партнёра и отобразить его в финальный выбор.
 
         Args:
@@ -33,12 +33,14 @@ class PredictionStrategy:
             round: Номер раунда.
             feed: Отрендеренная история переговоров.
             rules: Текст правил игры для системного промпта.
+            reason: Почему закрылся чат (фаза PREDICT его не использует).
 
         Returns:
             Решение с итоговым числом (после отображения), предсказанием и обоснованием.
         """
         res = await agent.act(
-            Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed), rules=rules)
+            Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed, agent.score),
+                  rules=rules, game_cfg=self._game)
         )
         predicted = res.data["number"]
         rationale = res.data["rationale"] if self._rationale else ""
@@ -48,4 +50,5 @@ class PredictionStrategy:
             predicted=predicted,
             predicted_rationale=rationale if self._rationale else None,
             usage=res.usage,
+            calls=res.calls,
         )

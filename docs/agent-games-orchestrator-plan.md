@@ -119,9 +119,10 @@ tests/
 ```python
 # core/config.py  (добавления)
 @dataclass(frozen=True)
-class AgentSpec:        persona: str; provider: ProviderCfg
+class AgentSpec:        persona: str | None; count: int = 1
 @dataclass(frozen=True)
-class PopulationCfg:    kind: str; n_agents: int; agents: list[AgentSpec]
+class PopulationCfg:    kind: str; agents: list[AgentSpec]; provider: ProviderCfg  # provider общий на популяцию
+                       # + identity_prompt (дефолт), first/last_name_pool
 @dataclass(frozen=True)
 class EpisodeCfg:
     seed: int; rounds: int; matchmaker: str
@@ -169,7 +170,7 @@ async def run_episode(cfg, pop, *, observer=None) -> None:    # pop постро
     mm   = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: свой rng
     sem  = asyncio.Semaphore(cfg.max_concurrency)
-    for r in range(cfg.rounds):
+    for r in range(1, cfg.rounds + 1):                             # раунды нумеруются с 1
         plan = await mm.plan_round(pop.ids(), r, actor=None)
         recs = await asyncio.gather(*[                              # fail-fast (C2)
             _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)
@@ -188,8 +189,9 @@ async def run_episode(cfg, pop, *, observer=None) -> None:    # pop постро
 ```
 `_guarded(coro, sem)`: `async with sem: return await coro`.
 
-`RosterGenerator.build`: `for i in range(n_agents): spec = agents[i % len(agents)];
-pop.add(AgentSetup(spec.persona, spec.provider))` → ID `A1..An`, провайдеры из кэша.
+`RosterGenerator.build`: разворачивает каждый `spec` по его `count`;
+`pop.add(AgentSetup(spec.persona, cfg.provider, cfg.identity_prompt))` → ID `A1..An`
+(или имена из пулов), провайдер общий на популяцию, берётся из кэша.
 
 ## 6. Срезы (порядок реализации)
 

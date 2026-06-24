@@ -27,6 +27,29 @@ class FixedProvider:
         self.closed += 1
 
 
+class FailAfterProvider:
+    """Отдаёт ok-DECIDE первые `ok_calls` раз, затем бросает ProviderUnavailable —
+    чтобы проверить остановку эпизода на сорванной паре после записанных раундов."""
+
+    def __init__(self, cfg, ok_calls: int):
+        self.cfg = cfg
+        self.closed = 0
+        self._left = ok_calls
+        self._reply = '{"number": 4, "rationale": "r"}'
+
+    async def complete(self, **kw):
+        if self._left <= 0:
+            e = ProviderUnavailable("down")
+            e.request = {"model": "m", "messages": []}
+            e.attempts = ()
+            raise e
+        self._left -= 1
+        return Completion(text=self._reply, prompt_tokens=2, completion_tokens=3, raw={})
+
+    async def aclose(self):
+        self.closed += 1
+
+
 @pytest.fixture
 def providers(monkeypatch):
     made = []
@@ -35,12 +58,13 @@ def providers(monkeypatch):
 
 
 def _cfg(n=3, rounds=2, seed=0):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
+    spec = AgentSpec(persona="p", count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),     # decision-only -> deterministic CC for all
     )
 
@@ -79,7 +103,7 @@ async def test_observer_gets_each_round(providers):
         seen.append((r, plan, recs))
 
     await _run(_cfg(n=4, rounds=3), observer=observer)
-    assert [r for r, _, _ in seen] == [0, 1, 2]
+    assert [r for r, _, _ in seen] == [1, 2, 3]
     for r, plan, recs in seen:
         assert len(recs) == len(plan.pairings)      # recs align with the round's pairings
         assert len(plan.pairings) == 2 and plan.idle == []   # N=4 -> 2 pairs, no idle
@@ -88,11 +112,24 @@ async def test_observer_gets_each_round(providers):
 async def test_sync_observer_supported(providers):
     seen = []
     await _run(_cfg(n=2, rounds=2), observer=lambda r, plan, recs: seen.append(r))
-    assert seen == [0, 1]
+    assert seen == [1, 2]
 
 
-async def test_fail_fast_propagates(monkeypatch):
-    # provider raises -> fail-fast -> run_episode raises -> caller still closes providers
+async def test_aborts_after_recording_round_on_llm_failure(monkeypatch):
+    # n=2, max_talk_turns=0 -> 1 пара/раунд = 2 decide-вызова; ok_calls=2 -> раунд 1 цел, раунд 2 рвётся
+    monkeypatch.setattr(popbase, "make_provider", lambda cfg: FailAfterProvider(cfg, ok_calls=2))
+    seen = []
+    with pytest.raises(orch.EpisodeAborted) as ei:
+        await _run(_cfg(n=2, rounds=3), observer=lambda r, plan, recs: seen.append((r, recs)))
+    assert ei.value.round == 2                         # упал на раунде 2, не на 3
+    assert [r for r, _ in seen] == [1, 2]              # раунд 1 И сорванный раунд 2 записаны
+    assert seen[0][1][0].finished is True              # раунд 1 доигран
+    assert seen[1][1][0].finished is False             # раунд 2 сорван
+
+
+async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
+    # provider raises -> пара ловит сбой (finished=0) -> run_episode бросает EpisodeAborted
+    # -> caller всё равно закрывает провайдеры
     class BoomProvider:
         def __init__(self, cfg):
             self.closed = 0
@@ -105,18 +142,19 @@ async def test_fail_fast_propagates(monkeypatch):
 
     made = []
     monkeypatch.setattr(popbase, "make_provider", lambda cfg: made.append(BoomProvider(cfg)) or made[-1])
-    with pytest.raises(ProviderUnavailable):
+    with pytest.raises(orch.EpisodeAborted):
         await _run(_cfg(n=2, rounds=1))
     assert made and all(p.closed == 1 for p in made)
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):
-    spec = AgentSpec(persona="p", provider=ProviderCfg(base_url="http://x/v1", model="m"), count=n)
+    spec = AgentSpec(persona="p", count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
         matchmaker="random",
-        population=PopulationCfg(kind="roster", agents=[spec]),
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),
         play_strategy="prediction",
         prediction_mapping="one_above",

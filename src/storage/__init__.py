@@ -1,3 +1,3 @@
-from src.storage.store import Storage
+from src.storage.store import DuplicateRunError, Storage
 
-__all__ = ["Storage"]
+__all__ = ["DuplicateRunError", "Storage"]

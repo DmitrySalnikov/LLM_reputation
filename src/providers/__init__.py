@@ -1,5 +1,6 @@
 from src.providers.base import (
     Completion,
+    HttpAttempt,
     LLMProvider,
     Message,
     ProviderError,
@@ -12,6 +13,7 @@ from src.providers.openai_compat import OpenAICompatibleProvider, make_provider
 __all__ = [
     "Message",
     "Completion",
+    "HttpAttempt",
     "LLMProvider",
     "ProviderError",
     "ProviderHTTPError",

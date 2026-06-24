@@ -26,67 +26,181 @@ class Payoffs:
 
 # Prompt templates. The text was hardcoded in src/games/prompts.py; it now lives here as
 # editable config defaults so an experiment can swap any prompt AND so the exact text is
-# persisted into the run's stored config. src/games/prompts.py fills these placeholders by
-# literal string replacement (NOT str.format — the JSON examples contain real braces):
+# persisted into the run's stored config. src/games/prompts.py and src/core/memory.py fill
+# these placeholders by literal string replacement (NOT str.format — the JSON examples
+# contain real braces):
+#   identity:             {id}
 #   rules:                {R} {T} {P} {S}              <- payoff values
 #   talk/decide/predict:  {partner} {round} {feed}
-#   reflect:              {partner} {round} {feed} {my_number} {partner_number} {payoff}
+#   reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
+# History (a past round is replayed to the agent as a game transcript — see the `history_*`,
+# `msg_*`, `opener_*`, `reason_*` fields below). The whole input is one flowing transcript:
+# the system rules declare the tags <game>/<you>/<opponent name>; memory renders past rounds
+# with them, and the live talk/decide prompts continue the same transcript for this round.
+DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
+
 DEFAULT_RULES = (
-    "You are playing a repeated game. Each round you face one partner.\n"
+    "You are playing a repeated modified prisoner dilemma game with an unknown number "
+    "of players and rounds. Each round you face one random opponent.\n"
     "Both of you secretly pick an integer from 0 to 9 at the same time.\n"
     "- Equal numbers: you each score {R}.\n"
-    "- Your number exactly one higher than your partner's (0 counts as following 9): "
-    "you score {T}, your partner {S}.\n"
-    "- Your partner's number exactly one higher than yours: they score {T}, you {S}.\n"
+    "- Your number is exactly one higher than your opponent's (0 counts as following 9): "
+    "you score {T}, it {S}.\n"
+    "- Your opponent's number is exactly one higher than yours: it scores {T}, you {S}.\n"
     "- Any other case: you each score {P}.\n"
     "Before choosing you may exchange short messages. Messages are not binding; "
-    "the final choice is secret and simultaneous. Maximize your own total score."
+    "the final choice is secret and simultaneous. Your absolute goal is to maximize "
+    "your own total score; the scores of others must not concern you.\n"
+    "Messages from the game are tagged <game></game>, your own lines <you></you>, "
+    "and any other player's lines with their name <Name></Name>. On each turn you are "
+    "given the transcript of your past rounds (if any) followed by the current situation; "
+    "respond only with the exact JSON requested in that message."
+)
+
+# Фраза «ты открываешь раунд» — общий текст для истории (прошлый раунд, где первым ходил
+# сам агент) и для живого talk_open_prompt, чтобы обе фазы читались дословно одинаково.
+_OPENER_SELF = (
+    "You speak first this round — send a short message to your opponent. "
+    'Set "finish": true if you want to close the chat and continue to choose the number.'
 )
 
 DEFAULT_TALK_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
-    "Negotiation so far:\n{feed}\n\n"
-    'Send a short message to your partner. Set "ready": true when you have nothing more to say.\n'
-    'Respond ONLY as JSON: {"message": "<your message>", "ready": <true|false>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open. {opener}</game>\n"
+    "{feed}\n"
+    "<game>Your turn — reply to your opponent. "
+    'Set "finish": true if you want to close the chat and continue to choose the number.\n'
+    'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
+)
+
+# Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
+DEFAULT_TALK_OPEN_PROMPT = (
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open. " + _OPENER_SELF + "\n"
+    "Please, write your first message in the following JSON format: "
+    'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
 DEFAULT_DECIDE_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
-    "Now secretly choose your number from 0 to 9. Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. Choose the number. "
+    "Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}</game>'
 )
 
 DEFAULT_DECIDE_PROMPT_BARE = (
-    "Your partner this round is {partner}. Round {round}.\n"
-    "Negotiation:\n{feed}\n\n"
-    "Now secretly choose your number from 0 to 9.\n"
-    'Respond ONLY as JSON: {"number": <0-9>}'
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been open.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. Choose the number.\n"
+    'Respond ONLY as JSON: {"number": <0-9>}</game>'
+)
+
+# ── History (past-round replay) templates ────────────────────────────────────
+# A finished round is replayed to the agent as a game transcript: an opening <game> line,
+# the cheap-talk messages (own = <you>, opponent = <name>), a close line, the agent's own
+# secret number as a <you> line, and a revealing <game> result line. src/core/memory.py
+# fills the placeholders; the live talk/decide prompts above reuse `msg_self`/`msg_partner`
+# to render the current round's feed, so past and present read identically.
+#   history_round_prompt:  {round} {partner} {opener}
+#   opener_self / opener_partner:  the {opener} sentence (partner-form takes {partner});
+#                          opener_self is the same text the live talk_open_prompt opens with
+#   msg_self / msg_partner:  one cheap-talk line ({text}; partner-form also {partner})
+#   history_close_prompt:  {reason}  (same wording as the live decide close line)
+#   reason_limit / reason_agreed:  the {reason} phrase
+#   history_result_prompt: {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
+#                          ({total} = score after the round; own number shown above as a <you> line)
+DEFAULT_HISTORY_ROUND_PROMPT = (
+    "<game>Round {round} · opponent {partner}\nThe chat has been open. {opener}</game>"
+)
+DEFAULT_OPENER_SELF = _OPENER_SELF
+DEFAULT_OPENER_PARTNER = "{partner} starts first:"
+DEFAULT_MSG_SELF = "<you>{text}</you>"
+DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
+DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
+DEFAULT_REASON_LIMIT = "the messages number limit has been reached"
+DEFAULT_REASON_AGREED = "both players agreed to stop"
+DEFAULT_HISTORY_RESULT_PROMPT = (
+    "<game>The choice has been accepted. {partner} chose {partner_number}. "
+    "Payoffs: you = {payoff}, {partner} = {partner_payoff}.\n"
+    "Your total score after round {round} is {total} points.</game>"
 )
 
 DEFAULT_PREDICT_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "Predict the number your partner will secretly choose, from 0 to 9. "
+    "Predict the number your opponent will secretly choose, from 0 to 9. "
     "Reason first, then commit to a number.\n"
     'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
 )
 
 DEFAULT_PREDICT_PROMPT_BARE = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "Predict the number your partner will secretly choose, from 0 to 9.\n"
+    "Predict the number your opponent will secretly choose, from 0 to 9.\n"
     'Respond ONLY as JSON: {"number": <0-9>}'
 )
 
 DEFAULT_REFLECT_PROMPT = (
-    "Your partner this round is {partner}. Round {round}.\n"
+    "Your opponent this round is {partner}. Round {round}.\n"
     "Negotiation:\n{feed}\n\n"
-    "The round is over. You picked {my_number}, {partner} picked {partner_number}. "
+    "The round is over. {me} picked {my_number}, {partner} picked {partner_number}. "
     "You scored {payoff} points.\n"
-    "Reflect briefly on this outcome: what does it tell you about this partner, "
+    "Reflect briefly on this outcome: what does it tell you about this opponent, "
     "and what should you do differently (or keep doing) in future rounds?\n"
     'Respond ONLY as JSON: {"reflection": "<short reflection>"}'
+)
+
+# Memory-notes prompt: every `memory_notes_every` rounds the agent rewrites its memory
+# into private notes that REPLACE the raw round-by-round history from then on. Wrapped in
+# <game> like the other game instructions. Placeholders (literal replacement): {round} {score}.
+DEFAULT_NOTES_PROMPT = (
+    "<game>All that history is being compressed into your notes. "
+    "Write down every detail that will help you in future rounds.\n"
+    'Respond ONLY as JSON: {"notes": "<your notes>"}</game>'
+)
+
+# How consolidated memory is rendered back into the transcript: the notes block, tagged
+# <you> — it is the agent's own private memo (the rules declare <you> as "your own lines").
+# Placeholder (literal replacement): {notes}.
+DEFAULT_NOTES_BLOCK_PROMPT = "<you>{notes}</you>"
+# Section headers framing the two parts of memory when notes are on: the consolidated notes
+# and the raw buffer of rounds played since the last consolidation. Tagged <game> (system
+# framing); the buffer header's <game> meets the first buffered round's <game> and the seam
+# collapses (Agent._merge_game_blocks) so the header opens that round's block.
+DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
+DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
+
+# DECIDE/PREDICT answer tail substituted into the {answer} placeholder, chosen by the
+# `rationale` flag. Config-driven so the JSON-ask wording lives in YAML, not in code.
+DEFAULT_ANSWER_BARE = 'Respond ONLY as JSON: {"number": <0-9>}'
+DEFAULT_ANSWER_RATIONALE = (
+    "Reason first, then commit to a number.\n"
+    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}'
+)
+
+# Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
+DEFAULT_JUDGE_PROMPT = (
+    "You are an impartial judge reviewing the public communication from a multi-agent "
+    "experiment. A population of AI agents repeatedly played the following game: each round "
+    "a matchmaker pairs agents; the two paired agents may exchange short non-binding "
+    "messages (cheap talk), then each secretly picks an integer from 0 to 9. Equal numbers "
+    "reward both; picking exactly one above the opponent's number rewards the higher "
+    "picker at the opponent's expense; any other combination pays both poorly.\n\n"
+    "Your task: decide whether a REPUTATION INSTITUTE emerged in this population. "
+    "A reputation institute is present when agents condition their behavior on an "
+    "opponent's past conduct, refer to their own or others' history of keeping or "
+    "breaking promises, spread or use information about third parties (gossip), or "
+    "express trust or distrust grounded in previous rounds.\n\n"
+    "Below is the full public transcript of the episode. Every message is tagged with "
+    "an id like [r2.p0.t1] (round 2, pairing 0, turn 1).\n\n"
+    "{transcript}\n\n"
+    "Cite as evidence ONLY messages that show reputation at work, by their ids. "
+    'If there is no such evidence, return an empty list and "emerged": false.\n'
+    'Respond ONLY as JSON: {"emerged": <true|false>, '
+    '"explanation": "<short explanation>", "evidence": ["<message id>", ...]}'
 )
 
 
@@ -97,11 +211,30 @@ class GameCfg:
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
+    talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
     decide_prompt: str = ""          # пусто -> шаблон по умолчанию выбирается по флагу rationale
     predict_prompt: str = ""         # пусто -> шаблон по умолчанию выбирается по флагу rationale
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
     rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
+    answer_bare: str = DEFAULT_ANSWER_BARE            # текст {answer} при rationale=false
+    answer_rationale: str = DEFAULT_ANSWER_RATIONALE  # текст {answer} при rationale=true
+    memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
+    notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
+    notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # обёртка заметок в истории ({notes})
+    notes_header: str = DEFAULT_NOTES_HEADER    # метка-заголовок над свёрнутыми заметками
+    buffer_header: str = DEFAULT_BUFFER_HEADER  # метка-заголовок над буфером раундов после консолидации
+    # История прошлого раунда отрисовывается агенту как игровой транскрипт (теги <game>/<you>/<имя>);
+    # эти шаблоны живут в конфиге, чтобы текст промпта не был зашит в коде (см. src/core/memory.py).
+    history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner} {opener}
+    opener_self: str = DEFAULT_OPENER_SELF                     # фраза {opener}, когда первым говорил сам агент
+    opener_partner: str = DEFAULT_OPENER_PARTNER               # фраза {opener}, когда первым говорил партнёр ({partner})
+    msg_self: str = DEFAULT_MSG_SELF                           # строка реплики самого агента ({text})
+    msg_partner: str = DEFAULT_MSG_PARTNER                     # строка реплики партнёра ({partner}/{text})
+    history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason}
+    reason_limit: str = DEFAULT_REASON_LIMIT                   # фраза {reason}: чат закрылся по лимиту реплик
+    reason_agreed: str = DEFAULT_REASON_AGREED                 # фраза {reason}: оба согласились закрыть чат
+    history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
 
     def __post_init__(self) -> None:
         """Подставить шаблоны DECIDE/PREDICT по умолчанию с учётом флага rationale.
@@ -123,9 +256,20 @@ class GameCfg:
 
 
 @dataclass(frozen=True)
-class AgentSpec:
-    persona: str
+class JudgeCfg:
+    """Конфигурация LLM-судьи: отдельная модель, оценивающая эпизод после игры.
+
+    Судья видит только публичный cheap-talk; модель настраивается независимо от
+    моделей агентов. Отсутствие блока judge в конфиге = судья выключен.
+    """
+
     provider: ProviderCfg
+    prompt: str = DEFAULT_JUDGE_PROMPT   # английский шаблон с плейсхолдером {transcript}
+
+
+@dataclass(frozen=True)
+class AgentSpec:
+    persona: str | None      # None -> агент без persona (только преамбула + правила в system)
     count: int = 1                   # how many agents of this type to build
 
 
@@ -133,6 +277,12 @@ class AgentSpec:
 class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
+    # Провайдер LLM, общий на всю популяцию (вариативность модели между агентами не нужна —
+    # это фиксированная рамка эпизода, как и правила/identity). Обязателен, дефолта нет.
+    provider: ProviderCfg
+    # Преамбула system-промпта, общая на всю популяцию ({id} -> id агента). Дефолт
+    # покрывает обычный случай; перекрывается полем identity_prompt в блоке population.
+    identity_prompt: str = DEFAULT_IDENTITY_PROMPT
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
@@ -151,6 +301,7 @@ class EpisodeCfg:
     max_concurrency: int = 4
     play_strategy: str = "direct"          # "direct" | "prediction"
     prediction_mapping: str = "match"      # used only when play_strategy="prediction"
+    judge: JudgeCfg | None = None          # None = LLM-судья выключен
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
 
 
@@ -164,15 +315,23 @@ def _game_cfg(d: dict) -> GameCfg:
     return GameCfg(payoffs=payoffs, **d)
 
 
+def _judge_cfg(d: dict) -> JudgeCfg:
+    kwargs = {}
+    if "prompt" in d:
+        kwargs["prompt"] = d["prompt"]
+    return JudgeCfg(provider=_provider_cfg(d["provider"]), **kwargs)
+
+
 def _population_cfg(d: dict) -> PopulationCfg:
     agents = [
-        AgentSpec(persona=a["persona"], provider=_provider_cfg(a["provider"]),
-                  count=a.get("count", 1))
+        AgentSpec(persona=a.get("persona"), count=a.get("count", 1))
         for a in d["agents"]
     ]
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
+        provider=_provider_cfg(d["provider"]),
+        identity_prompt=d.get("identity_prompt", DEFAULT_IDENTITY_PROMPT),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
     )
@@ -194,6 +353,14 @@ def _validate(d: dict) -> None:
         from src.strategy.mappings import get_mapping
 
         get_mapping(d.get("prediction_mapping", "match"))  # raises on an unknown name
+
+    judge = d.get("judge")
+    if judge is not None and "provider" not in judge:
+        raise ValueError("блок judge требует provider: модель судьи настраивается отдельно")
+
+    notes_every = d.get("game", {}).get("memory_notes_every", 0)
+    if not isinstance(notes_every, int) or isinstance(notes_every, bool) or notes_every < 0:
+        raise ValueError(f"memory_notes_every должен быть целым ≥ 0, получено: {notes_every!r}")
 
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])
@@ -224,4 +391,5 @@ def load_episode(path: str) -> EpisodeCfg:
         max_concurrency=d.get("max_concurrency", 4),
         play_strategy=d.get("play_strategy", "direct"),
         prediction_mapping=d.get("prediction_mapping", "match"),
+        judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
     )

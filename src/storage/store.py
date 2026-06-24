@@ -8,13 +8,28 @@ from datetime import datetime, timezone
 
 from src.core.config import EpisodeCfg
 from src.games.base import PairingRecord
+from src.judge import JudgeVerdict
 from src.matchmaking import RoundPlan
 from src.population import Population
 from src.storage.schema import init_schema
 
 
+class DuplicateRunError(Exception):
+    """Прогон с таким run_id уже записан: конфиг идентичен (DB де-дуплицирует прогоны).
+
+    Отдельное исключение, а не общий sqlite3.IntegrityError — чтобы caller отличал
+    де-дуп от настоящих нарушений целостности (NOT NULL, FK и т.п.). Несёт run_id,
+    чтобы caller мог решить, что делать с уже записанным прогоном."""
+
+    def __init__(self, run_id: str):
+        super().__init__(run_id)
+        self.run_id = run_id
+
+
 def _run_id(cfg: EpisodeCfg) -> str:
-    canon = json.dumps(asdict(cfg), sort_keys=True)          # stable across processes
+    d = asdict(cfg)
+    d.pop("judge", None)            # судья — аналитика, не геймплей: не влияет на run_id
+    canon = json.dumps(d, sort_keys=True)               # stable across processes
     return hashlib.sha256(canon.encode()).hexdigest()[:16]
 
 
@@ -38,6 +53,8 @@ class Storage:
         `name` is an optional human label — metadata only, not part of run_id."""
         run_id = _run_id(cfg)
         self._run_id = run_id
+        if self._conn.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone():
+            raise DuplicateRunError(run_id)          # явный де-дуп: прочие IntegrityError всплывают как сбои
         with self._conn:
             self._conn.execute(
                 "INSERT INTO runs(run_id, name, config, seed, created_at) VALUES (?,?,?,?,?)",
@@ -52,6 +69,19 @@ class Storage:
             )
         return run_id
 
+    def is_finished(self, run_id: str) -> bool:
+        """True, если прогон доигран (проставлен finished_at); False для оборванного/отсутствующего."""
+        row = self._conn.execute(
+            "SELECT finished_at FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return bool(row and row[0])
+
+    def delete_run(self, run_id: str) -> None:
+        """Удалить прогон и все его строки — дочерние таблицы уходят каскадом
+        (FK с ON DELETE CASCADE; PRAGMA foreign_keys=ON выставлен в __init__)."""
+        with self._conn:
+            self._conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
+
     def observe(self, round: int, plan: RoundPlan, recs: list[PairingRecord]) -> None:
         """Step R: one transaction per round — rounds + idle + pairings + messages.
         This is the orchestrator observer (sync; sqlite3 is synchronous)."""
@@ -65,20 +95,21 @@ class Storage:
                 [(rid, round, aid) for aid in plan.idle],
             )
             for pair_idx, rec in enumerate(recs):
+                u = rec.usage or {}
                 self._conn.execute(
                     """INSERT INTO pairings(
-                           run_id, round_idx, pair_idx, a_id, b_id,
+                           run_id, round_idx, pair_idx, a_id, b_id, finished,
                            a_number, b_number, a_rationale, b_rationale,
                            a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                           a_reflection, b_reflection,
+                           a_reflection, b_reflection, a_notes, b_notes,
                            usage_prompt_tokens, usage_completion_tokens, usage_calls)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        rid, round, pair_idx, rec.a_id, rec.b_id,
+                        rid, round, pair_idx, rec.a_id, rec.b_id, int(rec.finished),
                         rec.a_number, rec.b_number, rec.a_rationale, rec.b_rationale,
                         rec.outcome, rec.a_payoff, rec.b_payoff, rec.a_predicted, rec.b_predicted,
-                        rec.a_reflection, rec.b_reflection,
-                        rec.usage["prompt_tokens"], rec.usage["completion_tokens"], rec.usage["calls"],
+                        rec.a_reflection, rec.b_reflection, rec.a_notes, rec.b_notes,
+                        u.get("prompt_tokens"), u.get("completion_tokens"), u.get("calls"),
                     ),
                 )
                 self._conn.executemany(
@@ -87,6 +118,22 @@ class Storage:
                     [
                         (rid, round, pair_idx, ti, t["speaker"], t["text"], int(bool(t["ready"])))
                         for ti, t in enumerate(rec.transcript)
+                    ],
+                )
+                # L2: сырые вызовы LLM (по одной строке на HTTP-попытку), call_idx — порядок
+                self._conn.executemany(
+                    """INSERT INTO llm_calls(
+                           run_id, round_idx, pair_idx, call_idx, agent_id, phase, turn_idx,
+                           attempt, http_attempt, status, status_code,
+                           request, response, response_raw, error,
+                           prompt_tokens, completion_tokens)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    [
+                        (rid, round, pair_idx, call_idx, c.agent_id, c.phase, c.turn_idx,
+                         c.attempt, c.http_attempt, c.status, c.status_code,
+                         json.dumps(c.request), c.response, c.response_raw, c.error,
+                         c.prompt_tokens, c.completion_tokens)
+                        for call_idx, c in enumerate(rec.llm_calls)
                     ],
                 )
 
@@ -100,6 +147,22 @@ class Storage:
             self._conn.executemany(
                 "UPDATE agents SET final_score=? WHERE run_id=? AND agent_id=?",
                 [(a.score, rid, a.id) for a in pop],
+            )
+
+    def save_verdict(self, verdict: JudgeVerdict, *, model: str) -> None:
+        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run)."""
+        with self._conn:
+            self._conn.execute(
+                """INSERT INTO judge_verdicts(run_id, emerged, explanation, evidence, model, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    self._run_id,
+                    int(verdict.emerged),
+                    verdict.explanation,
+                    json.dumps([asdict(e) for e in verdict.evidence]),
+                    model,
+                    _now(),
+                ),
             )
 
     def close(self) -> None:

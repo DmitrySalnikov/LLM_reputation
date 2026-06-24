@@ -10,7 +10,7 @@ from src.strategy.prediction import PredictionStrategy
 
 def _agent(replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent("A1", AgentSetup("You are A1.", cfg), ScriptedProvider(replies))
+    return Agent("A1", AgentSetup("You are A1.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
 
 
 async def test_prediction_maps_predicted_to_final_choice():
@@ -39,10 +39,11 @@ async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
 
 
 def test_make_strategy_passes_rationale_flag():
-    from src.core.config import EpisodeCfg, GameCfg, PopulationCfg
+    from src.core.config import EpisodeCfg, GameCfg, PopulationCfg, ProviderCfg
     from src.strategy.base import make_strategy
 
-    pop = PopulationCfg(kind="roster", agents=[])
+    pop = PopulationCfg(kind="roster", agents=[],
+                        provider=ProviderCfg(base_url="http://x/v1", model="m"))
     cfg = EpisodeCfg(seed=1, rounds=1, matchmaker="random", population=pop,
                      game=GameCfg(rationale=False), play_strategy="prediction",
                      prediction_mapping="one_above")

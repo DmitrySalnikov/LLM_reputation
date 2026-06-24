@@ -64,8 +64,9 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 1. **Cheap talk** (`_cheap_talk`): agents alternate short messages. `a` always
    opens (the matcher fixes orientation via pairing order — no rng in the game).
    Stop rule `both_ready_latch`: a turn ends only when **both** agents have set
-   `ready: true`; once ready, an agent latches silent. Hard ceiling
-   `cfg.max_talk_turns`. Each agent necessarily speaks at least once.
+   `finish: true` (the agent-facing JSON key; stored internally as `ready`); once
+   ready, an agent latches silent. Hard ceiling `cfg.max_talk_turns`. Each agent
+   necessarily speaks at least once.
 2. **Decide**: the configured `PlayStrategy.decide` is called for each agent with
    the public talk feed. This produces a `Decision` (final number + rationale,
    plus optional prediction).
@@ -75,7 +76,39 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    returns a short reflection. It is private to its author, like the rationale.
 5. **Record**: a `PairingRecord` (`src/games/base.py:9`) is returned and each
    agent's `Memory` gets an entry (including the reflection, which the diary
-   feeds back into the agent's future LLM inputs).
+   feeds back into the agent's future LLM inputs). `Memory.render` replays each
+   past round to the agent as a **game transcript** using the tags the rules
+   declare — `<game>` / `<you>` / `<opponent name>` — so the whole LLM input
+   (history + the current round's live `{feed}` and prompt) reads as one
+   continuous transcript. The line templates live in `GameCfg`
+   (`history_*`, `msg_*`, `opener_*`, `reason_*`) and ride into `render` via
+   `Phase.game_cfg`, exactly like `rules`; `render_turns` (`src/core/memory.py`)
+   renders the cheap-talk lines for both the history and the live feed. Line
+   wording is shared across phases so a line type reads identically live and in
+   history. The game computes the per-round bits once and threads them into the
+   live prompts: who opened the round (`pick_opener` → `{opener}` in `talk_prompt`,
+   same phrase history uses) and how the chat closed (`both_agreed` → `{reason}` in
+   the DECIDE close line, reusing `history_close_prompt`'s wording); both helpers
+   live in `src/core/memory.py`. `opener_self` is also the text `talk_open_prompt`
+   opens with. After gluing history to the live prompt, `Agent.act` collapses
+   adjacent `<game>` blocks (`_merge_game_blocks`: a closing `</game>` separated from
+   the next opening `<game>` by whitespace only — e.g. a round's result line meeting
+   the next round's opener — loses the seam tags), so the input is one running
+   transcript rather than a series of closed/reopened blocks.
+6. **Memory notes** (optional, `game.memory_notes_every: N`): each agent makes one
+   extra `NOTE` LLM call after every **N rounds it has actually played** (counted
+   per-agent as `len(memory.entries)` after the memory writes — idle rounds don't
+   count, and the two agents of a pairing decide independently). NOTE rewrites the
+   agent's whole memory into private notes; from then on `Memory.render` sends those
+   notes **instead of** the raw round history, plus the raw buffer of rounds played
+   since the last consolidation (`noted_upto`). The two parts are framed by `<game>`
+   section headers (`notes_header`/`buffer_header`); the notes themselves are tagged
+   `<you>` via `notes_block_prompt` — `<you>{notes}</you>` — since they are the agent's
+   own private memo. The buffer header's `<game>` meets the first buffered round's
+   `<game>` and the seam collapses (step 5), so the header opens that round's block; the
+   `NOTE` prompt is itself `<game>`-wrapped. The notes ride the pairing: stored in
+   `pairings.a_notes/b_notes`, their L2 calls in `llm_calls` with `phase='note'`.
+   A failed NOTE call aborts the pairing like any other LLM failure.
 
 ## Strategies (`src/strategy/`)
 
@@ -97,11 +130,13 @@ in `make_strategy`, and (if it needs validation) extend `_validate` in
 Deep dive: [agent-games-agent-plan.md](./agent-games-agent-plan.md).
 
 An `Agent` owns its `Memory`, running `score`, and an `LLMProvider`. `Agent.act`
-renders memory + a phase context into messages, calls the provider, and parses the
-reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total failure
-it falls back (random number / empty message) and bumps `parse_failures`.
+glues the memory diary and the phase context into a single user message, calls the provider, and parses the
+reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total failure it
+raises `ActParseError` (no substitution) — the pairing is aborted (`finished=0`) and the
+episode stops, same as a provider error. It also bumps `parse_failures`.
 
-Four `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`. In DECIDE/PREDICT the
+Five `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`, `NOTE`. `NOTE` consolidates
+memory (its `act` renders the full memory, ignoring the window). In DECIDE/PREDICT the
 JSON answer puts `rationale` before `number`, so reasoning tokens are generated
 before the choice is committed; with `game.rationale: false` the prompt asks for
 a bare `{"number": ...}` instead. JSON extraction is lenient — raw, fenced, and
@@ -144,7 +179,39 @@ owns the population**, builds it, reads final scores from it, and `aclose()`s it
   output channel**. The future Logger layer will plug in here to persist rounds —
   there is deliberately no `db_path` in the config.
 - Pairings within a round run concurrently under an `asyncio.Semaphore`
-  (`cfg.max_concurrency`), fail-fast via `asyncio.gather`.
+  (`cfg.max_concurrency`).
+- **LLM failures don't fail-fast mid-round.** `play_pairing` catches a `ProviderError`
+  and returns the pairing as **unfinished** (`PairingRecord.finished=False`, results NULL,
+  full raw L2 log kept). The round finishes and is emitted to `observer` (so the failure is
+  persisted), then `run_episode` raises `EpisodeAborted` — stopping the episode at a round
+  boundary, with `runs.finished_at` left NULL as a crash marker. Raw LLM I/O of every
+  HTTP call (incl. retries, parse-retries, failures) is logged to `llm_calls`; see
+  `claude_docs/agent-games-logger-plan.md` §9.
+
+## LLM judge (`src/judge/`)
+
+An optional post-episode component that evaluates whether a reputation institute
+emerged from the agents' interactions. It is **invoked by the callers** (runner /
+`orchestrator_demo.py`) after `run_episode` returns — the orchestrator itself is
+untouched.
+
+- **Input**: the public cheap-talk transcript only (agent messages from all pairings,
+  all rounds). Private rationales, reflections, and payoffs are not shown.
+- **LLM call**: one call via the judge's own `ProviderCfg`; one retry if the reply
+  cannot be parsed. On persistent failure the error is logged and the episode result
+  is unaffected.
+- **Output**: a `JudgeVerdict` (emerged: bool, explanation, evidence — validated
+  references to the cited messages). The verdict is printed immediately after the
+  episode summary.
+- **Persistence**: `run_experiment` (in `src/runner.py`) stores the verdict in the
+  `judge_verdicts` SQLite table, linked by `run_id`. The judge block is
+  **excluded from the `run_id` hash** so toggling it on/off does not create new run
+  entries.
+- **replay.py**: cited messages are highlighted in yellow (ANSI); a JUDGE VERDICT
+  section is appended after the round-by-round replay.
+
+Enable by adding a `judge:` block to the episode YAML (see `docs/configuration.md`)
+or by constructing `JudgeCfg` directly in `experiment.py`.
 
 ## Key seams (intentionally not yet built)
 

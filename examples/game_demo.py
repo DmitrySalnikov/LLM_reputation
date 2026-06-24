@@ -38,7 +38,7 @@ def _print_round(n, rec, a, b):
     if not rec.transcript:
         print("(no messages exchanged)")
     for i, t in enumerate(rec.transcript, 1):
-        print(f'{i}. {t["speaker"]}: {t["text"]}   [ready={t["ready"]}]')
+        print(f'{i}. {t["speaker"]}: {t["text"]}   [finish={t["ready"]}]')
 
     print("\n--- Secret choices revealed ---")
     print(f"A1 chose {rec.a_number}   (private rationale: {rec.a_rationale})")

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import os
 import random
-import sqlite3
 
 from src.core.config import EpisodeCfg
-from src.core.orchestrator import run_episode
+from src.core.orchestrator import EpisodeAborted, run_episode
+from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
-from src.storage import Storage
+from src.providers.base import ProviderError
+from src.storage import DuplicateRunError, Storage
 
 
 def narrate_round(r, plan, recs) -> None:
@@ -27,9 +28,13 @@ def narrate_round(r, plan, recs) -> None:
         print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
-                print(f"    {i}. {t['speaker']}: {t['text']}   [ready={t['ready']}]")
+                mark = "   [finish=true]" if t["ready"] else ""   # finish=false не печатаем
+                print(f"    {i}. {t['speaker']}: {t['text']}{mark}")
         else:
             print("    (no messages exchanged)")
+        if not rec.finished:                       # aborted pairing: no result
+            print("    (pairing aborted by LLM failure — no result)")
+            continue
         # reasoning is shown before the choices it led to (absent when game.rationale=false)
         if rec.a_rationale:
             print(f"    {rec.a_id} reason: {rec.a_rationale}")
@@ -50,6 +55,42 @@ def narrate_round(r, plan, recs) -> None:
             print(f"      {rec.b_id} reflects: {rec.b_reflection}")
 
 
+def print_verdict(verdict: JudgeVerdict) -> None:
+    """Напечатать вердикт LLM-судьи (без цитат — подсветка живёт в replay)."""
+    bar = "=" * 60
+    print(f"\n{bar}\n  JUDGE VERDICT\n{bar}")
+    print(f"  reputation institute emerged: {'YES' if verdict.emerged else 'NO'}")
+    print(f"  {verdict.explanation}")
+    print(f"  evidence: {len(verdict.evidence)} message(s) — replay подсветит их цветом")
+
+
+async def _judge_and_store(cfg, records, st) -> None:
+    """Вызвать судью после эпизода; его ошибка не должна терять результаты run'а."""
+    try:
+        verdict = await judge_episode(cfg, records)
+    except (JudgeError, ProviderError) as e:
+        print(f"\nсудья не смог вынести вердикт: {e} — run сохранён без вердикта")
+        return
+    print_verdict(verdict)
+    st.save_verdict(verdict, model=cfg.provider.model)
+
+
+def _handle_existing_run(st: Storage, run_id: str) -> bool:
+    """Решить, что делать с уже записанным прогоном того же конфига; True — запускать заново.
+
+    Завершённый прогон (есть finished_at) трогать не будем -> False (ничего не делаем).
+    Оборванный (без finished_at) удаляем и перезапускаем -> True. Единая точка расширения:
+    в будущем оборванный прогон можно вместо удаления продолжать (resume) с места обрыва.
+    """
+    if st.is_finished(run_id):
+        print("identical config already in DB — nothing to do "
+              "(change seed or config to re-run)")
+        return False
+    print(f"unfinished run {run_id} found in DB — deleting it and re-running")
+    st.delete_run(run_id)
+    return True
+
+
 async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
     """Build the population, run the episode, persist + narrate each round, score it.
     Returns the run_id, or None if this exact config is already stored (de-dup)."""
@@ -60,22 +101,33 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
     try:
         try:
             run_id = st.begin(cfg, pop, name)    # INSERT runs+agents; fails if already stored
-        except sqlite3.IntegrityError:
-            print("identical config already in DB — nothing to do "
-                  "(change seed or config to re-run)")
-            return None
+        except DuplicateRunError as e:
+            if not _handle_existing_run(st, e.run_id):
+                return None
+            run_id = st.begin(cfg, pop, name)    # запись удалена -> начинаем заново
+
+        records: list = []                       # копим записи для LLM-судьи
 
         def observer(r, plan, recs):             # persist AND narrate each round live
             st.observe(r, plan, recs)
             narrate_round(r, plan, recs)
+            records.extend(rec for rec in recs if rec.finished)   # judge sees only finished pairings
 
-        await run_episode(cfg, pop, observer=observer)
+        try:
+            await run_episode(cfg, pop, observer=observer)
+        except EpisodeAborted as e:
+            # the aborted pairing is already persisted; run stays without finished_at (crash marker)
+            print(f"\nepisode aborted: {e} — run saved without finished_at")
+            return run_id
         st.finish(pop)
 
         bar = "=" * 60
         print(f"\n{bar}\n  FINAL SCOREBOARD\n{bar}")
         for a in sorted(pop, key=lambda a: a.score, reverse=True):
             print(f"  {a.id}: {a.score:g}")
+
+        if cfg.judge is not None:                # опциональный LLM-судья (см. JudgeCfg)
+            await _judge_and_store(cfg.judge, records, st)
     finally:
         st.close()
         await pop.aclose()

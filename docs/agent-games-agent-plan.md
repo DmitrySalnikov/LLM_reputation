@@ -24,8 +24,19 @@ reasoning-модели (§8).
 - `Memory` / `MemoryEntry`: дневник + `render(window)`.
 - Тест-дубль `ScriptedProvider` (без сети) + Ollama-smoke по каждому срезу.
 
+**Реализовано после MVP:** фазы `REFLECT` и `NOTE` + второй ярус памяти (memory notes:
+`Memory.notes`/`noted_upto`/`set_notes`; `render` шлёт заметки + буфер новых раундов
+вместо полной истории). `NOTE` сворачивает память каждые `game.memory_notes_every`
+**сыгранных агентом** раундов (`len(memory.entries)`, idle не считается); его `act`
+рендерит память целиком (без окна). Память с заметками рендерится так: `<game>`-метки
+секций (`notes_header`/`buffer_header`) обрамляют части, а сами заметки идут в `<you>`
+(`notes_block_prompt` = `<you>{notes}</you>` — личная памятка агента). `<game>`-метка
+буфера стыкуется с `<game>` первого раунда буфера и шов схлопывается
+(`_merge_game_blocks`), так что метка открывает блок раунда. Сам `NOTE`-промпт обёрнут в
+`<game>`. См. `architecture.md` §«Pairing flow».
+
 **НЕ входит (чистые швы, §11):**
-- Фазы `REFLECT`, `NOTES` и второй ярус памяти (notes); `CHOOSE_PARTNER`/`CONSENT`.
+- `CHOOSE_PARTNER`/`CONSENT`.
 - Многоходовый рендер памяти настоящими `assistant`/`user`-репликами (MVP — текстовый блок).
 - Логика игры (правила, платежи, лента переговоров) — это слой Игры; Агент её только потребляет.
 - Загрузка `AgentSetup` из YAML — придёт со слоем конфига; в тестах строим вручную.
@@ -71,8 +82,9 @@ class ActResult:
 
 @dataclass(frozen=True)
 class AgentSetup:
-    persona: str
+    persona: str | None          # None -> в system только преамбула (+ правила)
     provider_cfg: ProviderCfg
+    identity_prompt: str         # преамбула system; Агент подставляет {id} (общая на популяцию, см. PopulationCfg)
 
 @dataclass
 class MemoryEntry:
@@ -97,21 +109,34 @@ class Agent:
         self._window = context_window      # None = ∞
 
     async def act(self, phase: Phase) -> ActResult:
-        system = f"You are agent {self.id}.\n\n" + self.setup.persona + ("\n\n" + phase.rules if phase.rules else "")
-        base_messages = self.memory.render(self._window) + [Message("user", phase.context)]
+        system = self.setup.identity_prompt.replace("{id}", self.id) + ("\n\n" + self.setup.persona if self.setup.persona else "") + ("\n\n" + phase.rules if phase.rules else "")
+        diary = self.memory.render(self._window)         # [] или [user-сообщение с дневником]
+        # ОДНО user-сообщение: дневник + phase.context (+ поправка на ретрае) — склеиваем
         # цикл парс-ретраев (§6): зовём провайдер, парсим по phase.kind
         # суммируем usage по попыткам; на успехе -> ActResult
 ```
 
 Шаги одного `act`:
-1. **`system`** = свой ID (`«You are agent {self.id}»`) + персона (`setup.persona`) +
-   правила (`phase.rules`). ID агент знает сам; правилами владеет Игра (строит `Phase`);
-   Агент остаётся игронезависимым — просто склеивает.
-2. **`messages`** = `memory.render(window)` (дневник, §7) + `[user(phase.context)]`
-   (текущая ситуация + инструкция формата вывода — её пишет Игра в `context`).
+1. **`system`** = преамбула (`setup.identity_prompt`; `{id}` подставляет агент) + персона
+   (`setup.persona`, опциональна — при `None` блок персоны опускается) + правила
+   (`phase.rules`). Преамбула общая на всю популяцию (поле `identity_prompt` блока
+   `population`, дефолт `"You are AI agent {id}."`) — это фиксированная рамка эпизода, как
+   и правила, а не атрибут отдельного агента; `RosterGenerator` кладёт её в каждый
+   `AgentSetup`. Персону агент знает о себе сам; правилами владеет Игра (кладёт их в
+   `Phase`); Агент остаётся игронезависимым — просто склеивает.
+2. **`messages`** = **одно** user-сообщение: дневник (`memory.render(window)`, §7) +
+   `phase.context` (текущая ситуация + инструкция формата вывода — её пишет Игра в
+   `context`), склеенные через `\n\n`. Раньше это были два отдельных user-сообщения;
+   теперь одно — чтобы не слать подряд два хода одной роли (см. §7 и переносимость
+   между провайдерами). После склейки Агент чистит **стыки `<game>`-блоков**: если
+   закрывающий `</game>` отделён от следующего открывающего `<game>` лишь пробелами
+   (строка результата прошлого раунда ↔ открытие следующего, в т.ч. на границе
+   история↔текущий раунд), теги стыка убираются и блоки сливаются в один — транскрипт
+   не дёргается лишними закрытием/открытием (`_merge_game_blocks`, regex `</game>\s*<game>`).
 3. **Вызов** `provider.complete(system, messages, temperature, max_tokens)` — параметры
    сэмплинга берём из `setup.provider_cfg`.
-4. **Парсинг** ответа по `phase.kind` (§6). Успех → `ActResult`; неуспех → ретрай/фолбэк.
+4. **Парсинг** ответа по `phase.kind` (§6). Успех → `ActResult`; неуспех → ретрай, а после
+   всех ретраев — `ActParseError` (пара срывается, без подстановок).
 
 `window` нужен `render`, но это эксперимент-параметр (один на эпизод, не «генотип»),
 поэтому он в конструкторе `Agent`, а не в `AgentSetup`. Кто его прокидывает — оркестратор
@@ -132,12 +157,13 @@ class Agent:
   `"yes"/"no"`; **отсутствует → `false`**, т.е. «продолжаем говорить» — безопаснее).
 
 **При провале (не распарсилось / не прошло валидацию):**
-- до `max_parse_retries` (дефолт **2**) повторных вызовов; со 2-й попытки в `messages`
-  добавляем короткую корректирующую реплику («Ответь СТРОГО валидным JSON вида …»);
-- если и после ретраев плохо — **безопасный дефолт** + счётчик `parse_failures`
-  (метрика, не молчим): `DECIDE → {number: <rng 0..9>, rationale: "(unparsed)"}`,
-  `TALK → {message: "", ready: true}` (чтобы не зациклить переговоры). Бросать
-  исключение и ронять партию — хуже для длинных прогонов (решение №3).
+- до `max_parse_retries` (дефолт **2**) повторных вызовов; со 2-й попытки к тому же
+  user-сообщению **дописываем** короткую корректирующую реплику («Ответь СТРОГО валидным
+  JSON вида …»), а не шлём её отдельным сообщением;
+- если и после ретраев плохо — **никаких подстановок**: `act` бросает `ActParseError`
+  (+ счётчик `parse_failures`), пара срывается (`finished=0`) и эпизод останавливается —
+  ровно как при сбое провайдера. (Это отменяет прежнее «решение №3» о безопасном дефолте:
+  тихие случайные ходы засоряли результаты, поэтому теперь честно роняем партию.)
 - **Пустой `content`** (reasoning-модель не успела, `finish_reason="length"`, §8)
   трактуем как провал парсинга → тот же ретрай-путь.
 
@@ -158,17 +184,30 @@ class Memory:
   `Message("user", diary_text)`. Роли почти везде `"user"` (см. обсуждение: внутри
   партии лента переговоров тоже идёт текстом в `context`, не реальными `assistant`-
   репликами). Структурный многоходовый рендер — шов на потом (решение №5).
-- **Формат записи** (сырой ярус — arch/plan §6): раунд, партнёр, лента cheap-talk
-  (по реплике с флагом ready), своё число + своё обоснование, число партнёра, исход,
-  платёж. Свои реплики метятся `me`, чужие — `partner_id` (по сравнению `speaker ==
-  partner_id`; в транскрипте только двое). Пример блока:
+- **Формат записи** (с июня 2026 — игровой транскрипт, не сводка): каждый прошлый раунд
+  отрисовывается теми же тегами, что объявлены в правилах — `<game>` (реплики игры),
+  `<you>` (свои), `<Имя>` (партнёра). Блок раунда: открытие чата (с пометкой, кто говорил
+  первым — видно по первому `speaker`), реплики cheap-talk, закрытие чата (с причиной —
+  лимит реплик или обоюдное `finish`), своё секретное число строкой `<you>N</you>`, и
+  вскрывающая строка результата (оба числа, **обе выплаты**, накопленный счёт **после**
+  раунда). Сырой код исхода (`outcome`) **не** рендерится. Шаблоны строк живут в `GameCfg`
+  (`history_*`, `msg_*`, `opener_*`, `reason_*`), не в коде; `render_turns` (в `memory.py`)
+  рендерит реплики и для истории, и для живого `{feed}` текущего раунда — прошлое и
+  настоящее читаются одинаково (та же строка закрытия с `{reason}`, что и в живой фазе
+  DECIDE; тот же `opener_self`, с которого начинается живой `talk_open_prompt`). Пример блока:
   ```
-  [Round 3 · partner A5]
-  Talk:
-    me: let us both take 4 (ready=false)
-    A5: ok, 4 (ready=true)
-  Choices: me=4 (reason: agreed on 4), A5=4. Outcome: CC. Payoff to me: 3.
+  <game>Round 3 · opponent A5
+  The chat has been open. A5 starts first:</game>
+  <A5>let us both take 4</A5>
+  <you>ok, 4</you>
+  <game>The chat has been closed as both players agreed to stop. Choose the number.</game>
+  <you>4</you>
+  <game>The choice has been accepted. A5 chose 4. Payoffs: you = 4, A5 = 4.
+  Your total score after round 3 is 16 points.</game>
   ```
+  Приватные следы выключенных фич (rationale/prediction/reflection) добавляются хвостом
+  строкой `<you>(...)</you>` — только если присутствуют. Шаблоны транскрипта едут в
+  `render` через `Phase.game_cfg` (как `rules` — от игры), дефолт = `GameCfg()`.
 - `window` в раундах: `None` = вся история; `k` = последние k записей. Токен-кап —
   пост-MVP предохранитель (§11).
 
@@ -201,8 +240,8 @@ class ScriptedProvider:
 - DECIDE: чистый JSON; JSON в ```-блоке; JSON среди прозы; `number` вне `0..9` → ретрай;
   невалидный дважды → 3 вызова; стойкий провал → дефолт + `parse_failures`.
 - TALK: `{message, ready}`; коэрция `ready` (true/"yes"/1); `ready` отсутствует → false.
-- Сборка промпта: `system` содержит персону и правила; последнее сообщение = `user(context)`;
-  при непустой памяти перед `context` идёт диалоговый блок дневника.
+- Сборка промпта: `system` содержит персону и правила; единственное сообщение —
+  `user`, и при непустой памяти его текст = дневник + `\n\n` + `context` (склейка).
 - `usage` суммируется по ретраям.
 
 **Smoke (Ollama, skip без сервера):** реальный `act(DECIDE)` → `number` в `0..9`,
@@ -215,7 +254,7 @@ class ScriptedProvider:
 **Срез 1 — типы + `act(DECIDE)` + парсинг (без памяти).**
 - `PhaseKind`, `Phase`, `ActResult`, `AgentSetup`; минимальный `Memory` (пустой,
   `render → []`); `Agent.__init__` + `act` только для `DECIDE`.
-- Парсер/валидатор JSON + ретраи + дефолт (§6).
+- Парсер/валидатор JSON + ретраи; после ретраев — `ActParseError` (§6).
 - Тесты: DECIDE-кейсы + сборка промпта (ScriptedProvider) + Ollama-smoke на число 0–9.
 - **DoD:** `pytest tests/core/test_agent.py` зелёный; smoke даёт число 0–9.
 

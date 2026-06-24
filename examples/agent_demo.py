@@ -32,18 +32,18 @@ async def main():
     agent = Agent("A1", AgentSetup("You are a pragmatic, self-interested player.", cfg), provider)
 
     try:
-        # 1. TALK: the agent produces one negotiation line (+ a `ready` flag).
+        # 1. TALK: the agent produces one negotiation line (+ a `finish` flag, stored as `ready`).
         talk = await agent.act(
             Phase(
                 PhaseKind.TALK,
                 "Open the negotiation with A2. Respond ONLY as JSON: "
-                '{"message": "<your line>", "ready": <true|false>}',
+                '{"message": "<your line>", "finish": <true|false>}',
                 rules=RULES,
             )
         )
         print("=== TALK ===")
         print("message:", repr(talk.public_text))
-        print("ready  :", talk.data["ready"])
+        print("finish :", talk.data["ready"])
         print("tokens   :", talk.usage, " parse_failures:", agent.parse_failures)
         print()
 

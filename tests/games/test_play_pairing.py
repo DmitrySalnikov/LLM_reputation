@@ -5,11 +5,33 @@ from conftest import ScriptedProvider
 from src.core.agent import Agent, AgentSetup
 from src.core.config import GameCfg, ProviderCfg
 from src.games.reputation_pd import ReputationPD
+from src.providers.base import HttpAttempt, ProviderUnavailable
 
 
 def _agent(id, replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg), ScriptedProvider(replies))
+    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
+
+
+class RaisingProvider:
+    """Дубль провайдера, который бросает ProviderUnavailable с заданными HttpAttempt'ами."""
+
+    def __init__(self, attempts):
+        self._attempts = tuple(attempts)
+
+    async def complete(self, *, system, messages, temperature, max_tokens):
+        e = ProviderUnavailable("down")
+        e.request = {"model": "m", "messages": []}
+        e.attempts = self._attempts
+        raise e
+
+    async def aclose(self):
+        pass
+
+
+def _raising_agent(id, attempts):
+    cfg = ProviderCfg(base_url="http://x/v1", model="m")
+    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), RaisingProvider(attempts))
 
 
 def _decide(n, rationale="r"):
@@ -17,7 +39,8 @@ def _decide(n, rationale="r"):
 
 
 def _talk(msg, ready):
-    return '{"message": "%s", "ready": %s}' % (msg, "true" if ready else "false")
+    # Агент-facing ключ закрытия чата теперь "finish" (внутри по-прежнему хранится как ready).
+    return '{"message": "%s", "finish": %s}' % (msg, "true" if ready else "false")
 
 
 # ---- Slice 2: decision only (talk off) ----
@@ -127,7 +150,21 @@ async def test_decide_context_contains_feed_and_ids():
     system, messages = a.provider.calls[-1]  # a's DECIDE call
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx and "take 4 plz" in ctx
+    assert "<you>take 4 plz</you>" in ctx   # feed эгоцентричен: свои реплики — <you>
+    assert "<A2>ok</A2>" in ctx             # реплика оппонента — тегом с его именем
     assert "0 to 9" in system  # rules went into the system prompt
+
+
+async def test_talk_prompt_shows_who_opened_the_round():
+    # В talk_prompt (отвечающий, фид непуст) строка открытия несёт {opener} — как в истории.
+    g = ReputationPD(GameCfg(max_talk_turns=4))
+    a = _agent("A1", [_talk("hi", False), _talk("ok done", True), _decide(3)])
+    b = _agent("A2", [_talk("sure", True), _decide(3)])
+    await g.play_pairing(a, b, 1)  # A1 opens
+    _, b_msgs = b.provider.calls[0]   # b отвечает первым ходом -> открыл партнёр (A1)
+    assert "A1 starts first:" in b_msgs[-1].content
+    _, a_msgs = a.provider.calls[1]   # второй ход A1 -> открывал он сам -> opener_self
+    assert "You speak first this round" in a_msgs[-1].content
 
 
 # ---- Rationale switched off in config ----
@@ -181,6 +218,7 @@ async def test_reflection_context_reveals_round_result():
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx
     assert "5" in ctx and "4" in ctx     # both revealed numbers
+    assert "A1 (you) picked 5" in ctx    # сам агент — "<имя> (you)", оппонент — по имени
 
 
 async def test_reflection_privacy():
@@ -190,6 +228,58 @@ async def test_reflection_privacy():
     await g.play_pairing(a, b, 1)
     # b's reflection must not leak into a's memory entry
     assert "secret-ref-b" not in str(a.memory.entries[0])
+
+
+# ---- Memory notes: периодическая консолидация памяти ----
+
+def _note(text):
+    return '{"notes": "%s"}' % text
+
+
+async def test_memory_notes_off_by_default():
+    g = ReputationPD(GameCfg(max_talk_turns=0))   # memory_notes_every=0
+    a = _agent("A1", [_decide(4)])                # лишний note-вызов не очередён -> упал бы
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 3)
+    assert rec.a_notes is None and rec.b_notes is None
+    assert a.memory.notes is None and b.memory.notes is None
+    assert rec.usage["calls"] == 2
+
+
+async def test_memory_notes_keyed_on_played_rounds_not_round_number():
+    # Свёртка считается по СЫГРАННЫМ агентом партиям, не по номеру раунда: агент сыграл
+    # всего 1 партию (хотя round=5), 1 % 2 != 0 -> не свёртка.
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
+    a = _agent("A1", [_decide(4)])
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 5)
+    assert rec.a_notes is None and rec.b_notes is None
+    assert a.memory.notes is None
+
+
+async def test_memory_notes_taken_after_n_played_rounds():
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
+    a = _agent("A1", [_decide(4), _decide(4), _note("A2 cooperates")])
+    b = _agent("A2", [_decide(4), _decide(4), _note("A1 cooperates")])
+    rec1 = await g.play_pairing(a, b, 1)          # по 1 сыгранной партии -> не свёртка
+    assert rec1.a_notes is None and a.memory.notes is None
+    rec2 = await g.play_pairing(a, b, 2)          # по 2 -> свёртка у обоих
+    assert rec2.a_notes == "A2 cooperates" and rec2.b_notes == "A1 cooperates"
+    assert a.memory.notes == "A2 cooperates" and b.memory.notes == "A1 cooperates"
+    assert a.memory.noted_upto == 2 and b.memory.noted_upto == 2  # обе партии свёрнуты
+    note_calls = [c for c in rec2.llm_calls if c.phase == "note"]
+    assert len(note_calls) == 2 and all(c.turn_idx is None for c in note_calls)
+
+
+async def test_note_failure_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1))   # свёртка каждую партию
+    a = _agent("A1", [_decide(4), _note("ok")])   # decide ок, note ок
+    b = _agent("A2", [_decide(4), "nope", "nope", "nope"])  # note: невалидный JSON -> ActParseError
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    statuses = [c.status for c in rec.llm_calls]
+    assert statuses.count("parse_error") == 3     # три сорванные note-попытки b
+    assert any(c.phase == "note" and c.status == "ok" for c in rec.llm_calls)  # успевший note(a)
 
 
 # ---- Task 6: strategy delegation + prediction persistence ----
@@ -220,3 +310,43 @@ async def test_prediction_strategy_records_and_remembers_predictions():
     assert "pa" in str(a.memory.entries[0])
     # the partner's prediction reasoning never leaks into a's memory entry
     assert "pb" not in str(a.memory.entries[0])
+
+
+# ---- L2: флаг finished + захват llm_calls ----
+
+async def test_finished_pairing_collects_talk_and_decide_calls():
+    g = ReputationPD(GameCfg(max_talk_turns=2))
+    a = _agent("A1", [_talk("hi", True), _decide(4)])
+    b = _agent("A2", [_talk("ok", True), _decide(4)])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is True
+    phases = [(c.phase, c.turn_idx) for c in rec.llm_calls]
+    assert ("talk", 0) in phases and ("talk", 1) in phases   # talk-каллы помечены turn_idx
+    assert ("decide", None) in phases                        # decide — без turn_idx
+    assert all(c.status == "ok" for c in rec.llm_calls)
+
+
+async def test_provider_error_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(4)])
+    b = _raising_agent("A2", [HttpAttempt("network", None, {"m": 1}, None, None, "boom")])
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    assert rec.a_number is None and rec.outcome is None      # результата нет
+    assert a.score == 0.0 and b.score == 0.0                 # очки не начислены
+    statuses = [c.status for c in rec.llm_calls]
+    assert "ok" in statuses          # успевший decide(a)
+    assert "network" in statuses     # сбойный decide(b)
+
+
+async def test_parse_exhaustion_aborts_pairing_as_unfinished():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(4)])
+    b = _agent("A2", ["nope", "nope", "nope"])   # never valid JSON -> ActParseError, no substitution
+    rec = await g.play_pairing(a, b, 1)
+    assert rec.finished is False
+    assert rec.a_number is None and rec.outcome is None       # no result
+    assert a.score == 0.0 and b.score == 0.0                  # nothing scored
+    statuses = [c.status for c in rec.llm_calls]
+    assert "ok" in statuses                       # a's decide succeeded
+    assert statuses.count("parse_error") == 3     # b's three failed attempts logged

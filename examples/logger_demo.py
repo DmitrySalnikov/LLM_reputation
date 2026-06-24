@@ -34,7 +34,8 @@ def _cfg(personas):
         seed=1, rounds=2, matchmaker="random",
         population=PopulationCfg(
             kind="roster",
-            agents=[AgentSpec(persona=p, provider=PROVIDER, count=count) for p in personas],
+            provider=PROVIDER,
+            agents=[AgentSpec(persona=p, count=count) for p in personas],
         ),
         game=GameCfg(max_talk_turns=2),
     )

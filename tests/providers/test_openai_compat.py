@@ -7,11 +7,11 @@ import httpx
 import pytest
 
 from src.core.config import ProviderCfg
+from src.providers.openai_compat import _MAX_ATTEMPTS
 from src.providers import (
     Message,
     OpenAICompatibleProvider,
     ProviderHTTPError,
-    ProviderParseError,
     ProviderUnavailable,
     make_provider,
 )
@@ -72,6 +72,122 @@ async def test_request_shape():
     assert captured["req"].url.path == "/v1/chat/completions"
 
 
+async def test_completion_carries_sent_request():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response("answer")
+
+    p = _provider_with(handler)
+    c = await _call(p, system="SYS", temperature=0.3, max_tokens=64)
+    # request на Completion — это ДОСЛОВНО отправленный payload
+    assert c.request == captured["body"]
+    assert c.request["model"] == "m"
+    assert c.request["messages"][0] == {"role": "system", "content": "SYS"}
+
+
+async def test_non_json_body_retried_then_exhausts(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    raw = "<html>502 Bad Gateway</html>"
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        return httpx.Response(200, text=raw)
+
+    p = _provider_with(handler)
+    with pytest.raises(ProviderUnavailable) as ei:        # битый JSON-конверт ретраится, не падает сразу
+        await _call(p, system="SYS")
+    assert calls["n"] == _MAX_ATTEMPTS
+    e = ei.value
+    assert len(e.attempts) == _MAX_ATTEMPTS and all(a.status == "bad_json" for a in e.attempts)
+    assert e.attempts[-1].response_raw == raw             # сырое тело сохранено, даже не-JSON
+    assert e.attempts[-1].status_code == 200
+    assert e.request["messages"][0]["content"] == "SYS"   # что отправили — тоже на руках
+
+
+async def test_non_json_then_valid_recovers(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(200, text="garbage")
+        return _ok_response("ok")
+
+    p = _provider_with(handler)
+    c = await _call(p)
+    assert c.text == "ok"
+    assert [a.status for a in c.attempts] == ["bad_json", "ok"]   # одна кривая ответка пережита
+
+
+async def test_http_error_enriches_error():
+    p = _provider_with(lambda req: httpx.Response(404, text="nope"))
+    with pytest.raises(ProviderHTTPError) as ei:
+        await _call(p)
+    last = ei.value.attempts[-1]
+    assert last.status == "http_error"
+    assert last.status_code == 404
+    assert last.response_raw == "nope"
+    assert ei.value.request is not None
+
+
+async def test_bad_shape_retried_then_exhausts(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        return httpx.Response(200, json={"usage": {}})    # валидный JSON, но нет choices
+
+    p = _provider_with(handler)
+    with pytest.raises(ProviderUnavailable) as ei:        # кривая форма тоже ретраится
+        await _call(p)
+    assert calls["n"] == _MAX_ATTEMPTS
+    e = ei.value
+    assert len(e.attempts) == _MAX_ATTEMPTS and all(a.status == "bad_shape" for a in e.attempts)
+    assert e.request is not None
+    assert "usage" in e.attempts[-1].response_raw         # дословное тело (resp.text)
+
+
+async def test_every_retry_is_an_attempt(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        if calls["n"] < _MAX_ATTEMPTS:        # fail until the last allowed attempt
+            return httpx.Response(503, text=f"busy{calls['n']}")
+        return _ok_response("ok", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    p = _provider_with(handler)
+    c = await _call(p)
+    # each HTTP attempt is its own row; final ok, the retries carry the 5xx body
+    assert [a.status for a in c.attempts] == ["server_error"] * (_MAX_ATTEMPTS - 1) + ["ok"]
+    assert c.attempts[0].status_code == 503
+    assert c.attempts[0].response_raw == "busy1"
+    assert c.attempts[-1].response == "ok"
+    assert c.attempts[-1].prompt_tokens == 1
+
+
+async def test_exhausted_network_records_all_attempts(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    def handler(req):
+        raise httpx.ConnectError("boom", request=req)
+
+    p = _provider_with(handler)
+    with pytest.raises(ProviderUnavailable) as ei:
+        await _call(p)
+    e = ei.value
+    assert len(e.attempts) == _MAX_ATTEMPTS           # все попытки записаны
+    assert all(a.status == "network" for a in e.attempts)
+    assert e.attempts[0].status_code is None          # ответа не было
+    assert e.request is not None
+
+
 async def test_parses_text_and_usage():
     p = _provider_with(
         lambda req: _ok_response(
@@ -103,14 +219,14 @@ async def test_retries_5xx_then_succeeds(monkeypatch):
 
     def handler(req):
         calls["n"] += 1
-        if calls["n"] < 3:
+        if calls["n"] < _MAX_ATTEMPTS:        # fail until the last allowed attempt
             return httpx.Response(503, text="busy")
         return _ok_response("ok", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
     p = _provider_with(handler)
     c = await _call(p)
     assert c.text == "ok"
-    assert calls["n"] == 3
+    assert calls["n"] == _MAX_ATTEMPTS
 
 
 async def test_retries_transport_error(monkeypatch):
@@ -175,12 +291,13 @@ async def test_exhausts_retries(monkeypatch):
     p = _provider_with(handler)
     with pytest.raises(ProviderUnavailable):
         await _call(p)
-    assert calls["n"] == 5
+    assert calls["n"] == _MAX_ATTEMPTS
 
 
-async def test_missing_choices_parse_error():
+async def test_missing_choices_retried_then_exhausts(monkeypatch):
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     p = _provider_with(lambda req: httpx.Response(200, json={"usage": {}}))
-    with pytest.raises(ProviderParseError):
+    with pytest.raises(ProviderUnavailable):    # bad_shape ретраится, затем исчерпание
         await _call(p)
 
 

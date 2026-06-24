@@ -17,6 +17,19 @@ from src.strategy.base import make_strategy
 Observer = Callable[[int, RoundPlan, list[PairingRecord]], Optional[Awaitable[None]]]
 
 
+class EpisodeAborted(RuntimeError):
+    """Episode stopped because a pairing was aborted by an LLM failure.
+
+    Raised AFTER the round is written to the observer — so the aborted pairing (finished=0)
+    and its L2 log are already in the DB, while `runs.finished_at` stays NULL as a crash marker.
+    """
+
+    def __init__(self, round: int, rec: PairingRecord):
+        super().__init__(f"round {round}: pairing {rec.a_id} vs {rec.b_id} aborted by LLM failure")
+        self.round = round
+        self.rec = rec
+
+
 async def _guarded(coro, sem: asyncio.Semaphore):
     async with sem:
         return await coro
@@ -34,7 +47,7 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
     mm = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: matcher's own rng
     sem = asyncio.Semaphore(cfg.max_concurrency)
-    for r in range(cfg.rounds):
+    for r in range(1, cfg.rounds + 1):                                 # раунды нумеруются с 1
         plan = await mm.plan_round(pop.ids(), r, actor=None)
         recs = await asyncio.gather(*[                                  # fail-fast (C2)
             _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)
@@ -46,3 +59,6 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
             res = observer(r, plan, recs)
             if inspect.isawaitable(res):
                 await res
+        aborted = next((rec for rec in recs if not rec.finished), None)
+        if aborted is not None:                # aborted pairing: round already written -> stop
+            raise EpisodeAborted(r, aborted)
