@@ -1,24 +1,25 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 10                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 1
-max_concurrency: 10           # pairings played in parallel per round
+seed: 11                      # drives population build + matchmaker rng (change to force a fresh run)
+rounds: 10
+max_concurrency: 2            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
 idle_payoff: 1                # what an agent scores in a round it sits out (odd population)
-play_strategy: direct         # "direct" (pick a number) | "prediction" (predict partner, then map)
-prediction_mapping: match     # used only when play_strategy=prediction: "match" | "one_above"
 
 # ── Population (src/core/config.py: PopulationCfg) ────────────────────────────
 population:
   # System opener, shared by all agents ({id} -> agent id).
   identity_prompt: "You are AI agent {id}."
-  # Per-agent keys: persona (null -> omit it), count.
+  # Per-agent keys: persona (null -> omit it), count, play_strategy ("direct"|"prediction"),
+  # prediction_mapping ("match"|"one_above", only for prediction). Strategy is per-spec now,
+  # so a population can mix direct and prediction agents.
   agents:
     # - {persona: "You are a cautious player who values trust.", count: 3}
     # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 3}
-    - {persona: null, count: 2}
+    - {persona: null, count: 8, play_strategy: 'direct', prediction_mapping: 'match'}
+    - {persona: null, count: 2, play_strategy: 'prediction', prediction_mapping: 'one_above'}
   # One LLM provider, shared by all agents
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
@@ -26,7 +27,7 @@ population:
     base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
     api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
     # model: openai/gpt-oss-20b
-    model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
+    model: deepseek-ai/DeepSeek-V4-Pro
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300                # HTTP timeout per LLM call, seconds
@@ -40,10 +41,10 @@ population:
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 2                  # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 1               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
+  memory_notes_every: 2               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
-  rationale: false                    # ask for a reason before the number in DECIDE/PREDICT
+  rationale: false                    # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
   talk_stop_rule: both_ready_latch    # only this rule in the MVP
 
@@ -52,8 +53,8 @@ game:
   #   rules:           {R}/{T}/{P}/{S} — from `payoffs`; {max_talk_turns} — from `max_talk_turns` above
   #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
   #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {answer} {reason} ({answer} = answer_bare/answer_rationale по флагу)
-  #   predict:         {partner} {round} {feed} {answer} (хвост ответа подставляется по флагу rationale)
+  #   decide:          {partner} {round} {feed} {reason}; rationale выбирает decide_prompt|decide_prompt_bare
+  #   predict:         {partner} {round} {feed} {reason}; rationale выбирает predict_prompt|predict_prompt_bare
   #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
   #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
   #   notes_block:      {notes} (обёртка <you> сохранённых заметок; заголовки notes_header/buffer_header — <game>)
@@ -82,25 +83,30 @@ game:
     The chat has been open.</game>
     {feed}
     <game>Your turn — reply to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
-    Please, write your first message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
+    Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
   # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
     <game>Round {round} · opponent {partner}
     The chat has been open. You speak first this round — send a short message to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
-    Please, write your first message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
-  # {reason} — как закрылся чат (reason_limit / reason_agreed); та же строка, что в истории.
-  decide_prompt: |-
+    Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
+  # rationale=false -> активны *_bare шаблоны (только число). Чтобы агент рассуждал перед
+  # числом, поставь rationale: true (тогда возьмутся decide_prompt/predict_prompt — здесь не
+  # заданы, подставятся DEFAULT_* с «Reason first…»). {reason} — как закрылся чат.
+  decide_prompt_bare: |-
     <game>Round {round} · opponent {partner}
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number.
-    {answer}</game>
-  # {answer} -> один из двух хвостов по флагу rationale (оба в конфиге, talk-стиль):
-  answer_bare: 'Please, write your number in the following JSON format: {"number": <0-9>}'
-  answer_rationale: |-
-    Reason first, then commit to a number.
-    Please, write your answer in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}
+    Please, write your number in the following JSON format: {"number": <0-9>}</game>
+  # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/
+  # закрытия, только директива: предсказать число оппонента.
+  predict_prompt_bare: |-
+    <game>Round {round} · opponent {partner}
+    The chat has been open.</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Predict the number your opponent will secretly choose.
+    Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
   # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
     <game>Round {round} · opponent {partner}
@@ -113,14 +119,15 @@ game:
   history_result_prompt: |-
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
-  # Used only when play_strategy=prediction:
-  predict_prompt: |-
-    Current round: [Round {round} · opponent {partner} · score {score}]
-    Talk:
-    {feed}
-
-    The talk is over. Predict the number your opponent will secretly choose, from 0 to 9.
-    {answer}
+  # Приватные следы в истории (личный скрэтчпад агента) — каждый под своим флагом; строка
+  # рендерится, только если флаг включён И её поле непусто (предсказание — только у
+  # prediction-агентов, обоснование — при rationale=true, takeaway — при reflection=true).
+  show_predicted: false
+  show_rationale: false
+  show_reflection: false
+  history_predicted_prompt: "<you>(I predicted {partner} would pick {my_predicted})</you>"
+  history_rationale_prompt: "<you>(my reasoning: {my_rationale})</you>"
+  history_reflection_prompt: "<you>(my takeaway: {my_reflection})</you>"
   # Used only when reflection=true:
   reflect_prompt: |-
     Current round: [Round {round} · opponent {partner} · score {score}]

@@ -33,13 +33,14 @@ class PredictionStrategy:
             round: Номер раунда.
             feed: Отрендеренная история переговоров.
             rules: Текст правил игры для системного промпта.
-            reason: Почему закрылся чат (фаза PREDICT его не использует).
+            reason: Почему закрылся чат (для строки закрытия в промпте, как в decide).
 
         Returns:
             Решение с итоговым числом (после отображения), предсказанием и обоснованием.
         """
         res = await agent.act(
-            Phase(PhaseKind.PREDICT, predict_context(self._game, partner_id, round, feed, agent.score),
+            Phase(PhaseKind.PREDICT,
+                  predict_context(self._game, partner_id, round, feed, agent.score, reason),
                   rules=rules, game_cfg=self._game)
         )
         predicted = res.data["number"]

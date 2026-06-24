@@ -131,13 +131,16 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
         .replace("{partner_payoff}", f"{e.partner_payoff:g}")
         .replace("{total}", f"{e.score + e.payoff:g}")
     )
-    # Приватные следы выключенных фич (rationale/prediction/reflection) — только если есть.
-    if e.my_predicted is not None:
-        lines.append(f"<you>(I predicted {e.partner_id} would pick {e.my_predicted})</you>")
-    if e.my_rationale:
-        lines.append(f"<you>(my reasoning: {e.my_rationale})</you>")
-    if e.my_reflection:
-        lines.append(f"<you>(my takeaway: {e.my_reflection})</you>")
+    # Приватные следы (prediction/rationale/reflection) — каждый под своим флагом; строка
+    # добавляется, только если флаг включён И её поле непусто. Шаблоны живут в конфиге.
+    if cfg.show_predicted and e.my_predicted is not None:
+        lines.append(cfg.history_predicted_prompt
+                     .replace("{partner}", e.partner_id)
+                     .replace("{my_predicted}", str(e.my_predicted)))
+    if cfg.show_rationale and e.my_rationale:
+        lines.append(cfg.history_rationale_prompt.replace("{my_rationale}", e.my_rationale))
+    if cfg.show_reflection and e.my_reflection:
+        lines.append(cfg.history_reflection_prompt.replace("{my_reflection}", e.my_reflection))
     return "\n".join(lines)
 
 

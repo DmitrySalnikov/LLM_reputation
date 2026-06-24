@@ -8,15 +8,10 @@ context_window: null
 idle_payoff: 1
 max_concurrency: 4
 
-# one_above — рациональный best-response: сыграть на единицу выше предсказанного
-# числа партнёра (off-by-one даёт выигрыш T).
-play_strategy: prediction
-prediction_mapping: one_above
-
 game:
   payoffs: {R: 3, T: 5, P: 1, S: 0}
   max_talk_turns: 3
-  rationale: true             # просить обоснование перед числом в DECIDE/PREDICT
+  rationale: true             # думать перед числом (true -> *_prompt с «Reason first…»)
   reflection: true            # пост-игровая рефлексия: доп. LLM-вызов после исхода
 
 provider_default: &default
@@ -35,6 +30,11 @@ population:
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  agents:    # per-agent keys: persona, count
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2}
-    - {persona: "You are a cautious player who values trust.", count: 2}
+  # per-agent keys: persona, count, play_strategy, prediction_mapping. Here the whole
+  # population предсказывает партнёра и играет on-above (best-response к предсказанию).
+  # one_above — рациональный best-response: на единицу выше предсказанного числа партнёра.
+  agents:
+    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2,
+       play_strategy: prediction, prediction_mapping: one_above}
+    - {persona: "You are a cautious player who values trust.", count: 2,
+       play_strategy: prediction, prediction_mapping: one_above}

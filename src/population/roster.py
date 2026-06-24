@@ -27,7 +27,8 @@ class RosterGenerator:
         i = 0
         for spec in self._cfg.agents:                # build `count` agents of each type, in order
             for _ in range(spec.count):
-                pop.add(AgentSetup(spec.persona, self._cfg.provider, self._cfg.identity_prompt),
+                pop.add(AgentSetup(spec.persona, self._cfg.provider, self._cfg.identity_prompt,
+                                   spec.play_strategy, spec.prediction_mapping),
                         agent_id=names[i])
                 i += 1
         return pop

@@ -145,13 +145,46 @@ def test_render_with_notes_only_when_buffer_empty():
     assert "Round 1" not in msgs[0].content
 
 
-def test_render_includes_prediction_line_when_present():
-    from src.core.memory import Memory, MemoryEntry
+def _trace_entry():
+    from src.core.memory import MemoryEntry
+    e = MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[], my_number=5,
+                    my_rationale="risky", partner_number=5, outcome="CC", payoff=3.0,
+                    partner_payoff=3.0, my_predicted=4)
+    e.my_reflection = "trust holds"
+    return e
+
+
+def test_private_traces_rendered_when_flags_on():
+    # все три флага по умолчанию True: следы печатаются по своим шаблонам
+    from src.core.config import GameCfg
+    from src.core.memory import Memory
 
     m = Memory()
-    m.add(MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[], my_number=5,
-                      my_rationale="r", partner_number=5, outcome="CC", payoff=3.0,
-                      partner_payoff=3.0, my_predicted=4))
-    rendered = m.render(None)[0].content
-    assert "predict" in rendered.lower()
-    assert "4" in rendered
+    m.add(_trace_entry())
+    rendered = m.render(None, GameCfg())[0].content
+    assert "I predicted A2 would pick 4" in rendered   # {partner}/{my_predicted} подставлены
+    assert "my reasoning: risky" in rendered
+    assert "my takeaway: trust holds" in rendered
+
+
+def test_each_private_trace_has_its_own_flag():
+    # три РАЗНЫХ флага: гасим по одному — остальные остаются
+    from src.core.config import GameCfg
+    from src.core.memory import Memory
+
+    def render(**flags):
+        m = Memory()
+        m.add(_trace_entry())
+        return m.render(None, GameCfg(**flags))[0].content
+
+    no_pred = render(show_predicted=False)
+    assert "predict" not in no_pred.lower() and "my reasoning: risky" in no_pred and "my takeaway: trust holds" in no_pred
+
+    no_rat = render(show_rationale=False)
+    assert "my reasoning" not in no_rat and "I predicted A2 would pick 4" in no_rat and "my takeaway: trust holds" in no_rat
+
+    no_ref = render(show_reflection=False)
+    assert "my takeaway" not in no_ref and "I predicted A2 would pick 4" in no_ref and "my reasoning: risky" in no_ref
+
+    all_off = render(show_predicted=False, show_rationale=False, show_reflection=False)
+    assert all(s not in all_off.lower() for s in ("predict", "reasoning", "takeaway"))

@@ -36,15 +36,16 @@ class PlayStrategy(Protocol):
                      feed: str, rules: str, reason: str = "") -> Decision: ...
 
 
-def make_strategy(cfg) -> PlayStrategy:
-    """Собрать стратегию из конфигурации эпизода (play_strategy/prediction_mapping).
+def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg) -> PlayStrategy:
+    """Собрать стратегию по её имени (стратегия живёт на агенте, см. AgentSpec).
 
     Args:
-        cfg: Конфигурация эпизода с полями play_strategy, prediction_mapping
-            и game.rationale.
+        play_strategy: "direct" | "prediction".
+        prediction_mapping: имя отображения predict->выбор (нужно только для prediction).
+        game_cfg: GameCfg — шаблоны промптов фаз decide/predict.
 
     Returns:
-        Экземпляр стратегии игры, соответствующий конфигурации.
+        Экземпляр стратегии игры, соответствующий имени.
 
     Raises:
         ValueError: Если имя стратегии не распознано.
@@ -53,8 +54,8 @@ def make_strategy(cfg) -> PlayStrategy:
     from src.strategy.mappings import get_mapping
     from src.strategy.prediction import PredictionStrategy
 
-    if cfg.play_strategy == "direct":
-        return DirectStrategy(cfg.game)
-    if cfg.play_strategy == "prediction":
-        return PredictionStrategy(get_mapping(cfg.prediction_mapping), cfg.game)
-    raise ValueError(f"неизвестная стратегия игры: {cfg.play_strategy!r}")
+    if play_strategy == "direct":
+        return DirectStrategy(game_cfg)
+    if play_strategy == "prediction":
+        return PredictionStrategy(get_mapping(prediction_mapping), game_cfg)
+    raise ValueError(f"неизвестная стратегия игры: {play_strategy!r}")

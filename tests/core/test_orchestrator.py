@@ -148,7 +148,8 @@ async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):
-    spec = AgentSpec(persona="p", count=n)
+    # стратегия теперь per-agent: вся популяция — prediction/one_above
+    spec = AgentSpec(persona="p", count=n, play_strategy="prediction", prediction_mapping="one_above")
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
@@ -156,8 +157,6 @@ def _pred_cfg(n=2, rounds=1, seed=0):
         population=PopulationCfg(kind="roster", agents=[spec],
                                  provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),
-        play_strategy="prediction",
-        prediction_mapping="one_above",
     )
 
 
