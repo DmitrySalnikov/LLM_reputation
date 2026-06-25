@@ -1,5 +1,14 @@
 # Interventions (Axis B/C) — Implementation Plan
 
+> **⏸ STATUS — PAUSED (2026-06-25).** Feature shelved after Phase 1. **Phase 1 (per-round
+> config / change-point `schedule`) is DONE but UNCOMMITTED** on branch `main` (sits with the
+> rest of the uncommitted resume/extend work). Full suite 257 green. **Resume here → Phase 2**
+> (roster join/leave + controller seam). Nothing below Phase 1 is started. The config-change
+> mechanism that landed: `ChangePoint`/`schedule`/`cfg_for_round`/`_deep_merge` in
+> `src/core/config.py`, orchestrator per-round resolution, hash+resume support — see the
+> Phase 1 "Shipped" note. Design decisions are frozen in "Locked design decisions" below;
+> do not re-litigate them on resume.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Build phase-by-phase; each phase ships on its own.
 
 **Goal:** Let a run's configuration **vary per round** and let the experimenter **intervene** — change payoffs/talk/prompts/strategy mid-run, force specific pairings, add/remove agents, and inject a number for an agent — either **scripted** (a declarative schedule in the config) or **interactive** (prompted each round). Scripted (B) and interactive (C) are the same mechanism: the interactive session *produces* the schedule that a scripted re-run *replays*.
