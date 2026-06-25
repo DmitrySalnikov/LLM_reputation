@@ -5,7 +5,9 @@ import random
 import pytest
 
 from src.core import orchestrator as orch
-from src.core.config import AgentSpec, EpisodeCfg, GameCfg, PopulationCfg, ProviderCfg
+from src.core.config import (
+    AgentSpec, ChangePoint, EpisodeCfg, GameCfg, Payoffs, PopulationCfg, ProviderCfg,
+)
 from src.population import base as popbase
 from src.population import make_population
 from src.providers.base import Completion, ProviderUnavailable
@@ -157,6 +159,36 @@ async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
     with pytest.raises(orch.EpisodeAborted):
         await _run(_cfg(n=2, rounds=1))
     assert made and all(p.closed == 1 for p in made)
+
+
+async def test_per_round_game_params_change_via_schedule(providers):
+    # n=2 -> 1 пара/раунд, max_talk_turns=0 -> детерминированный CC (оба берут 4).
+    # patch с раунда 2 меняет payoff R (CC) с 3 на 7. Раунд 1 идёт по базе.
+    spec = AgentSpec(persona="p", count=2)
+    cfg = EpisodeCfg(
+        seed=0, rounds=3, matchmaker="random",
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
+        game=GameCfg(max_talk_turns=0, payoffs=Payoffs(R=3)),
+        schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"R": 7}}}),),
+    )
+    pop = await _run(cfg)
+    # CC каждый раунд: R1 → +3, R2 → +7, R3 → +7 (sticky) на каждого из двух агентов
+    assert sum(a.score for a in pop) == pytest.approx(2 * (3 + 7 + 7))
+
+
+async def test_schedule_patch_honored_on_resume(providers):
+    # возобновление с раунда 2 должно видеть patch раунда 2 (та же материализация cfg_for_round)
+    spec = AgentSpec(persona="p", count=2)
+    cfg = EpisodeCfg(
+        seed=0, rounds=2, matchmaker="random",
+        population=PopulationCfg(kind="roster", agents=[spec],
+                                 provider=ProviderCfg(base_url="http://x/v1", model="m")),
+        game=GameCfg(max_talk_turns=0, payoffs=Payoffs(R=3)),
+        schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"R": 7}}}),),
+    )
+    pop = await _run(cfg, start_round=2)             # играем только раунд 2 (R=7)
+    assert sum(a.score for a in pop) == pytest.approx(2 * 7)
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):

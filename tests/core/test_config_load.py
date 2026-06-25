@@ -354,3 +354,71 @@ def test_judge_without_provider_raises(tmp_path):
     path = _judge_yaml(tmp_path, 'judge: {prompt: "no provider here"}')
     with pytest.raises(ValueError):
         load_episode(path)
+
+
+# ---- per-round config schedule (change-points) ----
+
+def _schedule_yaml(tmp_path, schedule_block):
+    f = tmp_path / "sched.yaml"
+    f.write_text(textwrap.dedent(
+        f"""
+        seed: 1
+        rounds: 10
+        matchmaker: random
+        {schedule_block}
+        population:
+          kind: roster
+          provider: {{base_url: "http://x/v1", model: "m"}}
+          agents:
+            - persona: "p"
+              count: 2
+        """
+    ))
+    return str(f)
+
+
+def test_no_schedule_block_means_empty_schedule():
+    assert load_episode(EXAMPLE).schedule == ()
+
+
+def test_schedule_loads_change_points(tmp_path):
+    path = _schedule_yaml(tmp_path, textwrap.dedent(
+        """
+        schedule:
+          - from_round: 4
+            patch: {game: {payoffs: {T: 6}}}
+          - from_round: 6
+            patch: {game: {max_talk_turns: 0}}
+        """
+    ).replace("\n", "\n        "))
+    cfg = load_episode(path)
+    assert len(cfg.schedule) == 2
+    assert cfg.schedule[0].from_round == 4
+    assert cfg.schedule[0].patch == {"game": {"payoffs": {"T": 6}}}
+    assert cfg.schedule[1].from_round == 6
+
+
+def test_invalid_patch_fails_fast_at_load(tmp_path):
+    # patch, дающий невалидный конфиг (memory_notes_every < 0), должен падать при загрузке,
+    # а не в момент раунда
+    path = _schedule_yaml(tmp_path, textwrap.dedent(
+        """
+        schedule:
+          - from_round: 3
+            patch: {game: {memory_notes_every: -1}}
+        """
+    ).replace("\n", "\n        "))
+    with pytest.raises(ValueError):
+        load_episode(path)
+
+
+def test_valid_base_with_valid_patches_loads(tmp_path):
+    path = _schedule_yaml(tmp_path, textwrap.dedent(
+        """
+        schedule:
+          - from_round: 2
+            patch: {idle_payoff: 2.0}
+        """
+    ).replace("\n", "\n        "))
+    cfg = load_episode(path)
+    assert cfg.schedule[0].patch == {"idle_payoff": 2.0}

@@ -410,6 +410,25 @@ def test_config_hash_ignores_judge_block(tmp_path):
         st.close()
 
 
+def test_config_hash_changes_with_schedule(tmp_path):
+    # расписание — часть дизайна: иной schedule -> иной config_hash; но rounds по-прежнему вне хеша
+    from src.core.config import ChangePoint
+
+    base = _cfg(seed=1)
+    scheduled = replace(base, schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"T": 6}}}),))
+    longer = replace(scheduled, rounds=base.rounds + 5)
+    st = _store(tmp_path)
+    try:
+        id_base = st.begin(base, _pop(base))
+        id_sched = st.begin(scheduled, _pop(scheduled))
+        id_long = st.begin(longer, _pop(longer))
+        h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
+        assert h[id_base] != h[id_sched]       # расписание меняет дизайн
+        assert h[id_sched] == h[id_long]       # rounds всё ещё вне хеша (та же семья)
+    finally:
+        st.close()
+
+
 def test_judge_config_still_persisted_in_runs(tmp_path):
     cfg = replace(_cfg(), judge=_judge_cfg())
     st = _store(tmp_path)

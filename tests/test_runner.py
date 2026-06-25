@@ -155,6 +155,27 @@ async def test_extend_finished_run_matches_straight_run(tmp_path):
         conn.close()
 
 
+async def test_extend_honors_schedule_patch_for_new_rounds(tmp_path):
+    # Прогон с patch, вступающим в силу на раунде 3; короткий прогон (2 раунда) до него не доходит,
+    # extend до 4 должен сыграть раунды 3–4 уже по патчу и совпасть с прямым прогоном того же
+    # расписания на 4 раунда.
+    from src.core.config import ChangePoint
+
+    sched = (ChangePoint(from_round=3, patch={"game": {"payoffs": {"R": 7}}}),)
+    cfg4 = replace(_cfg(n=3, rounds=4), schedule=sched)
+    cfg2 = replace(cfg4, rounds=2)
+
+    ref_db = str(tmp_path / "ref.db")
+    ref_id = await runner.run_experiment(cfg4, ref_db)
+    ref_scores = _final_scores(ref_db, ref_id)
+
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(cfg2, db)         # сыграно 2 (патч ещё не активен)
+    same = await runner.resume_run(rid, db, rounds=4)   # extend до 4 -> раунды 3–4 по патчу
+    assert same == rid
+    assert _final_scores(db, rid) == ref_scores
+
+
 async def test_resume_already_complete_is_noop(tmp_path, capsys):
     db = str(tmp_path / "t.db")
     rid = await runner.run_experiment(_cfg(rounds=2), db)

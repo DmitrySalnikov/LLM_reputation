@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import yaml
 
@@ -312,6 +312,27 @@ class PopulationCfg:
 
 
 @dataclass(frozen=True)
+class ChangePoint:
+    """Одна точка изменения расписания эпизода (вступает в силу с раунда `from_round`).
+
+    Виды правок (могут сочетаться в одной точке):
+      patch   — частичный override скалярного конфига (game/payoffs/промпты/стратегия и т.п.),
+                **липкий**: действует с from_round и далее (сворачивается deep-merge'ем).
+      roster  — {"join": [...], "leave": [...]} — мутация состава, событие (Фаза 2).
+      pairing — явная разбивка на пары для ЭТОГО раунда, **разовая** (Фаза 3).
+      inject  — {agent_id: number} — навязать число агенту в ЭТОМ раунде, разовая (Фаза 4).
+
+    Хранится разреженно. Полный конфиг раунда собирает cfg_for_round (только patch);
+    императивные директивы (roster/pairing/inject) обрабатывает контроллер (Фазы 2–4)."""
+
+    from_round: int
+    patch: dict | None = None
+    roster: dict | None = None
+    pairing: tuple | None = None
+    inject: dict | None = None
+
+
+@dataclass(frozen=True)
 class EpisodeCfg:
     seed: int
     rounds: int
@@ -322,6 +343,7 @@ class EpisodeCfg:
     idle_payoff: float = 1.0         # C3: idle pays P by default
     max_concurrency: int = 4
     judge: JudgeCfg | None = None          # None = LLM-судья выключен
+    schedule: tuple[ChangePoint, ...] = ()  # пораундовое расписание правок (см. cfg_for_round); пусто = один конфиг на весь прогон
     # NB: стратегия (play_strategy/prediction_mapping) теперь живёт на агенте (AgentSpec),
     # а не на эпизоде — популяция может быть гетерогенной (direct + prediction в одном эпизоде).
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
@@ -399,6 +421,30 @@ def _validate(d: dict) -> None:
         if len(pool) < total:
             raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
 
+    # Раннее (fail-fast) подтверждение каждой фазы расписания: липкие patch-точки
+    # сворачиваются по порядку, и КАЖДЫЙ свёрнутый конфиг тоже должен быть валиден —
+    # иначе ошибка вылезет лишь в момент раунда. folded не содержит ключа "schedule",
+    # поэтому _validate на нём делает только проверки полей (без повторного цикла).
+    schedule = d.get("schedule")
+    if schedule:
+        folded = {k: v for k, v in d.items() if k != "schedule"}
+        patches = sorted((c for c in schedule if c.get("patch")), key=lambda c: c["from_round"])
+        for cp in patches:
+            folded = _deep_merge(folded, cp["patch"])
+            _validate(folded)
+
+
+def _change_point(c: dict) -> ChangePoint:
+    """Собрать ChangePoint из словаря (YAML или asdict). pairing — список → кортеж пар."""
+    pairing = c.get("pairing")
+    return ChangePoint(
+        from_round=c["from_round"],
+        patch=c.get("patch"),
+        roster=c.get("roster"),
+        pairing=tuple(tuple(p) for p in pairing) if pairing is not None else None,
+        inject=c.get("inject"),
+    )
+
 
 def episode_from_dict(d: dict) -> EpisodeCfg:
     """Собрать EpisodeCfg из словаря — общий путь для YAML и для сохранённого runs.config.
@@ -417,7 +463,36 @@ def episode_from_dict(d: dict) -> EpisodeCfg:
         idle_payoff=d.get("idle_payoff", 1.0),
         max_concurrency=d.get("max_concurrency", 4),
         judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
+        schedule=tuple(_change_point(c) for c in d.get("schedule") or ()),
     )
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    """Рекурсивно наложить patch на base (новый словарь).
+
+    dict → вглубь; всё прочее (скаляры, списки) — замена целиком. Списки НЕ сливаются:
+    это осознанно — листовые поля заменяются, а состав (списочное поле population.agents)
+    меняют roster-директивы, не patch (Фаза 2)."""
+    out = dict(base)
+    for k, v in patch.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def cfg_for_round(cfg: EpisodeCfg, r: int) -> EpisodeCfg:
+    """Материализовать полный EpisodeCfg для раунда r, свернув липкие patch-точки.
+
+    Чистая функция: одинаковый (cfg, r) → одинаковый результат. Императивные директивы
+    (roster/pairing/inject) здесь НЕ применяются — их обрабатывает контроллер (Фазы 2–4).
+    Без расписания возвращается тот же объект (никакой пересборки)."""
+    if not cfg.schedule:
+        return cfg
+    d = asdict(cfg)
+    d.pop("schedule", None)                              # расписание не входит в конфиг одного раунда
+    for cp in sorted(cfg.schedule, key=lambda c: c.from_round):
+        if cp.from_round <= r and cp.patch:
+            d = _deep_merge(d, cp.patch)
+    return episode_from_dict(d)
 
 
 def load_episode(path: str) -> EpisodeCfg:

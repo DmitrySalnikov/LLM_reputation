@@ -2,8 +2,8 @@
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
 seed: 11                      # drives population build + matchmaker rng (change to force a fresh run)
-rounds: 10
-max_concurrency: 2            # pairings played in parallel per round
+rounds: 2
+max_concurrency: 5            # pairings played in parallel per round
 matchmaker: random            # only "random" in the MVP
 context_window: null          # null = each agent sees its whole memory; int = last N entries
 idle_payoff: 1                # what an agent scores in a round it sits out (odd population)
@@ -18,8 +18,8 @@ population:
   agents:
     # - {persona: "You are a cautious player who values trust.", count: 3}
     # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 3}
-    - {persona: null, count: 8, play_strategy: 'direct', prediction_mapping: 'match'}
-    - {persona: null, count: 2, play_strategy: 'prediction', prediction_mapping: 'one_above'}
+    - {persona: null, count: 2, play_strategy: 'direct', prediction_mapping: 'match'}
+    # - {persona: null, count: 2, play_strategy: 'prediction', prediction_mapping: 'one_above'}
   # One LLM provider, shared by all agents
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
@@ -27,7 +27,7 @@ population:
     base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
     api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
     # model: openai/gpt-oss-20b
-    model: deepseek-ai/DeepSeek-V4-Pro
+    model: meta-llama/Meta-Llama-3-8B-Instruct-Lite
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300                # HTTP timeout per LLM call, seconds
@@ -42,7 +42,7 @@ population:
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 2               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  memory_notes_every: 0               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
