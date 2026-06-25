@@ -118,6 +118,21 @@ def load_verdict(conn, run_id):
         return None
 
 
+def _resolve_run_id(conn, token):
+    """Принять и целочисленный run_id, и config_hash (хеш дизайна без rounds/judge).
+
+    Возвращает int run_id или None. По config_hash берём самый ранний прогон семьи
+    (один дизайн может иметь несколько прогонов/продолжений)."""
+    if token.isdigit():
+        row = conn.execute("SELECT run_id FROM runs WHERE run_id=?", (int(token),)).fetchone()
+        if row:
+            return row[0]
+    row = conn.execute(
+        "SELECT run_id FROM runs WHERE config_hash=? ORDER BY created_at LIMIT 1", (token,)
+    ).fetchone()
+    return row[0] if row else None
+
+
 def list_runs(conn):
     rows = conn.execute(
         "SELECT run_id, name, config, created_at, finished_at FROM runs ORDER BY created_at"
@@ -413,13 +428,18 @@ def main():
     try:
         if not pos:
             print(f"usage: replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]   "
-                  f"(db: {DB_DEFAULT})\n")
+                  f"(run_id — число или config_hash; db: {DB_DEFAULT})\n")
             list_runs(conn)
-        elif call_spec is not None:
-            dump_call(conn, pos[0], call_spec, raw=raw)    # full dump of one call
         else:
-            replay(conn, pos[0], show_config=show_config, show_calls=show_calls,
-                   show_notes=show_notes)
+            target = _resolve_run_id(conn, pos[0])         # число или легаси-хеш -> int run_id
+            if target is None:
+                print(f"run {pos[0]!r} not found in this DB.\n")
+                list_runs(conn)
+            elif call_spec is not None:
+                dump_call(conn, target, call_spec, raw=raw)    # full dump of one call
+            else:
+                replay(conn, target, show_config=show_config, show_calls=show_calls,
+                       show_notes=show_notes)
     finally:
         conn.close()
 

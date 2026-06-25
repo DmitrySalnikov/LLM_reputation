@@ -210,9 +210,9 @@ untouched.
   references to the cited messages). The verdict is printed immediately after the
   episode summary.
 - **Persistence**: `run_experiment` (in `src/runner.py`) stores the verdict in the
-  `judge_verdicts` SQLite table, linked by `run_id`. The judge block is
-  **excluded from the `run_id` hash** so toggling it on/off does not create new run
-  entries.
+  `judge_verdicts` SQLite table, linked by `run_id` (an incremental integer, not a
+  config hash). The judge block is **excluded from `config_hash`** (the per-design hash,
+  config minus `judge` and `rounds`) so toggling it on/off does not change a run's family.
 - **replay.py**: cited messages are highlighted in yellow (ANSI); a JUDGE VERDICT
   section is appended after the round-by-round replay.
 

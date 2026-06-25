@@ -4,18 +4,24 @@ import sqlite3
 
 # Normalized L1 schema (one DB, many runs). Configs are JSON (runs.config,
 # agents.provider); everything operational is normalized. See agent-games-logger-plan §4.
+#
+# run_id — целочисленный автоинкремент (человекочитаемые 1, 2, 3 …), а НЕ хеш конфига.
+# Идентичность прогона — это его номер; «дизайн» же хешируется в runs.config_hash (хеш
+# конфига без `judge` и без `rounds`) — для группировки прогонов одного дизайна в семью
+# (повторы и продолжения разной длины делят config_hash). replay принимает и число, и хеш.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
-    run_id      TEXT PRIMARY KEY,
+    run_id      INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT,
     config      TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
     seed        INTEGER NOT NULL,
     created_at  TEXT NOT NULL,
     finished_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-    run_id      TEXT NOT NULL,
+    run_id      INTEGER NOT NULL,
     agent_id    TEXT NOT NULL,
     persona     TEXT,
     provider    TEXT NOT NULL,
@@ -25,14 +31,14 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 CREATE TABLE IF NOT EXISTS rounds (
-    run_id    TEXT NOT NULL,
+    run_id    INTEGER NOT NULL,
     round_idx INTEGER NOT NULL,
     PRIMARY KEY (run_id, round_idx),
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS idle (
-    run_id    TEXT NOT NULL,
+    run_id    INTEGER NOT NULL,
     round_idx INTEGER NOT NULL,
     agent_id  TEXT NOT NULL,
     PRIMARY KEY (run_id, round_idx, agent_id),
@@ -41,7 +47,7 @@ CREATE TABLE IF NOT EXISTS idle (
 );
 
 CREATE TABLE IF NOT EXISTS pairings (
-    run_id      TEXT NOT NULL,
+    run_id      INTEGER NOT NULL,
     round_idx   INTEGER NOT NULL,
     pair_idx    INTEGER NOT NULL,
     a_id        TEXT NOT NULL,
@@ -72,7 +78,7 @@ CREATE TABLE IF NOT EXISTS pairings (
 );
 
 CREATE TABLE IF NOT EXISTS messages (
-    run_id    TEXT NOT NULL,
+    run_id    INTEGER NOT NULL,
     round_idx INTEGER NOT NULL,
     pair_idx  INTEGER NOT NULL,
     turn_idx  INTEGER NOT NULL,
@@ -85,7 +91,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE TABLE IF NOT EXISTS llm_calls (
-    run_id        TEXT    NOT NULL,
+    run_id        INTEGER NOT NULL,
     round_idx     INTEGER NOT NULL,
     pair_idx      INTEGER NOT NULL,
     call_idx      INTEGER NOT NULL,   -- порядок вызова внутри пары (порядок исполнения)
@@ -110,7 +116,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 );
 
 CREATE TABLE IF NOT EXISTS judge_verdicts (
-    run_id      TEXT PRIMARY KEY,
+    run_id      INTEGER PRIMARY KEY,
     emerged     INTEGER NOT NULL,
     explanation TEXT NOT NULL,
     evidence    TEXT NOT NULL,      -- JSON: [{"round":0,"pair":1,"turn":2}, ...]
@@ -121,6 +127,7 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
 
 CREATE INDEX IF NOT EXISTS ix_llm_calls_agent  ON llm_calls(run_id, agent_id);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_status ON llm_calls(run_id, status);
+CREATE INDEX IF NOT EXISTS ix_runs_config_hash ON runs(config_hash);
 """
 
 

@@ -18,6 +18,26 @@ Set `LLM_TRACE=1` (env var or `.env`) to print the exact LLM input of every
 DECIDE/PREDICT call while the episode runs (see `docs/architecture.md`,
 "LLM input trace").
 
+## Resuming or extending a run
+
+A stored run can be continued by its integer `run_id` — to **finish an unfinished run**
+(crashed/aborted, no `finished_at`) or to **extend a finished one** to more rounds:
+
+```bash
+uv run python experiment.py --resume 87              # finish #87 to its configured rounds
+uv run python experiment.py --resume 87 --rounds 20  # grow #87 to 20 rounds (extend)
+```
+
+`runner.resume_run` reloads the run's stored config (`runs.config` → `config.episode_from_dict`),
+rebuilds the population from the same seed (identical agent ids), rehydrates each agent's score
+and memory from the DB (`Storage.load_state` — diary from `messages`/`pairings`, notes from
+`a_notes`/`b_notes`, score = Σ payoffs + idle), and plays from `last_round + 1` to the target.
+Past rounds are read from the DB (the actual recorded pairings), only new rounds are played —
+so runs recorded before the per-round-rng change are resumable too. With `--rounds` ≤ what's
+already played, it's a no-op. Extending updates `runs.config`'s `rounds` but **not** `config_hash`
+(which excludes `rounds`), so the run stays in its design family. The LLM judge is not re-run on
+resume/extend (it's a whole-episode analytics pass — score the run separately).
+
 ## Reference configs
 
 - `config/example.yaml` — direct strategy (agents pick numbers themselves).
@@ -59,14 +79,18 @@ judge:
 
 Notes:
 - Omitting `judge:` (or setting it to `null`) disables the judge entirely (`cfg.judge is None`).
-- The judge config field is **excluded from the `run_id` hash** — adding or removing the
-  judge does not create a new run entry; only the game/population config matters for de-duplication.
-- Re-running an **identical** config: if the stored run is **finished**, the runner does nothing
-  ("nothing to do — change seed or config"); if it is **unfinished** (crashed/aborted, no
-  `finished_at`), the runner **deletes** that run (`Storage.delete_run` — a single
-  `DELETE FROM runs`, child rows go via `ON DELETE CASCADE`) and re-runs from scratch. The
-  decision lives in `runner._handle_existing_run` (a future extension point — could resume
-  instead of delete).
+- The judge config field is **excluded from `config_hash`** (see below) — adding or removing
+  the judge does not change a run's design hash.
+- **Run identity is an incremental integer `run_id`** (1, 2, 3 …), allocated by SQLite
+  (`INTEGER PRIMARY KEY AUTOINCREMENT`), **not** a config hash. Every `run` creates a **new**
+  run: re-running the same config no longer de-dups, it just gets the next number — handy for
+  repeated runs of one config under a noisy LLM. The **design** is recorded separately in
+  `runs.config_hash` = SHA-256 of the config **minus `judge` and `rounds`** (`store._hash_config_dict`).
+  Runs of the same design — repeats and longer continuations — share one `config_hash` (a
+  "family"). `rounds` is excluded because with per-round matchmaker rng round *r* is identical
+  regardless of total length, so a longer run is just a shorter one continued. `replay.py`
+  accepts either the integer `run_id` or a `config_hash` (the latter resolves to the earliest
+  run of that family).
 - The verdict is printed by the runner / demo and stored in the `judge_verdicts` table in
   the SQLite DB; `replay.py` highlights cited messages in yellow and appends a JUDGE VERDICT section.
 

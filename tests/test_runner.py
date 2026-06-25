@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -29,10 +30,10 @@ def _fake_providers(monkeypatch):
     monkeypatch.setattr(popbase, "make_provider", lambda cfg: FixedProvider(cfg))
 
 
-def _cfg(judge=None):
-    spec = AgentSpec(persona="p", count=2)
+def _cfg(judge=None, rounds=1, n=2):
+    spec = AgentSpec(persona="p", count=n)
     return EpisodeCfg(
-        seed=0, rounds=1, matchmaker="random",
+        seed=0, rounds=rounds, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],
                                  provider=ProviderCfg(base_url="http://x/v1", model="m")),
         game=GameCfg(max_talk_turns=0),
@@ -40,11 +41,22 @@ def _cfg(judge=None):
     )
 
 
+def _final_scores(db, rid):
+    import sqlite3
+
+    conn = sqlite3.connect(db)
+    try:
+        return dict(conn.execute(
+            "SELECT agent_id, final_score FROM agents WHERE run_id=?", (rid,)).fetchall())
+    finally:
+        conn.close()
+
+
 def _judge():
     return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
 
 
-async def test_unfinished_duplicate_is_deleted_and_rerun(tmp_path, capsys):
+async def test_rerunning_config_creates_new_run_and_leaves_existing(tmp_path):
     import random
     import sqlite3
 
@@ -53,33 +65,110 @@ async def test_unfinished_duplicate_is_deleted_and_rerun(tmp_path, capsys):
 
     db = str(tmp_path / "t.db")
     cfg = _cfg()
-    # создаём оборванный прогон того же конфига: begin без finish
+    # уже есть оборванный прогон того же конфига (begin без finish)
     st = Storage(db)
     pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
     rid = st.begin(cfg, pop)
     st.close()
     await pop.aclose()
 
-    run_id = await runner.run_experiment(cfg, db)      # дубль оборван -> удалить и прогнать заново
-    assert run_id == rid
-    assert "deleting it and re-running" in capsys.readouterr().out
+    run_id = await runner.run_experiment(cfg, db)      # дедупа нет -> новый прогон, старый не трогаем
+    assert run_id != rid
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
-        assert conn.execute("SELECT COUNT(*) FROM runs WHERE run_id=?", (rid,)).fetchone()[0] == 1   # не задвоился
+        assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2                            # оба сохранены
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is None       # оборванный так и не доигран
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (run_id,)).fetchone()[0] is not None  # новый доигран
     finally:
         conn.close()
 
 
-async def test_finished_duplicate_is_left_alone(tmp_path, capsys):
+async def test_rerunning_finished_config_creates_second_run(tmp_path):
+    import sqlite3
+
     db = str(tmp_path / "t.db")
     cfg = _cfg()
-    await runner.run_experiment(cfg, db)               # доигран до конца
+    first = await runner.run_experiment(cfg, db)       # доигран до конца
+    second = await runner.run_experiment(cfg, db)      # тот же конфиг -> новый номер, не «nothing to do»
+    assert first != second
+
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
+        hs = [h for (h,) in conn.execute("SELECT config_hash FROM runs")]
+        assert hs[0] == hs[1]                          # одинаковый конфиг -> одинаковый config_hash
+    finally:
+        conn.close()
+
+
+# ---- resume / extend (по явному номеру прогона) ----
+
+async def test_resume_unfinished_run_completes_to_configured_rounds(tmp_path):
+    # Эталон — прямой прогон на 4 раунда. Затем строим ОБОРВАННЫЙ прогон того же конфига
+    # (сыграно 2 из 4, без finish) и возобновляем — итог должен совпасть с эталоном.
+    import random
+
+    from src.core.orchestrator import run_episode
+    from src.population import make_population
+    from src.storage import Storage
+
+    cfg = _cfg(n=3, rounds=4)
+    ref_db = str(tmp_path / "ref.db")
+    ref_id = await runner.run_experiment(cfg, ref_db)
+    ref_scores = _final_scores(ref_db, ref_id)
+
+    db = str(tmp_path / "t.db")
+    pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
+    st = Storage(db)
+    rid = st.begin(cfg, pop)                                  # config хранит rounds=4
+    await run_episode(replace(cfg, rounds=2), pop, observer=st.observe)   # но сыграно лишь 2, без finish
+    st.close()
+    await pop.aclose()
+
+    done = await runner.resume_run(rid, db)                  # без rounds -> доиграть до сохранённых 4
+    assert done == rid
+    assert _final_scores(db, rid) == ref_scores              # возобновлённый == прямому прогону
+
+
+async def test_extend_finished_run_matches_straight_run(tmp_path):
+    # Доигранный прогон на 2 раунда, доращённый до 4, должен совпасть с прямым прогоном на 4.
+    cfg2 = _cfg(n=3, rounds=2)
+    cfg4 = _cfg(n=3, rounds=4)
+    ref_db = str(tmp_path / "ref.db")
+    ref_id = await runner.run_experiment(cfg4, ref_db)
+    ref_scores = _final_scores(ref_db, ref_id)
+
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(cfg2, db)              # доигран до 2
+    same = await runner.resume_run(rid, db, rounds=4)        # extend до 4
+    assert same == rid
+    assert _final_scores(db, rid) == ref_scores
+    import sqlite3
+    conn = sqlite3.connect(db)
+    try:
+        # rounds в сохранённом config вырос до 4, finished_at снова проставлен
+        assert json.loads(conn.execute("SELECT config FROM runs WHERE run_id=?", (rid,)).fetchone()[0])["rounds"] == 4
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
+        assert conn.execute("SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 4
+    finally:
+        conn.close()
+
+
+async def test_resume_already_complete_is_noop(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_cfg(rounds=2), db)
     capsys.readouterr()
-    again = await runner.run_experiment(cfg, db)       # тот же конфиг
-    assert again is None                               # ничего не делаем
-    assert "nothing to do" in capsys.readouterr().out
+    res = await runner.resume_run(rid, db)                   # уже сыграно 2 из 2
+    out = capsys.readouterr().out.lower()
+    assert res == rid
+    assert "nothing to do" in out
+    import sqlite3
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # без новых раундов
+    finally:
+        conn.close()
 
 
 async def test_no_judge_block_means_no_judge_call(tmp_path, monkeypatch):

@@ -8,15 +8,17 @@ together into one observer so the DB and the printed transcript never diverge.
 
 from __future__ import annotations
 
+import json
 import os
 import random
+from dataclasses import replace
 
-from src.core.config import EpisodeCfg
+from src.core.config import EpisodeCfg, episode_from_dict
 from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
 from src.providers.base import ProviderError
-from src.storage import DuplicateRunError, Storage
+from src.storage import Storage
 
 
 def narrate_round(r, plan, recs) -> None:
@@ -75,36 +77,19 @@ async def _judge_and_store(cfg, records, st) -> None:
     st.save_verdict(verdict, model=cfg.provider.model)
 
 
-def _handle_existing_run(st: Storage, run_id: str) -> bool:
-    """Решить, что делать с уже записанным прогоном того же конфига; True — запускать заново.
-
-    Завершённый прогон (есть finished_at) трогать не будем -> False (ничего не делаем).
-    Оборванный (без finished_at) удаляем и перезапускаем -> True. Единая точка расширения:
-    в будущем оборванный прогон можно вместо удаления продолжать (resume) с места обрыва.
-    """
-    if st.is_finished(run_id):
-        print("identical config already in DB — nothing to do "
-              "(change seed or config to re-run)")
-        return False
-    print(f"unfinished run {run_id} found in DB — deleting it and re-running")
-    st.delete_run(run_id)
-    return True
-
-
-async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
+async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> int:
     """Build the population, run the episode, persist + narrate each round, score it.
-    Returns the run_id, or None if this exact config is already stored (de-dup)."""
+
+    Returns the run_id (целочисленный автоинкремент). Каждый запуск — новый прогон:
+    дедупа по конфигу больше нет (повторный запуск того же конфига создаёт новый номер).
+    Возобновление/доращивание оборванных или завершённых прогонов — отдельный явный путь
+    по номеру прогона (см. resume, A5)."""
     pop = make_population(cfg.population, context_window=cfg.context_window).build(
         random.Random(cfg.seed)
     )
     st = Storage(db_path)
     try:
-        try:
-            run_id = st.begin(cfg, pop, name)    # INSERT runs+agents; fails if already stored
-        except DuplicateRunError as e:
-            if not _handle_existing_run(st, e.run_id):
-                return None
-            run_id = st.begin(cfg, pop, name)    # запись удалена -> начинаем заново
+        run_id = st.begin(cfg, pop, name)        # INSERT runs+agents; новый номер
 
         records: list = []                       # копим записи для LLM-судьи
 
@@ -134,7 +119,74 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None)
     return run_id
 
 
-async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | None:
+def _apply_run_state(pop, state) -> None:
+    """Наложить восстановленное состояние (счёт + память) на свежесобранную популяцию.
+
+    id агентов совпадают: популяция пересобрана из того же конфига тем же сидом, поэтому
+    имена сэмплируются идентично. Окно памяти живёт на агенте, не на объекте Memory, —
+    замена memory его не теряет."""
+    for agent in pop:
+        agent.score = state.scores[agent.id]
+        agent.memory = state.memories[agent.id]
+
+
+async def resume_run(run_id: int, db_path: str, rounds: int | None = None) -> int:
+    """Возобновить или дорастить существующий прогон по его номеру.
+
+    Без `rounds` — доигрываем оборванный прогон до `rounds` из его сохранённого конфига.
+    С `rounds` — растим до этого числа (extend); если уже сыграно столько же или больше —
+    ничего не делаем. Прошлые раунды читаются из БД (фактические пары), новые играются по
+    per-round rng, поэтому возобновимы и прогоны, записанные до перехода на per-round rng."""
+    st = Storage(db_path)
+    config_json = st.run_config(run_id)
+    if config_json is None:
+        print(f"run {run_id} not found in {db_path}")
+        st.close()
+        return run_id
+
+    cfg = episode_from_dict(json.loads(config_json))
+    if rounds is not None:
+        cfg = replace(cfg, rounds=rounds)               # extend: растим целевое число раундов
+    state = st.load_state(run_id, cfg.idle_payoff)
+    if state.last_round >= cfg.rounds:
+        print(f"run {run_id}: уже сыграно {state.last_round} раундов (>= {cfg.rounds}) — nothing to do")
+        st.close()
+        return run_id
+
+    pop = make_population(cfg.population, context_window=cfg.context_window).build(
+        random.Random(cfg.seed)
+    )
+    _apply_run_state(pop, state)
+    start = state.last_round + 1
+    print(f"Resuming run {run_id} into {db_path}: rounds {start}..{cfg.rounds}, "
+          f"{len(pop)} agents, seed={cfg.seed}")
+    try:
+        st.resume(run_id, cfg)                          # _run_id, снять finished_at, обновить config
+        def observer(r, plan, recs):                    # persist AND narrate each new round
+            st.observe(r, plan, recs)
+            narrate_round(r, plan, recs)
+
+        try:
+            await run_episode(cfg, pop, observer=observer, start_round=start)
+        except EpisodeAborted as e:
+            print(f"\nepisode aborted: {e} — run saved without finished_at")
+            return run_id
+        st.finish(pop)
+
+        bar = "=" * 60
+        print(f"\n{bar}\n  FINAL SCOREBOARD\n{bar}")
+        for a in sorted(pop, key=lambda a: a.score, reverse=True):
+            print(f"  {a.id}: {a.score:g}")
+        if cfg.judge is not None:                        # судья — отдельная аналитика по полному эпизоду
+            print("\n(LLM-судья не запускается при resume/extend — оцените прогон отдельно)")
+    finally:
+        st.close()
+        await pop.aclose()
+    print(f"\nrun_id={run_id}   (replay: uv run python replay.py {run_id})")
+    return run_id
+
+
+async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> int:
     """Top-level entry: print a header, run the experiment, print the replay hint."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     n_agents = sum(a.count for a in cfg.population.agents)
@@ -142,7 +194,6 @@ async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None) -> str | N
           f"{n_agents} agents, {cfg.rounds} rounds, seed={cfg.seed}")
 
     run_id = await run_experiment(cfg, db_path, name)
-    if run_id is not None:
-        print(f"\nrun_id={run_id}   "
-              f"(replay: uv run python replay.py {run_id})")
+    print(f"\nrun_id={run_id}   "
+          f"(replay: uv run python replay.py {run_id})")
     return run_id

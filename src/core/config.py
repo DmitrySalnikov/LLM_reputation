@@ -400,11 +400,12 @@ def _validate(d: dict) -> None:
             raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
 
 
-def load_episode(path: str) -> EpisodeCfg:
-    """Load one episode config from YAML. pyyaml resolves &anchors / *aliases itself,
-    so a provider shared via *default arrives as the same dict for every agent."""
-    with open(path) as f:
-        d = yaml.safe_load(f)
+def episode_from_dict(d: dict) -> EpisodeCfg:
+    """Собрать EpisodeCfg из словаря — общий путь для YAML и для сохранённого runs.config.
+
+    Принимает как YAML-словарь (load_episode), так и asdict(cfg) из БД (runner.resume_run
+    при возобновлении/доращивании прогона): обе формы структурно совпадают (game.payoffs —
+    вложенный dict, population.agents — список спеков). Валидация одна на оба пути."""
     _validate(d)
     return EpisodeCfg(
         seed=d["seed"],
@@ -417,3 +418,11 @@ def load_episode(path: str) -> EpisodeCfg:
         max_concurrency=d.get("max_concurrency", 4),
         judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
     )
+
+
+def load_episode(path: str) -> EpisodeCfg:
+    """Load one episode config from YAML. pyyaml resolves &anchors / *aliases itself,
+    so a provider shared via *default arrives as the same dict for every agent."""
+    with open(path) as f:
+        d = yaml.safe_load(f)
+    return episode_from_dict(d)

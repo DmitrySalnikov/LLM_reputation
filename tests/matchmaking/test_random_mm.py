@@ -16,10 +16,14 @@ def _ids(n):
     return [f"A{i}" for i in range(1, n + 1)]
 
 
-def _mm(ids, seed=0):
+def _mm(ids):
     mm = RandomMatchmaker()
-    mm.setup(ids, random.Random(seed), None)
+    mm.setup(ids, None)
     return mm
+
+
+def _rng(seed=0):
+    return random.Random(seed)
 
 
 # ---- Slice 1: types + factory ----
@@ -38,7 +42,7 @@ def test_factory_unknown_kind_raises():
 @pytest.mark.parametrize("n", [0, 1, 2, 3, 4, 5])
 async def test_partition_invariant(n):
     ids = _ids(n)
-    plan = await _mm(ids).plan_round(ids, 0)
+    plan = await _mm(ids).plan_round(ids, 0, _rng())
     paired = [x for pair in plan.pairings for x in pair]
     # every id appears exactly once across pairings ∪ idle
     assert sorted(paired + plan.idle) == sorted(ids)
@@ -54,24 +58,25 @@ async def test_partition_invariant(n):
 async def test_input_not_mutated():
     ids = _ids(4)
     snapshot = list(ids)
-    await _mm(ids).plan_round(ids, 0)
+    await _mm(ids).plan_round(ids, 0, _rng())
     assert ids == snapshot
 
 
 # ---- Slice 3: determinism + seams + integration with the game ----
 
 async def test_deterministic_same_seed():
+    # детерминизм теперь у вызывающего: одинаково засеянный rng -> одинаковая разбивка
     ids = _ids(6)
-    mm_a, mm_b = _mm(ids, 42), _mm(ids, 42)
+    mm_a, mm_b = _mm(ids), _mm(ids)
     for r in range(5):
-        assert await mm_a.plan_round(ids, r) == await mm_b.plan_round(ids, r)
+        assert await mm_a.plan_round(ids, r, _rng(r)) == await mm_b.plan_round(ids, r, _rng(r))
 
 
 async def test_different_seed_differs():
     ids = _ids(6)
-    mm_a, mm_b = _mm(ids, 1), _mm(ids, 2)
-    plans_a = [await mm_a.plan_round(ids, r) for r in range(5)]
-    plans_b = [await mm_b.plan_round(ids, r) for r in range(5)]
+    mm_a, mm_b = _mm(ids), _mm(ids)
+    plans_a = [await mm_a.plan_round(ids, r, _rng(r)) for r in range(5)]
+    plans_b = [await mm_b.plan_round(ids, r, _rng(100 + r)) for r in range(5)]
     assert plans_a != plans_b
 
 
@@ -83,7 +88,7 @@ async def test_seams_actor_ignored_and_events_empty():
     async def actor(*a, **k):
         actor_calls.append(1)
 
-    plan = await mm.plan_round(ids, 0, actor)
+    plan = await mm.plan_round(ids, 0, _rng(), actor)
     assert plan.events == []
     assert actor_calls == []                          # random matchmaker never calls actor
 
@@ -101,7 +106,7 @@ async def test_integration_matching_to_game():
     # 3 agents -> 1 pair + 1 idle; play the pair, idle agent stays untouched.
     agents = {i: _agent(i) for i in _ids(3)}
     ids = list(agents)
-    plan = await _mm(ids).plan_round(ids, 0)
+    plan = await _mm(ids).plan_round(ids, 0, _rng())
     assert len(plan.pairings) == 1 and len(plan.idle) == 1
 
     game = ReputationPD(GameCfg(max_talk_turns=0))

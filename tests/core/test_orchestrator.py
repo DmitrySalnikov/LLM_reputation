@@ -69,13 +69,13 @@ def _cfg(n=3, rounds=2, seed=0):
     )
 
 
-async def _run(cfg, observer=None):
+async def _run(cfg, observer=None, start_round=1):
     """Caller owns the population: build it, run, close it; return it for inspection."""
     pop = make_population(cfg.population, context_window=cfg.context_window).build(
         random.Random(cfg.seed)
     )
     try:
-        await orch.run_episode(cfg, pop, observer=observer)
+        await orch.run_episode(cfg, pop, observer=observer, start_round=start_round)
     finally:
         await pop.aclose()
     return pop
@@ -94,6 +94,18 @@ async def test_run_episode_drives_rounds(providers):
     assert sum(scores.values()) == pytest.approx(14.0)
     # one shared provider (same base_url/model), closed exactly once by the caller
     assert len(providers) == 1 and providers[0].closed == 1
+
+
+async def test_resume_from_start_round_skips_earlier_and_reproduces_pairings(providers):
+    # per-round rng -> пара раунда r одинакова, гоним мы с 1-го или «возобновляем» с 3-го
+    full = {}
+    await _run(_cfg(n=4, rounds=4), observer=lambda r, p, recs: full.__setitem__(r, p.pairings))
+    resumed = {}
+    await _run(_cfg(n=4, rounds=4),
+               observer=lambda r, p, recs: resumed.__setitem__(r, p.pairings),
+               start_round=3)
+    assert set(resumed) == {3, 4}                                   # раунды 1–2 пропущены
+    assert resumed[3] == full[3] and resumed[4] == full[4]          # те же пары, что в полном прогоне
 
 
 async def test_observer_gets_each_round(providers):

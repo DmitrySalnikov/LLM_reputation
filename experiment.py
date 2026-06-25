@@ -10,13 +10,19 @@ the run (stored in runs.name):
 
     uv run python experiment.py [config.yaml] ["run name"]
 
-Every run is appended to one DB ("one DB, many runs"), keyed by a hash of its config
-(run_id): re-running an identical config is skipped, so the DB de-dups. To force a fresh
-run, change the seed (or anything else in the config).
+Every run is appended to one DB ("one DB, many runs") under a fresh incremental run_id
+(1, 2, 3 …). Each invocation is a NEW run — re-running the same config no longer de-dups,
+it just gets the next number (handy for repeated runs of one config under a noisy LLM).
+The config's hash is still stored (runs.config_hash) to group runs of the same design.
+
+Resume an unfinished run or extend a finished one to more rounds (by run number):
+
+    uv run python experiment.py --resume 87              # finish #87 to its configured rounds
+    uv run python experiment.py --resume 87 --rounds 20  # grow #87 to 20 rounds
 
 Read a stored run back, round by round, with:
 
-    uv run python replay.py <run_id>
+    uv run python replay.py <run_id>        # run_id — число или config_hash
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ from dataclasses import replace
 from dotenv import load_dotenv
 
 from src.core.config import JudgeCfg, ProviderCfg, load_episode  # noqa: F401 (JudgeCfg/ProviderCfg used in commented example below)
-from src.runner import run
+from src.runner import resume_run, run
 
 load_dotenv()                       # подхватить ключи API из .env (например TOGETHER_API_KEY)
 
@@ -66,12 +72,25 @@ def configure_llm_trace() -> None:
     logger.addHandler(handler)
 
 
+def _flag(args, name):
+    """Значение флага `name X` или None, если флага нет."""
+    return args[args.index(name) + 1] if name in args else None
+
+
 if __name__ == "__main__":
     configure_llm_trace()           # opt-in трассировка LLM-входа (env/.env), до запуска
     args = sys.argv[1:]
-    config_path = args[0] if args else DEFAULT_CONFIG   # which episode YAML to run
-    name = args[1] if len(args) > 1 else None           # optional human label for the run
-    cfg = load_episode(config_path)
-    if JUDGE is not None:           # Python-переопределение судьи поверх YAML (см. JUDGE выше)
-        cfg = replace(cfg, judge=JUDGE)
-    asyncio.run(run(cfg, DB, name))
+    if "--resume" in args:
+        # Возобновить/дорастить существующий прогон по номеру:
+        #   experiment.py --resume 87            # доиграть оборванный #87 до его rounds
+        #   experiment.py --resume 87 --rounds 20 # дорастить #87 до 20 раундов
+        run_id = int(_flag(args, "--resume"))
+        rounds = _flag(args, "--rounds")
+        asyncio.run(resume_run(run_id, DB, int(rounds) if rounds is not None else None))
+    else:
+        config_path = args[0] if args and not args[0].startswith("-") else DEFAULT_CONFIG
+        name = args[1] if len(args) > 1 and not args[1].startswith("-") else None
+        cfg = load_episode(config_path)
+        if JUDGE is not None:       # Python-переопределение судьи поверх YAML (см. JUDGE выше)
+            cfg = replace(cfg, judge=JUDGE)
+        asyncio.run(run(cfg, DB, name))
