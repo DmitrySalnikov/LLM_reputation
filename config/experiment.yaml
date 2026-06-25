@@ -1,47 +1,76 @@
 #   uv run python experiment.py
 
 # ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 11                      # drives population build + matchmaker rng (change to force a fresh run)
+seed: 11
 rounds: 2
-max_concurrency: 5            # pairings played in parallel per round
+max_concurrency: 5
 matchmaker: random            # only "random" in the MVP
-context_window: null          # null = each agent sees its whole memory; int = last N entries
-idle_payoff: 1                # what an agent scores in a round it sits out (odd population)
+context_window: null          # null = whole memory; int = last N entries
+idle_payoff: 1
 
 # ── Population (src/core/config.py: PopulationCfg) ────────────────────────────
 population:
-  # System opener, shared by all agents ({id} -> agent id).
-  identity_prompt: "You are AI agent {id}."
-  # Per-agent keys: persona (null -> omit it), count, play_strategy ("direct"|"prediction"),
-  # prediction_mapping ("match"|"one_above", only for prediction). Strategy is per-spec now,
-  # so a population can mix direct and prediction agents.
+  system_default: &system_default |-
+    You are AI agent {id}.
+
+    You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
+
+    How each round works:
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+
+    Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
+    - Equal numbers: you each score {R}.
+    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
+    - Your co-player's number is exactly one higher than yours: it scores {T}, you - {S}.
+    - Any other case: you each score {P}.
+
+    Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
+
+    Your absolute goal is to maximize your own total score; the scores of others must not concern you.
+  system_defect: &system_defect |-
+    You are AI agent {id}.
+
+    You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
+
+    How each round works:
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+
+    Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
+    - Equal numbers: you each score {R}.
+    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
+    - Your co-player's number is exactly one higher than yours: it scores {T}, you - {S}.
+    - Any other case: you each score {P}.
+
+    Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
+
+    You have a specific role in this game which is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number which is one higher than your co-player.
+  # play_strategy ("direct"|"prediction"), prediction_mapping ("match"|"one_above")
   agents:
-    # - {persona: "You are a cautious player who values trust.", count: 3}
-    # - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 3}
-    - {persona: null, count: 2, play_strategy: 'direct', prediction_mapping: 'match'}
-    # - {persona: null, count: 2, play_strategy: 'prediction', prediction_mapping: 'one_above'}
-  # One LLM provider, shared by all agents
+    - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
+    - {count: 1, play_strategy: 'direct', system_prompt: *system_defect}
   provider:
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
     # model: llama3.1:8b
-    base_url: https://api.together.xyz/v1  # Together.ai — раскомментируй блок под serverless-модель
-    api_key_env: TOGETHER_API_KEY          # имя env-переменной с ключом (значение в .env, см. .gitignore)
-    # model: openai/gpt-oss-20b
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY             # имя env-переменной с ключом (значение в .env)
     model: meta-llama/Meta-Llama-3-8B-Instruct-Lite
     temperature: 0.7
     max_tokens: 2000
-    timeout_s: 300                # HTTP timeout per LLM call, seconds
+    timeout_s: 300                            # HTTP timeout per LLM call, seconds
   kind: roster
-  # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
+  Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
+  # last_name_pool:  [348, 712, 905, 246, 583, 167, 829, 471, 630, 394]
 
 # ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 10                  # hard ceiling on total cheap-talk turns in a pairing
+  max_talk_turns: 6                   # hard ceiling on total cheap-talk turns in a pairing
   memory_notes_every: 0               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
@@ -49,8 +78,8 @@ game:
   talk_stop_rule: both_ready_latch    # only this rule in the MVP
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
-  # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time:
-  #   rules:           {R}/{T}/{P}/{S} — from `payoffs`; {max_talk_turns} — from `max_talk_turns` above
+  # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.
+  # NB: правила игры теперь живут в system_prompt агента (см. &system_default выше), а не здесь.
   #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
   #   talk_open:       {partner} {round} {feed}
   #   decide:          {partner} {round} {feed} {reason}; rationale выбирает decide_prompt|decide_prompt_bare
@@ -62,55 +91,50 @@ game:
   # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
   # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
   # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
-  rules: |-
-    You are playing a modified prisoner dilemma game. Each round you face one random opponent; during the game you may face the same player more than once.
-
-    How each round works:
-    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
-    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
-
-    Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
-    - Equal numbers: you each score {R}.
-    - Your number is exactly one higher than your opponent's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
-    - Your opponent's number is exactly one higher than yours: it scores {T}, you - {S}.
-    - Any other case: you each score {P}.
-
-    Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
-
-    Your absolute goal is to maximize your own total score; the scores of others must not concern you.
+  # (правила игры — в system_prompt агента, см. &system_default выше)
   talk_prompt: |-
-    <game>Round {round} · opponent {partner}
+    <game>Round {round} · co-player {partner}
     The chat has been open.</game>
     {feed}
-    <game>Your turn — reply to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
-    Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
+    <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
   # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
-    <game>Round {round} · opponent {partner}
-    The chat has been open. You speak first this round — send a short message to your opponent. Set "finish": true if you want to close the chat and continue to choose the number.
-    Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}</game>
-  # rationale=false -> активны *_bare шаблоны (только число). Чтобы агент рассуждал перед
-  # числом, поставь rationale: true (тогда возьмутся decide_prompt/predict_prompt — здесь не
-  # заданы, подставятся DEFAULT_* с «Reason first…»). {reason} — как закрылся чат.
+    <game>Round {round} · co-player {partner}
+    The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  # rationale=false -> активны *_bare шаблоны (только число). rationale: true -> берутся
+  # decide_prompt/predict_prompt (рассуждать перед числом). Оба варианта заданы здесь явно,
+  # чтобы конфиг был самодостаточен (без падения на код-дефолты). {reason} — как закрылся чат.
+  decide_prompt: |-
+    <game>Round {round} · co-player {partner}
+    The chat has been open.</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Choose the number. Reason first, then commit to a number. Please, write your reasoning and number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
   decide_prompt_bare: |-
-    <game>Round {round} · opponent {partner}
+    <game>Round {round} · co-player {partner}
     The chat has been open.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Choose the number.
-    Please, write your number in the following JSON format: {"number": <0-9>}</game>
-  # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/
-  # закрытия, только директива: предсказать число оппонента.
+    <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
+  # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/закрытия, только директива: предсказать число co-player.
+  predict_prompt: |-
+    <game>Round {round} · co-player {partner}
+    The chat has been open.</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Reason first, then commit to a number. Please, write your reasoning and the predicted number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
   predict_prompt_bare: |-
-    <game>Round {round} · opponent {partner}
+    <game>Round {round} · co-player {partner}
     The chat has been open.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Predict the number your opponent will secretly choose.
-    Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
+    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
   # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
-    <game>Round {round} · opponent {partner}
+    <game>Round {round} · co-player {partner}
     The chat has been open.</game>
+  # {opener} — кто открыл раунд (фраза одинакова в истории и в живом talk). Заданы явно,
+  # чтобы не падать на код-дефолт opener_self с «opponent».
+  opener_self: |-
+    You speak first this round — send a short message to your co-player. Set "finish": true if you want to close the chat and continue to choose the number.
+  opener_partner: "{partner} starts first:"
   msg_self: <you>{text}</you>
   msg_partner: <{partner}>{text}</{partner}>
   history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>
@@ -130,19 +154,18 @@ game:
   history_reflection_prompt: "<you>(my takeaway: {my_reflection})</you>"
   # Used only when reflection=true:
   reflect_prompt: |-
-    Current round: [Round {round} · opponent {partner} · score {score}]
+    Current round: [Round {round} · co-player {partner} · score {score}]
     Talk:
     {feed}
 
     The round is over. {me} picked {my_number}, {partner} picked {partner_number}. You scored {payoff} points.
-    Reflect briefly on this outcome: what does it tell you about this opponent, and what should you do differently (or keep doing) in future rounds?
+    Reflect briefly on this outcome: what does it tell you about this co-player, and what should you do differently (or keep doing) in future rounds?
     Respond ONLY as JSON: {"reflection": "<short reflection>"}
   # Used only when memory_notes_every > 0: the agent rewrites its memory into notes that then
   # replace the raw round-by-round history (full memory arrives above as history). Wrapped in
   # <game> like the other instructions.
   notes_prompt: |-
-    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds.
-    Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
+    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
   # Memory rendering when notes are on: <game> section headers frame the parts; the saved notes
   # themselves go in <you> (the agent's own private memo). The buffer header's <game> meets the
   # first buffered round's <game> and the seam collapses, so the header opens that round's block.

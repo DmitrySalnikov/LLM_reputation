@@ -99,7 +99,7 @@ def _decide(n, rationale="r"):
 
 def _agent(id):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), ScriptedProvider([_decide(4)]))
+    return Agent(id, AgentSetup(f"You are {id}.", cfg), ScriptedProvider([_decide(4)]))
 
 
 async def test_integration_matching_to_game():

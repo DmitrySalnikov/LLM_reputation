@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.core.config import GameCfg
 from src.games.prompts import (
-    decide_context, notes_context, predict_context, reflect_context, rules_text, talk_context,
+    decide_context, notes_context, predict_context, reflect_context, talk_context,
 )
 
 
@@ -24,12 +24,6 @@ def test_talk_context_uses_open_template_on_empty_feed():
 def test_notes_context_fills_round_and_score():
     cfg = GameCfg(notes_prompt="Consolidate at round {round}, score {score}.")
     assert notes_context(cfg, 4, 12.0) == "Consolidate at round 4, score 12."
-
-
-def test_rules_text_fills_payoff_and_talk_turn_placeholders():
-    cfg = GameCfg(max_talk_turns=4,
-                  rules="R={R} T={T} P={P} S={S}, talk budget {max_talk_turns}")
-    assert rules_text(cfg) == "R=3 T=5 P=1 S=0, talk budget 4"
 
 
 def test_decide_template_puts_rationale_before_number():

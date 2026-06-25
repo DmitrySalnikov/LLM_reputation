@@ -60,7 +60,7 @@ def providers(monkeypatch):
 
 
 def _cfg(n=3, rounds=2, seed=0):
-    spec = AgentSpec(persona="p", count=n)
+    spec = AgentSpec(count=n)
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
@@ -164,7 +164,7 @@ async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
 async def test_per_round_game_params_change_via_schedule(providers):
     # n=2 -> 1 пара/раунд, max_talk_turns=0 -> детерминированный CC (оба берут 4).
     # patch с раунда 2 меняет payoff R (CC) с 3 на 7. Раунд 1 идёт по базе.
-    spec = AgentSpec(persona="p", count=2)
+    spec = AgentSpec(count=2)
     cfg = EpisodeCfg(
         seed=0, rounds=3, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],
@@ -179,7 +179,7 @@ async def test_per_round_game_params_change_via_schedule(providers):
 
 async def test_schedule_patch_honored_on_resume(providers):
     # возобновление с раунда 2 должно видеть patch раунда 2 (та же материализация cfg_for_round)
-    spec = AgentSpec(persona="p", count=2)
+    spec = AgentSpec(count=2)
     cfg = EpisodeCfg(
         seed=0, rounds=2, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],
@@ -193,7 +193,7 @@ async def test_schedule_patch_honored_on_resume(providers):
 
 def _pred_cfg(n=2, rounds=1, seed=0):
     # стратегия теперь per-agent: вся популяция — prediction/one_above
-    spec = AgentSpec(persona="p", count=n, play_strategy="prediction", prediction_mapping="one_above")
+    spec = AgentSpec(count=n, play_strategy="prediction", prediction_mapping="one_above")
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,

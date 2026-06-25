@@ -77,12 +77,13 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 5. **Record**: a `PairingRecord` (`src/games/base.py:9`) is returned and each
    agent's `Memory` gets an entry (including the reflection, which the diary
    feeds back into the agent's future LLM inputs). `Memory.render` replays each
-   past round to the agent as a **game transcript** using the tags the rules
-   declare — `<game>` / `<you>` / `<opponent name>` — so the whole LLM input
-   (history + the current round's live `{feed}` and prompt) reads as one
+   past round to the agent as a **game transcript** using the tags the agent's
+   `system_prompt` declares — `<game>` / `<you>` / `<opponent name>` — so the whole LLM
+   input (history + the current round's live `{feed}` and prompt) reads as one
    continuous transcript. The line templates live in `GameCfg`
    (`history_*`, `msg_*`, `opener_*`, `reason_*`) and ride into `render` via
-   `Phase.game_cfg`, exactly like `rules`; `render_turns` (`src/core/memory.py`)
+   `Phase.game_cfg` (which also carries the payoffs substituted into the system prompt);
+   `render_turns` (`src/core/memory.py`)
    renders the cheap-talk lines for both the history and the live feed. Line
    wording is shared across phases so a line type reads identically live and in
    history. The game computes the per-round bits once and threads them into the

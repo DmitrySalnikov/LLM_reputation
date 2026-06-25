@@ -44,16 +44,21 @@ def test_provider_line_puts_model_last():
     assert _provider_line(prov) == "provider: temp=0.7 max_tokens=2000 model=llama3.1:8b"
 
 
-def test_roster_line_shows_persona_and_count():
-    assert _roster_line({"persona": "pragmatic", "count": 3}) == "  3x pragmatic"
+def test_roster_line_shows_system_prompt_and_count():
+    assert _roster_line({"system_prompt": "You are X.", "count": 3}) == "  3x You are X."
 
 
-def test_roster_line_renders_null_persona_as_placeholder():
-    assert _roster_line({"persona": None, "count": 1}) == "  1x (no persona)"
+def test_roster_line_truncates_long_system_prompt_to_one_line():
+    line = _roster_line({"system_prompt": "L" * 200, "count": 1})
+    assert line.startswith("  1x ") and line.endswith("…") and len(line) <= 5 + 80
 
 
 def test_roster_line_count_defaults_to_one():
-    assert _roster_line({"persona": "p"}) == "  1x p"
+    assert _roster_line({"system_prompt": "p"}) == "  1x p"
+
+
+def test_roster_line_falls_back_to_legacy_persona():
+    assert _roster_line({"persona": "pragmatic", "count": 2}) == "  2x pragmatic"
 
 
 def test_cited_set_parses_evidence_json():

@@ -81,9 +81,9 @@ class Storage:
             run_id = cur.lastrowid
             self._run_id = run_id
             self._conn.executemany(
-                "INSERT INTO agents(run_id, agent_id, persona, provider) VALUES (?,?,?,?)",
+                "INSERT INTO agents(run_id, agent_id, system_prompt, provider) VALUES (?,?,?,?)",
                 [
-                    (run_id, a.id, a.setup.persona, json.dumps(asdict(a.setup.provider_cfg)))
+                    (run_id, a.id, a.setup.system_prompt, json.dumps(asdict(a.setup.provider_cfg)))
                     for a in pop
                 ],
             )

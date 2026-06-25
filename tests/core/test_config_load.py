@@ -105,8 +105,8 @@ def test_defaults_applied(tmp_path):
     assert cfg.game.payoffs.R == 3.0
 
 
-def test_persona_optional_defaults_to_none(tmp_path):
-    f = tmp_path / "no_persona.yaml"
+def test_agent_spec_minimal_uses_default_system_prompt(tmp_path):
+    f = tmp_path / "minimal.yaml"
     f.write_text(textwrap.dedent(
         """
         seed: 1
@@ -119,8 +119,9 @@ def test_persona_optional_defaults_to_none(tmp_path):
             - {}
         """
     ))
+    from src.core.config import DEFAULT_SYSTEM_PROMPT
     cfg = load_episode(str(f))
-    assert cfg.population.agents[0].persona is None
+    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT
 
 
 def test_provider_required_at_population_level(tmp_path):
@@ -140,8 +141,8 @@ def test_provider_required_at_population_level(tmp_path):
         load_episode(str(f))
 
 
-def test_identity_prompt_defaults_when_omitted(tmp_path):
-    f = tmp_path / "no_identity.yaml"
+def test_system_prompt_defaults_when_omitted(tmp_path):
+    f = tmp_path / "no_system.yaml"
     f.write_text(textwrap.dedent(
         """
         seed: 1
@@ -151,15 +152,16 @@ def test_identity_prompt_defaults_when_omitted(tmp_path):
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
           agents:
-            - {persona: "p"}
+            - {count: 1}
         """
     ))
-    cfg = load_episode(str(f))                        # identity_prompt — общий на популяцию, с дефолтом
-    assert cfg.population.identity_prompt == "You are AI agent {id}."
+    from src.core.config import DEFAULT_SYSTEM_PROMPT
+    cfg = load_episode(str(f))                        # system_prompt опущен -> дефолт (преамбула + правила)
+    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT
 
 
-def test_identity_prompt_loaded_from_population_block(tmp_path):
-    f = tmp_path / "human.yaml"
+def test_system_prompt_loaded_per_agent(tmp_path):
+    f = tmp_path / "custom.yaml"
     f.write_text(textwrap.dedent(
         """
         seed: 1
@@ -168,13 +170,37 @@ def test_identity_prompt_loaded_from_population_block(tmp_path):
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
-          identity_prompt: "You are a human player named {id}."
           agents:
-            - {persona: "p"}
+            - {count: 1, system_prompt: "You are {id}, a ruthless trader. {R}/{T}/{P}/{S}."}
         """
     ))
     cfg = load_episode(str(f))
-    assert cfg.population.identity_prompt == "You are a human player named {id}."
+    assert cfg.population.agents[0].system_prompt == "You are {id}, a ruthless trader. {R}/{T}/{P}/{S}."
+
+
+def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
+    # старые сохранённые конфиги (persona/identity_prompt/game.rules) должны грузиться,
+    # просто теряя удалённые поля — а не падать
+    f = tmp_path / "legacy.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {rules: "OLD RULES TEXT"}
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          identity_prompt: "You are AI agent {id}."
+          agents:
+            - {persona: "p", count: 1}
+        """
+    ))
+    from src.core.config import DEFAULT_SYSTEM_PROMPT
+    cfg = load_episode(str(f))
+    assert not hasattr(cfg.population, "identity_prompt")
+    assert not hasattr(cfg.game, "rules")
+    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT   # persona отброшена -> дефолт
 
 
 def test_missing_required_raises(tmp_path):

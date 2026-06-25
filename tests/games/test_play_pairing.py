@@ -3,14 +3,16 @@ from __future__ import annotations
 from conftest import ScriptedProvider
 
 from src.core.agent import Agent, AgentSetup
-from src.core.config import GameCfg, ProviderCfg
+from src.core.config import DEFAULT_RULES, GameCfg, ProviderCfg
 from src.games.reputation_pd import ReputationPD
 from src.providers.base import HttpAttempt, ProviderUnavailable
 
 
 def _agent(id, replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
+    # правила теперь часть system_prompt (склейки нет) — кладём их сюда, чтобы фаза DECIDE
+    # по-прежнему получала текст правил в системном промпте
+    return Agent(id, AgentSetup(f"You are {id}.\n\n" + DEFAULT_RULES, cfg), ScriptedProvider(replies))
 
 
 class RaisingProvider:
@@ -31,7 +33,7 @@ class RaisingProvider:
 
 def _raising_agent(id, attempts):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent(id, AgentSetup(f"You are {id}.", cfg, "You are AI agent {id}."), RaisingProvider(attempts))
+    return Agent(id, AgentSetup(f"You are {id}.", cfg), RaisingProvider(attempts))
 
 
 def _decide(n, rationale="r"):

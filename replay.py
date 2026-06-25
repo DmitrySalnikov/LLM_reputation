@@ -49,8 +49,13 @@ def _trim_ms(ts):
 
 
 def _roster_line(spec):
-    """Одна строка ростера 'Nx <persona>'; пустая (null) персона -> '(no persona)'."""
-    return f"  {spec.get('count', 1)}x {spec.get('persona') or '(no persona)'}"
+    """Одна строка ростера 'Nx <system_prompt…>'; промпт длинный -> усекаем в одну строку.
+
+    Старые прогоны (до объединения system) хранили persona — показываем её, если она есть."""
+    sp = (spec.get("system_prompt") or spec.get("persona") or "(default system prompt)").replace("\n", " ")
+    if len(sp) > 80:
+        sp = sp[:79] + "…"
+    return f"  {spec.get('count', 1)}x {sp}"
 
 
 def _provider_line(prov):

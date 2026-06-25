@@ -57,6 +57,13 @@ DEFAULT_RULES = (
     "respond only with the exact JSON requested in that message."
 )
 
+# Полный системный промпт агента — ОДНА строка-шаблон. Прежней склейки identity+persona+rules
+# больше нет: весь system задаётся одним полем AgentSpec.system_prompt. Движок подставляет в нём
+# только параметры {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns} (Agent.system_prompt); всё
+# остальное берётся дословно. Дефолт воспроизводит прежний текст (преамбула + правила); удобно
+# задавать общий промпт YAML-якорем (&system_default) и подключать ссылкой (*system_default).
+DEFAULT_SYSTEM_PROMPT = DEFAULT_IDENTITY_PROMPT + "\n\n" + DEFAULT_RULES
+
 # Фраза «ты открываешь раунд» — общий текст для истории (прошлый раунд, где первым ходил
 # сам агент) и для живого talk_open_prompt, чтобы обе фазы читались дословно одинаково.
 _OPENER_SELF = (
@@ -220,7 +227,6 @@ class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
-    rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
     talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
     # rationale=True -> используется *_prompt (просит рассуждать перед числом),
@@ -289,10 +295,12 @@ class JudgeCfg:
 
 @dataclass(frozen=True)
 class AgentSpec:
-    persona: str | None      # None -> агент без persona (только преамбула + правила в system)
     count: int = 1                   # how many agents of this type to build
     play_strategy: str = "direct"        # "direct" | "prediction" — стратегия игры этого спека
     prediction_mapping: str = "match"    # отображение predict->выбор (только при play_strategy="prediction")
+    # Полный system агента (ОДНА строка). Прежних persona/identity_prompt/rules нет — всё тут.
+    # Подставляются {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns}; задаётся обычно YAML-якорем.
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
 @dataclass(frozen=True)
@@ -300,11 +308,8 @@ class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
     # Провайдер LLM, общий на всю популяцию (вариативность модели между агентами не нужна —
-    # это фиксированная рамка эпизода, как и правила/identity). Обязателен, дефолта нет.
+    # это фиксированная рамка эпизода). Обязателен, дефолта нет.
     provider: ProviderCfg
-    # Преамбула system-промпта, общая на всю популяцию ({id} -> id агента). Дефолт
-    # покрывает обычный случай; перекрывается полем identity_prompt в блоке population.
-    identity_prompt: str = DEFAULT_IDENTITY_PROMPT
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
@@ -355,6 +360,7 @@ def _provider_cfg(d: dict) -> ProviderCfg:
 
 def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
+    d.pop("rules", None)             # legacy: правила больше не отдельное поле — едут внутри system_prompt
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
     return GameCfg(payoffs=payoffs, **d)
 
@@ -367,17 +373,19 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
+    # legacy-ключи persona/identity_prompt просто игнорируются (a.get их не читает) — старые
+    # сохранённые конфиги по-прежнему грузятся, лишившись лишь удалённых полей.
     agents = [
-        AgentSpec(persona=a.get("persona"), count=a.get("count", 1),
+        AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
-                  prediction_mapping=a.get("prediction_mapping", "match"))
+                  prediction_mapping=a.get("prediction_mapping", "match"),
+                  system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         for a in d["agents"]
     ]
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
         provider=_provider_cfg(d["provider"]),
-        identity_prompt=d.get("identity_prompt", DEFAULT_IDENTITY_PROMPT),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
     )

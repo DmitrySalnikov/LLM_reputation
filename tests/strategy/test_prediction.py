@@ -10,12 +10,12 @@ from src.strategy.prediction import PredictionStrategy
 
 def _agent(replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent("A1", AgentSetup("You are A1.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
+    return Agent("A1", AgentSetup("You are A1.", cfg), ScriptedProvider(replies))
 
 
 async def test_prediction_maps_predicted_to_final_choice():
     agent = _agent(['{"number": 4, "rationale": "mid"}'])
-    d = await PredictionStrategy(get_mapping("one_above"), GameCfg()).decide(agent, "A2", 1, "", "R")
+    d = await PredictionStrategy(get_mapping("one_above"), GameCfg()).decide(agent, "A2", 1, "")
     assert d.predicted == 4          # predict-step output
     assert d.number == 5             # one_above mapping applied (4 -> 5)
     assert d.predicted_rationale == "mid"
@@ -24,14 +24,14 @@ async def test_prediction_maps_predicted_to_final_choice():
 
 async def test_prediction_match_mapping_is_identity():
     agent = _agent(['{"number": 8, "rationale": "high"}'])
-    d = await PredictionStrategy(get_mapping("match"), GameCfg()).decide(agent, "A2", 1, "", "R")
+    d = await PredictionStrategy(get_mapping("match"), GameCfg()).decide(agent, "A2", 1, "")
     assert d.predicted == 8 and d.number == 8
 
 
 async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
     agent = _agent(['{"number": 4, "rationale": "volunteered anyway"}'])
     d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=False)).decide(
-        agent, "A2", 1, "", "R")
+        agent, "A2", 1, "")
     assert d.predicted == 4 and d.number == 5
     assert d.rationale == "" and d.predicted_rationale is None   # bare-шаблон -> обоснование не хранится
     _, messages = agent.provider.calls[0]

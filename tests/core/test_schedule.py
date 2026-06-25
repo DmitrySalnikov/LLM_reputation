@@ -6,7 +6,7 @@ from src.core.config import (
 
 
 def _base(**kw):
-    spec = AgentSpec(persona="p", count=2)
+    spec = AgentSpec(count=2)
     return EpisodeCfg(
         seed=0, rounds=10, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],

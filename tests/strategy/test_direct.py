@@ -9,12 +9,12 @@ from src.strategy.direct import DirectStrategy
 
 def _agent(replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    return Agent("A1", AgentSetup("You are A1.", cfg, "You are AI agent {id}."), ScriptedProvider(replies))
+    return Agent("A1", AgentSetup("You are A1.", cfg), ScriptedProvider(replies))
 
 
 async def test_direct_returns_parsed_number_no_prediction():
     agent = _agent(['{"number": 6, "rationale": "because"}'])
-    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="", rules="R")
+    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="")
     assert d.number == 6
     assert d.rationale == "because"
     assert d.predicted is None
@@ -23,14 +23,14 @@ async def test_direct_returns_parsed_number_no_prediction():
 
 async def test_direct_threads_llm_calls():
     agent = _agent(['{"number": 6, "rationale": "because"}'])
-    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="", rules="R")
+    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="")
     assert [c.phase for c in d.calls] == ["decide"]   # сырой вызов протянут наверх
     assert d.calls[0].status == "ok"
 
 
 async def test_direct_rationale_off_asks_bare_number_and_drops_text():
     agent = _agent(['{"number": 6, "rationale": "volunteered anyway"}'])
-    d = await DirectStrategy(GameCfg(rationale=False)).decide(agent, "A2", round=1, feed="", rules="R")
+    d = await DirectStrategy(GameCfg(rationale=False)).decide(agent, "A2", round=1, feed="")
     assert d.number == 6
     assert d.rationale == ""                      # rationale=false -> bare-шаблон, обоснование не хранится
     _, messages = agent.provider.calls[0]

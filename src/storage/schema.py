@@ -21,11 +21,11 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-    run_id      INTEGER NOT NULL,
-    agent_id    TEXT NOT NULL,
-    persona     TEXT,
-    provider    TEXT NOT NULL,
-    final_score REAL,
+    run_id        INTEGER NOT NULL,
+    agent_id      TEXT NOT NULL,
+    system_prompt TEXT,
+    provider      TEXT NOT NULL,
+    final_score   REAL,
     PRIMARY KEY (run_id, agent_id),
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );

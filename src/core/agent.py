@@ -50,8 +50,7 @@ class PhaseKind(Enum):
 class Phase:
     kind: PhaseKind
     context: str          # rendered situation + output instruction (becomes a user message)
-    rules: str = ""       # static game rules; the agent puts them in `system` after the persona
-    game_cfg: GameCfg | None = None  # шаблоны транскрипта истории; None -> дефолтные (как и rules, едет от игры)
+    game_cfg: GameCfg | None = None  # шаблоны транскрипта истории + payoff'ы для подстановки в system; едет от игры
 
 
 @dataclass(frozen=True)
@@ -102,9 +101,8 @@ class ActResult:
 
 @dataclass(frozen=True)
 class AgentSetup:
-    persona: str | None       # None -> в system только преамбула (+ правила)
+    system_prompt: str        # полный system агента (ОДНА строка-шаблон); {id} и payoff'ы подставит Agent.system_prompt
     provider_cfg: ProviderCfg
-    identity_prompt: str      # преамбула system; {id} -> id агента (общая на популяцию, см. PopulationCfg)
     # Стратегия игры этого агента — простые строки (core не импортирует strategy; объект
     # стратегии собирается на уровне игры, см. ReputationPD._strategy_for).
     play_strategy: str = "direct"        # "direct" | "prediction"
@@ -152,16 +150,23 @@ class Agent:
         self.parse_failures = 0
         self._window = context_window
 
-    def system_prompt(self, rules: str = "") -> str:
-        system = self.setup.identity_prompt.replace("{id}", self.id)
-        if self.setup.persona:
-            system = f"{system}\n\n{self.setup.persona}"
-        if rules:
-            system = f"{system}\n\n{rules}"
+    def system_prompt(self, game_cfg: "GameCfg | None" = None) -> str:
+        """Полный system агента: шаблон self.setup.system_prompt с подставленными {id} и payoff'ами.
+
+        Прежней склейки (identity + persona + rules) нет — system задаётся одной строкой.
+        {id} подставляется всегда; payoff-параметры {R}/{T}/{P}/{S}/{max_talk_turns} — когда
+        известен game_cfg (для всех боевых фаз он едет в Phase.game_cfg)."""
+        system = self.setup.system_prompt.replace("{id}", self.id)
+        if game_cfg is not None:
+            p = game_cfg.payoffs
+            system = (system
+                      .replace("{R}", f"{p.R:g}").replace("{T}", f"{p.T:g}")
+                      .replace("{P}", f"{p.P:g}").replace("{S}", f"{p.S:g}")
+                      .replace("{max_talk_turns}", str(game_cfg.max_talk_turns)))
         return system
 
     async def act(self, phase: Phase) -> ActResult:
-        system = self.system_prompt(phase.rules)
+        system = self.system_prompt(phase.game_cfg)
         # NOTE сворачивает память в заметки — для этого видит её целиком (без окна),
         # чтобы ничего не потерять при консолидации; остальные фазы — с окном.
         window = None if phase.kind is PhaseKind.NOTE else self._window

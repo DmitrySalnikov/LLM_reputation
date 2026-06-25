@@ -53,7 +53,7 @@ resume/extend (it's a whole-episode analytics pass — score the run separately)
 | `context_window` | per-agent memory window; `null` = unbounded |
 | `idle_payoff` | what an odd-one-out agent scores when it sits a round out |
 | `max_concurrency` | semaphore size for concurrent pairings |
-| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`), `memory_notes_every` (0 = off; every N rounds an agent has actually played — counted per-agent, idle rounds excluded — it rewrites its memory into private notes via a NOTE call that then replace the raw round history; default `0`), and the prompt templates `rules`, `talk_prompt`, `talk_open_prompt` (first turn of a round, empty feed — the agent opens the talk; no `{feed}`), `decide_prompt`, `predict_prompt`, `reflect_prompt`, `notes_prompt` (placeholders `{round} {score}`; used only when `memory_notes_every > 0`; `<game>`-wrapped like the other instructions), `notes_block_prompt` (`{notes}` — how saved notes are rendered back into the transcript: `<you>{notes}</you>`, since the notes are the agent's own private memo), `notes_header`/`buffer_header` (`<game>`-tagged section labels framing the notes vs the raw buffer of rounds since consolidation; the buffer header's `<game>` fuses with the first buffered round's `<game>` at the seam) — each defaults to a `DEFAULT_*` in `src/core/config.py`; delete a key to use the default. **All prompts are static templates — only the named placeholders are substituted, never assembled from text chunks.** DECIDE/PREDICT come as two complete static templates each: `decide_prompt`/`predict_prompt` (ask to reason first, then the number) and `decide_prompt_bare`/`predict_prompt_bare` (number only). The `rationale` flag (default `true`) picks **one whole template** — `rationale: false` selects the `_bare` variant — and also gates whether the returned reasoning is stored (blanked when off). There is no `{answer}` chunk-assembly. `predict_prompt` mirrors `decide_prompt` byte-for-byte except the directive (predict the opponent's number vs choose your own); all four take placeholders `{round} {partner} {feed} {reason}` (`{reason}` = how the chat closed — `reason_limit`/`reason_agreed`, the **same wording** the history close line uses). The whole LLM input is one **game transcript**: past rounds are replayed by `Memory.render` with the tags the rules declare (`<game>`/`<you>`/`<opponent name>`), and the current round's `{feed}` uses the same tags. The line templates are shared so a given line type reads identically in history and live: the live `talk_prompt` round-open carries `{opener}` (who started the round — `opener_self`/`opener_partner`, the same phrase history uses), `opener_self` is the exact text `talk_open_prompt` opens with, and `history_close_prompt` matches the live decide close line. Transcript line templates are config (defaulted): `history_round_prompt` (`{round} {partner} {opener}`), `opener_self`/`opener_partner` (`{partner} starts first:`), `msg_self`/`msg_partner` (one cheap-talk line, `{text}`/`{partner}`), `history_close_prompt` (`{reason}`), `reason_limit`/`reason_agreed`, `history_result_prompt` (`{round} {partner} {partner_number} {payoff} {partner_payoff} {total}`, where `{total}` is the score **after** the round; the agent's own number is shown just above as a `<you>` line). The running score therefore lives in the history result lines, not in the talk/decide headers. After the result line, up to three **private trace** lines (the agent's own `<you>` scratch notes) may follow, each behind its **own flag** and rendered only when its field is populated: `history_predicted_prompt` (`{partner} {my_predicted}`, gated by `show_predicted`; set only for prediction agents), `history_rationale_prompt` (`{my_rationale}`, gated by `show_rationale`), `history_reflection_prompt` (`{my_reflection}`, gated by `show_reflection`). All three flags default `true`. In cheap talk the agent-facing JSON key to close the chat is `finish` (stored internally as `ready`) |
+| `game` | `GameCfg`: `payoffs {R,T,P,S}`, `max_talk_turns`, `reflection` (extra post-game REFLECT call per agent, stored in memory; default `false`), `memory_notes_every` (0 = off; every N rounds an agent has actually played — counted per-agent, idle rounds excluded — it rewrites its memory into private notes via a NOTE call that then replace the raw round history; default `0`), and the prompt templates `talk_prompt`, `talk_open_prompt` (first turn of a round, empty feed — the agent opens the talk; no `{feed}`), `decide_prompt`, `predict_prompt`, `reflect_prompt`, `notes_prompt` (placeholders `{round} {score}`; used only when `memory_notes_every > 0`; `<game>`-wrapped like the other instructions), `notes_block_prompt` (`{notes}` — how saved notes are rendered back into the transcript: `<you>{notes}</you>`, since the notes are the agent's own private memo), `notes_header`/`buffer_header` (`<game>`-tagged section labels framing the notes vs the raw buffer of rounds since consolidation; the buffer header's `<game>` fuses with the first buffered round's `<game>` at the seam) — each defaults to a `DEFAULT_*` in `src/core/config.py`; delete a key to use the default. **All prompts are static templates — only the named placeholders are substituted, never assembled from text chunks.** DECIDE/PREDICT come as two complete static templates each: `decide_prompt`/`predict_prompt` (ask to reason first, then the number) and `decide_prompt_bare`/`predict_prompt_bare` (number only). The `rationale` flag (default `true`) picks **one whole template** — `rationale: false` selects the `_bare` variant — and also gates whether the returned reasoning is stored (blanked when off). There is no `{answer}` chunk-assembly. `predict_prompt` mirrors `decide_prompt` byte-for-byte except the directive (predict the opponent's number vs choose your own); all four take placeholders `{round} {partner} {feed} {reason}` (`{reason}` = how the chat closed — `reason_limit`/`reason_agreed`, the **same wording** the history close line uses). The whole LLM input is one **game transcript**: past rounds are replayed by `Memory.render` with the tags the rules declare (`<game>`/`<you>`/`<opponent name>`), and the current round's `{feed}` uses the same tags. The line templates are shared so a given line type reads identically in history and live: the live `talk_prompt` round-open carries `{opener}` (who started the round — `opener_self`/`opener_partner`, the same phrase history uses), `opener_self` is the exact text `talk_open_prompt` opens with, and `history_close_prompt` matches the live decide close line. Transcript line templates are config (defaulted): `history_round_prompt` (`{round} {partner} {opener}`), `opener_self`/`opener_partner` (`{partner} starts first:`), `msg_self`/`msg_partner` (one cheap-talk line, `{text}`/`{partner}`), `history_close_prompt` (`{reason}`), `reason_limit`/`reason_agreed`, `history_result_prompt` (`{round} {partner} {partner_number} {payoff} {partner_payoff} {total}`, where `{total}` is the score **after** the round; the agent's own number is shown just above as a `<you>` line). The running score therefore lives in the history result lines, not in the talk/decide headers. After the result line, up to three **private trace** lines (the agent's own `<you>` scratch notes) may follow, each behind its **own flag** and rendered only when its field is populated: `history_predicted_prompt` (`{partner} {my_predicted}`, gated by `show_predicted`; set only for prediction agents), `history_rationale_prompt` (`{my_rationale}`, gated by `show_rationale`), `history_reflection_prompt` (`{my_reflection}`, gated by `show_reflection`). All three flags default `true`. In cheap talk the agent-facing JSON key to close the chat is `finish` (stored internally as `ready`) |
 | `population` | `PopulationCfg` (see below) |
 | `judge` | `JudgeCfg` or absent/`null` — optional LLM judge (see below) |
 | `schedule` | optional list of **change-points** that vary the config per round (see below); absent = one config for the whole run |
@@ -128,8 +128,8 @@ schedule:
 ## Provider blocks & YAML anchors
 
 The provider lives on the **population** (`population.provider`), one LLM shared by every
-agent — model variability between agents isn't a research dimension, so like the rules and
-the identity prompt it is a single fixed frame for the episode. A common pattern is to define
+agent — model variability between agents isn't a research dimension, so it is a single fixed
+frame for the episode (each agent's wording lives in its own `system_prompt`). A common pattern is to define
 the provider as a top-level `&anchor` and reference it with `*alias`; pyyaml resolves these
 itself. Example:
 
@@ -148,27 +148,37 @@ any `/chat/completions` endpoint (Together.ai in prod, Ollama for smoke tests).
 ## Population block
 
 ```yaml
+# The whole system prompt is ONE per-agent string (anchor-shareable). Define once, reference
+# with *alias. The engine substitutes only {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns}.
+system_pragmatic: &system_pragmatic |-
+  You are AI agent {id}, a pragmatic player. ...full rules with {R}/{T}/{P}/{S}...
+
 population:
   kind: roster                       # only roster is implemented
   provider: *default                 # one LLM provider, shared by all agents (required)
-  identity_prompt: "You are AI agent {id}."   # system opener shared by all agents (optional)
   n_agents: 4
   first_name_pool: [...]             # >= n_agents unique names, validated
   last_name_pool:  [...]             # >= n_agents unique names, validated
   agents:                            # shorter than n_agents -> cycled at build time
-    - {persona: "...", count: 2, play_strategy: direct}
-    - {persona: null, count: 2, play_strategy: prediction, prediction_mapping: one_above}
+    - {count: 2, play_strategy: direct, system_prompt: *system_pragmatic}
+    - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_pragmatic}
 ```
 
-`provider` — **required**, no default; the LLM used by every agent (see above). `identity_prompt`
-— the system-prompt opener placed before the persona; `{id}` is replaced with the agent id.
-Both live on the **population**, not the agent: like the game rules they are the same fixed
-frame for every agent in the episode. `identity_prompt` is **optional** — when omitted it
-defaults to `"You are AI agent {id}."` (`DEFAULT_IDENTITY_PROMPT` in `src/core/config.py`).
+`provider` — **required**, no default; the LLM used by every agent (see above).
 
-Per-agent keys: `persona` (optional; omit/`null` to drop it), `count`, `play_strategy`
-(`direct` (default) or `prediction`), `prediction_mapping` (`match` (default) or `one_above`;
-only used when `play_strategy: prediction`). **Strategy is per-agent**, so a population can mix
+**`system_prompt`** is the agent's **entire** system message, taken **verbatim** — there is no
+more `identity_prompt + persona + rules` assembly (those fields are gone). Write the whole frame
+(identity, persona, game rules) into one string and share it across agents via a YAML
+`&anchor` / `*alias`. The engine substitutes only `{id}` (agent id) and the payoff placeholders
+`{R}/{T}/{P}/{S}/{max_talk_turns}` (from `game.payoffs` / `game.max_talk_turns`) — everything
+else is literal, so keep the canonical tag conventions (`<game>/<you>/<Name>`) and the payoff
+placeholders in the text if you want history rendering and payoffs to stay in sync. `system_prompt`
+is **optional**; omitted, it defaults to `DEFAULT_SYSTEM_PROMPT` (preamble + canonical rules).
+Legacy `identity_prompt` / `persona` / `game.rules` keys in old configs are silently ignored.
+
+Per-agent keys: `count`, `play_strategy` (`direct` (default) or `prediction`),
+`prediction_mapping` (`match` (default) or `one_above`; only used when `play_strategy:
+prediction`), `system_prompt` (above). **Strategy is per-agent**, so a population can mix
 direct and prediction agents in one episode; `_validate` checks each spec's strategy/mapping,
 and the game builds each agent's strategy from `agent.setup` (`ReputationPD._strategy_for`).
 

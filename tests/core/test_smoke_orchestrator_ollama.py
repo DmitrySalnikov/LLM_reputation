@@ -23,7 +23,7 @@ def _ollama_up() -> bool:
 
 @pytest.mark.skipif(not _ollama_up(), reason="local Ollama not reachable")
 async def test_run_episode_against_ollama():
-    spec = AgentSpec(persona="You are a pragmatic player.", count=2)
+    spec = AgentSpec(count=2, system_prompt="You are a pragmatic player.")
     cfg = EpisodeCfg(
         seed=1,
         rounds=1,

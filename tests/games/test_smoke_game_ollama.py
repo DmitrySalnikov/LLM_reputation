@@ -23,8 +23,8 @@ def _ollama_up() -> bool:
 @pytest.mark.skipif(not _ollama_up(), reason="local Ollama not reachable")
 async def test_pairing_against_ollama():
     cfg = ProviderCfg(base_url=OLLAMA_URL, model=MODEL, temperature=0.7, max_tokens=256)
-    a = Agent("A1", AgentSetup("You are a pragmatic player.", cfg, "You are AI agent {id}."), make_provider(cfg))
-    b = Agent("A2", AgentSetup("You are a cautious player.", cfg, "You are AI agent {id}."), make_provider(cfg))
+    a = Agent("A1", AgentSetup("You are a pragmatic player.", cfg), make_provider(cfg))
+    b = Agent("A2", AgentSetup("You are a cautious player.", cfg), make_provider(cfg))
     game = ReputationPD(GameCfg(max_talk_turns=4))
     try:
         rec = await game.play_pairing(a, b, 1)

@@ -40,7 +40,7 @@ def _fake_providers(monkeypatch):
 
 
 def _cfg(seed=0, n=3, rounds=2):
-    spec = AgentSpec(persona="p", count=n)
+    spec = AgentSpec(count=n)
     return EpisodeCfg(
         seed=seed, rounds=rounds, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],
@@ -67,7 +67,7 @@ def test_begin_writes_runs_and_agents(tmp_path):
         assert run_id == 1           # первый прогон в свежей БД -> инкрементный id = 1
         c = st._conn
         assert c.execute("SELECT run_id, seed FROM runs").fetchall() == [(1, 0)]
-        agents = c.execute("SELECT agent_id, persona FROM agents ORDER BY agent_id").fetchall()
+        agents = c.execute("SELECT agent_id, system_prompt FROM agents ORDER BY agent_id").fetchall()
         assert [a for a, _ in agents] == ["A1", "A2", "A3"]
         assert json.loads(c.execute("SELECT config FROM runs").fetchone()[0])["matchmaker"] == "random"
         assert json.loads(c.execute("SELECT provider FROM agents LIMIT 1").fetchone()[0])["model"] == "m"
@@ -151,14 +151,14 @@ def test_delete_run_removes_all_rows(tmp_path):
         st.close()
 
 
-def test_begin_accepts_null_persona(tmp_path):
-    spec = AgentSpec(persona=None, count=1)
+def test_begin_stores_agent_system_prompt(tmp_path):
+    spec = AgentSpec(count=1, system_prompt="You are {id}. Custom frame.")
     cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec],
                                                    provider=ProviderCfg(base_url="http://x/v1", model="m")))
     st = _store(tmp_path)
     try:
         st.begin(cfg, _pop(cfg))
-        assert st._conn.execute("SELECT persona FROM agents").fetchone() == (None,)
+        assert st._conn.execute("SELECT system_prompt FROM agents").fetchone() == ("You are {id}. Custom frame.",)
     finally:
         st.close()
 
