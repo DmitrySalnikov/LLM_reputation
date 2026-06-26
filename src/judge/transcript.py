@@ -10,6 +10,15 @@ from __future__ import annotations
 from src.games.base import PairingRecord
 
 
+def _pair_index(rec, fallback: int) -> int:
+    """pair_idx записи: явный rec.pair (если задан) — иначе позиция в раунде.
+
+    Живой судья передаёт PairingRecord без поля pair → нумерация позицией (как раньше);
+    backfill передаёт ReplayRecord с истинным pair_idx из БД → ссылки совпадают с messages."""
+    p = getattr(rec, "pair", None)
+    return fallback if p is None else p
+
+
 def _by_round(records: list[PairingRecord]) -> dict[int, list[PairingRecord]]:
     """Сгруппировать записи по раундам, сохранив порядок (он задаёт pair_idx)."""
     grouped: dict[int, list[PairingRecord]] = {}
@@ -32,7 +41,8 @@ def render_transcript(records: list[PairingRecord]) -> str:
     grouped = _by_round(records)
     for rnd in sorted(grouped):
         lines.append(f"ROUND {rnd}")
-        for p, rec in enumerate(grouped[rnd]):
+        for i, rec in enumerate(grouped[rnd]):
+            p = _pair_index(rec, i)
             lines.append(f"  Pairing r{rnd}.p{p}: {rec.a_id} vs {rec.b_id}")
             if not rec.transcript:
                 lines.append("    (no messages exchanged)")
@@ -46,7 +56,8 @@ def valid_refs(records: list[PairingRecord]) -> set[tuple[int, int, int]]:
     refs: set[tuple[int, int, int]] = set()
     grouped = _by_round(records)
     for rnd, recs in grouped.items():
-        for p, rec in enumerate(recs):
+        for i, rec in enumerate(recs):
+            p = _pair_index(rec, i)
             for t in range(len(rec.transcript)):
                 refs.add((rnd, p, t))
     return refs

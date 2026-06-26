@@ -56,6 +56,38 @@ def _judge():
     return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
 
 
+# ---- quiet mode (для свипов: research.py гоняет сотни прогонов) ----
+
+async def test_quiet_run_suppresses_narration(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    await runner.run_experiment(_cfg(rounds=1), db, quiet=True)
+    out = capsys.readouterr().out
+    assert "ROUND" not in out and "FINAL SCOREBOARD" not in out
+    assert "Running experiment" not in out
+
+
+async def test_loud_run_narrates_by_default(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    await runner.run_experiment(_cfg(rounds=1), db)        # quiet=False по умолчанию
+    out = capsys.readouterr().out
+    assert "ROUND" in out and "FINAL SCOREBOARD" in out
+
+
+async def test_quiet_resume_suppresses_narration(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_cfg(rounds=2), db, quiet=True)
+    capsys.readouterr()
+    await runner.resume_run(rid, db, rounds=4, quiet=True)  # extend 2 -> 4 тихо
+    out = capsys.readouterr().out
+    assert "ROUND" not in out and "Resuming run" not in out
+
+
+async def test_quiet_run_still_persists(tmp_path):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_cfg(rounds=1, n=2), db, quiet=True)
+    assert _final_scores(db, rid)                          # данные записаны, несмотря на тишину
+
+
 async def test_rerunning_config_creates_new_run_and_leaves_existing(tmp_path):
     import random
     import sqlite3

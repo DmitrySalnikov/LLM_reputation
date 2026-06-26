@@ -69,11 +69,14 @@ population:
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 6
-  memory_notes_every: 0               # 0 = off (idle не считается)
-  payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
-  rationale: false                    # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
-  reflection: false                   # post-game reflection: an extra LLM call after the outcome
-  talk_stop_rule: both_ready_latch    # only this rule in the MVP
+  memory_notes_every: 0                # 0 = off (idle не считается)
+  payoffs: {R: 3, T: 5, P: 1, S: 0}    # invariants: T > R > P > S and 2R > T + S
+  rationale: false                     # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
+  reflection: false                    # post-game reflection: an extra LLM call after the outcome
+  talk_stop_rule: both_ready_committed # стоп — когда finish у обоих; различие по двум признакам:
+                                       # both_ready_latch:     выставил finish — замолкаешь, ждёшь второго (finish липкий).
+                                       # both_ready_revocable: говоришь дальше, finish можно отозвать (false снимает согласие).
+                                       # both_ready_committed: говоришь дальше, но finish липкий — отозвать нельзя.
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
   # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.

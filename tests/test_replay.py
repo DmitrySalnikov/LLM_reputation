@@ -5,7 +5,7 @@ import sqlite3
 
 from replay import (
     _expand_newlines, _preview, _provider_line, _readable, _roster_line,
-    cited_set, highlight, load_verdict,
+    _roster_names, cited_set, highlight, load_verdict,
 )
 
 
@@ -59,6 +59,18 @@ def test_roster_line_count_defaults_to_one():
 
 def test_roster_line_falls_back_to_legacy_persona():
     assert _roster_line({"persona": "pragmatic", "count": 2}) == "  2x pragmatic"
+
+
+def test_roster_names_slices_ids_by_count():
+    # ids — agent_id'ы прогона в порядке сборки; режутся по count каждого спека
+    specs = [{"count": 2}, {"count": 3}]
+    ids = ["Player 1", "Player 2", "Player 3", "Player 4", "Player 5"]
+    assert _roster_names(specs, ids) == [["Player 1", "Player 2"],
+                                         ["Player 3", "Player 4", "Player 5"]]
+
+
+def test_roster_names_count_defaults_to_one():
+    assert _roster_names([{}, {}], ["A", "B"]) == [["A"], ["B"]]
 
 
 def test_cited_set_parses_evidence_json():

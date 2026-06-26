@@ -67,6 +67,18 @@ class Storage:
         init_schema(self._conn)
         self._run_id: int | None = None
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Доступ к соединению на чтение (реконструкция записей, выборка прогонов)."""
+        return self._conn
+
+    def has_verdict(self, run_id: int) -> bool:
+        """True, если у прогона уже есть вердикт судьи."""
+        row = self._conn.execute(
+            "SELECT 1 FROM judge_verdicts WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return row is not None
+
     def begin(self, cfg: EpisodeCfg, pop: Population, name: str | None = None) -> int:
         """Step 0: write the run + agents; returns run_id — целочисленный автоинкремент.
 
@@ -95,6 +107,26 @@ class Storage:
             "SELECT finished_at FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
         return bool(row and row[0])
+
+    def unfinished_runs(self) -> list[tuple[int, str | None]]:
+        """Все недоигранные прогоны (finished_at IS NULL) как (run_id, name), по возрастанию id.
+
+        Нужно сводным скриптам (research.py), которые сперва доигрывают оборванное, затем
+        добивают недостающее."""
+        return [
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT run_id, name FROM runs WHERE finished_at IS NULL ORDER BY run_id"
+            )
+        ]
+
+    def run_id_by_name(self, name: str) -> int | None:
+        """run_id первого прогона с таким именем (или None). Имя — человеческая метка прогона;
+        сводный скрипт ищет по нему, что уже посчитано/начато (resume по run_id)."""
+        row = self._conn.execute(
+            "SELECT run_id FROM runs WHERE name=? ORDER BY run_id LIMIT 1", (name,)
+        ).fetchone()
+        return row[0] if row else None
 
     def run_config(self, run_id: int) -> str | None:
         """Вернуть сохранённый config (JSON-строка) прогона или None, если его нет.
@@ -271,14 +303,18 @@ class Storage:
                 [(a.score, rid, a.id) for a in pop],
             )
 
-    def save_verdict(self, verdict: JudgeVerdict, *, model: str) -> None:
-        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run)."""
+    def save_verdict(self, verdict: JudgeVerdict, *, model: str, run_id: int | None = None) -> None:
+        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run).
+
+        run_id=None — текущий прогон (живой путь); явный run_id — для backfill, где одна
+        Storage оценивает много сохранённых прогонов."""
+        rid = run_id if run_id is not None else self._run_id
         with self._conn:
             self._conn.execute(
                 """INSERT INTO judge_verdicts(run_id, emerged, explanation, evidence, model, created_at)
                    VALUES (?,?,?,?,?,?)""",
                 (
-                    self._run_id,
+                    rid,
                     int(verdict.emerged),
                     verdict.explanation,
                     json.dumps([asdict(e) for e in verdict.evidence]),
