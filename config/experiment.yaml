@@ -50,7 +50,7 @@ population:
   agents:
     - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
     - {count: 1, play_strategy: 'direct', system_prompt: *system_defect}
-  provider:
+  provider: &provider
     # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
     # model: llama3.1:8b
     base_url: https://api.together.xyz/v1
@@ -65,6 +65,13 @@ population:
   # first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi, Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   # last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou, Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon, Takarada, Amasawa]
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
+
+# ── Judge (JudgeCfg, optional) ────────────────────────────
+# LLM-судья решает, возник ли институт репутации (видит только публичный cheap-talk). Якорь
+# *provider переиспользует провайдера популяции — судья ходит ТОЙ ЖЕ моделью, что и агенты
+# («main model»). Этот же блок берёт judge_runs.py для backfill. Убери judge, чтобы выключить.
+judge:
+  provider: *provider
 
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
