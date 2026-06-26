@@ -6,11 +6,45 @@ import pytest
 
 from src.core.config import EpisodeCfg, GameCfg, load_episode
 
-EXAMPLE = "config/example.yaml"
+# Канонический пример-конфиг для тестов загрузки — пишется в tmp фикстурой `example`
+# (раньше тут грузился config/example.yaml; файл удалён, тесты больше от него не зависят).
+_EXAMPLE_YAML = textwrap.dedent(
+    """
+    seed: 42
+    rounds: 6
+    matchmaker: random
+    context_window: null
+    idle_payoff: 1
+    max_concurrency: 4
+    game:
+      payoffs: {R: 3, T: 5, P: 1, S: 0}
+      max_talk_turns: 3
+      reflection: true
+    population:
+      kind: roster
+      provider:
+        base_url: https://api.together.xyz/v1
+        api_key_env: TOGETHER_API_KEY
+        model: Qwen/Qwen2.5-7B-Instruct-Turbo
+        temperature: 0.7
+      first_name_pool: [Kurisu, Mayuri, Itaru, Moeka]
+      last_name_pool:  [Makise, Shiina, Hashida, Kiryuu]
+      agents:
+        - {count: 2}
+        - {count: 2}
+    """
+)
 
 
-def test_load_example():
-    cfg = load_episode(EXAMPLE)
+@pytest.fixture
+def example(tmp_path):
+    f = tmp_path / "example.yaml"
+    f.write_text(_EXAMPLE_YAML)
+    return str(f)
+
+
+def test_load_example(example):
+    cfg = load_episode(example)
     assert isinstance(cfg, EpisodeCfg)
     assert cfg.seed == 42 and cfg.rounds == 6
     assert cfg.matchmaker == "random"
@@ -68,13 +102,13 @@ def test_rationale_loaded_from_game_block(tmp_path):
     assert load_episode(str(f)).game.rationale is False
 
 
-def test_reflection_loaded_from_game_block():
-    cfg = load_episode(EXAMPLE)
+def test_reflection_loaded_from_game_block(example):
+    cfg = load_episode(example)
     assert cfg.game.reflection is True   # включено в примере конфигурации
 
 
-def test_population_provider_loaded():
-    cfg = load_episode(EXAMPLE)
+def test_population_provider_loaded(example):
+    cfg = load_episode(example)
     p = cfg.population.provider                       # один провайдер на популяцию (&default / *default)
     assert p.model == "Qwen/Qwen2.5-7B-Instruct-Turbo"
     assert p.base_url.endswith("/v1")
@@ -286,15 +320,15 @@ def test_missing_required_raises(tmp_path):
         load_episode(str(f))
 
 
-def test_load_example_has_name_pools():
-    cfg = load_episode(EXAMPLE)
+def test_load_example_has_name_pools(example):
+    cfg = load_episode(example)
     total = sum(a.count for a in cfg.population.agents)
     assert len(cfg.population.first_name_pool) >= total
     assert len(cfg.population.last_name_pool) >= total
 
 
-def test_default_play_strategy_is_direct():
-    cfg = load_episode(EXAMPLE)                       # стратегия теперь на агенте (per-spec)
+def test_default_play_strategy_is_direct(example):
+    cfg = load_episode(example)                       # стратегия теперь на агенте (per-spec)
     assert all(a.play_strategy == "direct" for a in cfg.population.agents)
     assert all(a.prediction_mapping == "match" for a in cfg.population.agents)
 
@@ -430,8 +464,8 @@ def _judge_yaml(tmp_path, judge_block):
     return str(f)
 
 
-def test_judge_absent_by_default():
-    cfg = load_episode(EXAMPLE)
+def test_judge_absent_by_default(example):
+    cfg = load_episode(example)
     assert cfg.judge is None
 
 
@@ -479,8 +513,8 @@ def _schedule_yaml(tmp_path, schedule_block):
     return str(f)
 
 
-def test_no_schedule_block_means_empty_schedule():
-    assert load_episode(EXAMPLE).schedule == ()
+def test_no_schedule_block_means_empty_schedule(example):
+    assert load_episode(example).schedule == ()
 
 
 def test_schedule_loads_change_points(tmp_path):

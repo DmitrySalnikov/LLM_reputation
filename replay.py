@@ -10,8 +10,9 @@ Run from the repo root:
     uv run python replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
-the episode config: the prompts in full, then the roster, then the remaining scalar knobs
-(prompts / agents / name pools are stripped from that last dump to avoid repetition).
+the episode config: the prompts in full, then the roster (each agent type plus the names
+actually assigned to it), then the remaining scalar knobs (prompts / agents / name pools are
+stripped from that last dump to avoid repetition).
 
 --notes prints the memory notes each agent wrote on consolidation rounds (hidden by default).
 
@@ -28,7 +29,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-DB_DEFAULT = "experiment.db"
+DB_DEFAULT = "research.db"
 
 # Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
 # секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
@@ -56,6 +57,20 @@ def _roster_line(spec):
     if len(sp) > 80:
         sp = sp[:79] + "…"
     return f"  {spec.get('count', 1)}x {sp}"
+
+
+def _roster_names(specs, ids):
+    """Имена, присвоенные каждому спеку: нарезка `ids` по их `count`.
+
+    `ids` — agent_id'ы прогона в порядке сборки (SELECT ... ORDER BY rowid); специ идут тем же
+    порядком (begin вставляет агентов в порядке сборки популяции — спек за спеком), поэтому
+    каждый спек забирает следующие `count` имён. Возвращает по списку имён на спек."""
+    out, i = [], 0
+    for spec in specs:
+        cnt = spec.get("count", 1)
+        out.append(ids[i:i + cnt])
+        i += cnt
+    return out
 
 
 def _provider_line(prov):
@@ -292,10 +307,16 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
             print(f"  [{key}]")
             print("    " + (text.replace("\n", "\n    ") if text else "(empty)"))
 
-        # ростер — только в подробном выводе, без провайдера (он уже строкой выше и в config-дампе)
+        # ростер — только в подробном выводе, без провайдера (он уже строкой выше и в config-дампе).
+        # Под каждым спеком — присвоенные имена (agent_id'ы прогона в порядке сборки = rowid).
         print(f"\nroster ({n_agents} agents):")
-        for spec in pop["agents"]:        # one line per type, as in the config
-            print(_roster_line(spec))
+        roster_ids = [a for (a,) in conn.execute(
+            "SELECT agent_id FROM agents WHERE run_id=? ORDER BY rowid", (run_id,)
+        )]
+        for spec, names in zip(pop["agents"], _roster_names(pop["agents"], roster_ids)):
+            print(_roster_line(spec))     # one line per type, as in the config
+            if names:
+                print(f"      {', '.join(names)}")
 
     if show_config:
         # config dump AFTER prompts + roster (shown above) and WITHOUT them: drop the prompt

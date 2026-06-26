@@ -1,11 +1,11 @@
-#   uv run python research.py   (сетка моделей × 100 игр; research.py переопределяет provider.model per run)
+# uv run python research.py
 
 # ── Episode (EpisodeCfg) ──────────────────────────────────
-seed: random                  # новый сид на каждый новый прогон (research.py грузит конфиг заново)
+seed: random
 rounds: 10
 max_concurrency: 5
-matchmaker: random            # only "random" in the MVP
-context_window: null          # (null|int)
+matchmaker: random
+context_window: null
 idle_payoff: 1
 
 # ── Population (PopulationCfg) ────────────────────────────
@@ -46,93 +46,44 @@ population:
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
     You have a specific role in this game which is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number which is one higher than your co-player.
-  # 10 игроков: 8 обычных + 2 «плохих» (дефекторы).
   agents:
     - {count: 8, play_strategy: 'direct', system_prompt: *system_default}
     - {count: 2, play_strategy: 'direct', system_prompt: *system_defect}
   provider:
-    # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
-    # model: llama3.1:8b
     base_url: https://api.together.xyz/v1
-    api_key_env: TOGETHER_API_KEY             # имя env-переменной с ключом (значение в .env)
+    api_key_env: TOGETHER_API_KEY
     model: meta-llama/Meta-Llama-3-8B-Instruct-Lite   # заглушка: research.py переопределяет per model (см. MODELS)
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
   kind: roster
-  # entries must be UNIQUE, pool size >= число агентов:
-  # оба пула  -> id = "First Last";   один пул -> id = сам элемент (без фамилии);   ни одного -> A1..An.
-  # first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi, Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
-  # last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou, Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon, Takarada, Amasawa]
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
 
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 6
-  memory_notes_every: 0                # 0 = off (idle не считается)
-  payoffs: {R: 3, T: 5, P: 1, S: 0}    # invariants: T > R > P > S and 2R > T + S
-  rationale: false                     # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
-  reflection: false                    # post-game reflection: an extra LLM call after the outcome
-  talk_stop_rule: both_ready_committed # стоп — когда finish у обоих; различие по двум признакам:
-                                       # both_ready_latch:     выставил finish — замолкаешь, ждёшь второго (finish липкий).
-                                       # both_ready_revocable: говоришь дальше, finish можно отозвать (false снимает согласие).
-                                       # both_ready_committed: говоришь дальше, но finish липкий — отозвать нельзя.
+  memory_notes_every: 0
+  payoffs: {R: 3, T: 5, P: 1, S: 0}
+  rationale: false
+  reflection: false
+  talk_stop_rule: both_ready_committed
 
-  # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
-  # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.
-  # NB: правила игры теперь живут в system_prompt агента (см. &system_default выше), а не здесь.
-  #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
-  #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {reason}; rationale выбирает decide_prompt|decide_prompt_bare
-  #   predict:         {partner} {round} {feed} {reason}; rationale выбирает predict_prompt|predict_prompt_bare
-  #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
-  #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
-  #   notes_block:      {notes} (обёртка <you> сохранённых заметок; заголовки notes_header/buffer_header — <game>)
-  # Весь вход — один игровой транскрипт: история прошлых раундов (теги <game>/<you>/<имя>, см.
-  # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
-  # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
-  # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
-  # (правила игры — в system_prompt агента, см. &system_default выше)
   talk_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
-  # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # rationale=false -> активны *_bare шаблоны (только число). rationale: true -> берутся
-  # decide_prompt/predict_prompt (рассуждать перед числом). Оба варианта заданы здесь явно,
-  # чтобы конфиг был самодостаточен (без падения на код-дефолты). {reason} — как закрылся чат.
-  decide_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been open.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Choose the number. Reason first, then commit to a number. Please, write your reasoning and number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
   decide_prompt_bare: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
-  # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/закрытия, только директива: предсказать число co-player.
-  predict_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been open.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Reason first, then commit to a number. Please, write your reasoning and the predicted number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
-  predict_prompt_bare: |-
-    <game>Round {round} with {partner}:
-    The chat has been open.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
-  # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
-  # {opener} — кто открыл раунд (фраза одинакова в истории и в живом talk). Заданы явно,
-  # чтобы не падать на код-дефолт opener_self с «opponent».
   opener_self: |-
     You speak first this round — send a short message to your co-player. Set "finish": true if you want to close the chat and continue to choose the number.
   opener_partner: "{partner} starts first:"
@@ -144,32 +95,3 @@ game:
   history_result_prompt: |-
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
-  # Приватные следы в истории (личный скрэтчпад агента) — каждый под своим флагом; строка
-  # рендерится, только если флаг включён И её поле непусто (предсказание — только у
-  # prediction-агентов, обоснование — при rationale=true, takeaway — при reflection=true).
-  show_predicted: false
-  show_rationale: false
-  show_reflection: false
-  history_predicted_prompt: "<you>(I predicted {partner} would pick {my_predicted})</you>"
-  history_rationale_prompt: "<you>(my reasoning: {my_rationale})</you>"
-  history_reflection_prompt: "<you>(my takeaway: {my_reflection})</you>"
-  # Used only when reflection=true:
-  reflect_prompt: |-
-    Current round: [Round {round} with {partner}: · score {score}]
-    Talk:
-    {feed}
-
-    The round is over. {me} picked {my_number}, {partner} picked {partner_number}. You scored {payoff} points.
-    Reflect briefly on this outcome: what does it tell you about this co-player, and what should you do differently (or keep doing) in future rounds?
-    Respond ONLY as JSON: {"reflection": "<short reflection>"}
-  # Used only when memory_notes_every > 0: the agent rewrites its memory into notes that then
-  # replace the raw round-by-round history (full memory arrives above as history). Wrapped in
-  # <game> like the other instructions.
-  notes_prompt: |-
-    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
-  # Memory rendering when notes are on: <game> section headers frame the parts; the saved notes
-  # themselves go in <you> (the agent's own private memo). The buffer header's <game> meets the
-  # first buffered round's <game> and the seam collapses, so the header opens that round's block.
-  notes_block_prompt: <you>{notes}</you>
-  notes_header: <game>Your notes from earlier rounds:</game>
-  buffer_header: <game>Your rounds since those notes:</game>

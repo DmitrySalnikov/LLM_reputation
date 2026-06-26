@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import replace
 
 from dotenv import load_dotenv
@@ -43,18 +44,19 @@ async def _resume_unfinished() -> None:
     finally:
         st.close()
     for run_id, name in unfinished:
-        print(f"[{name}] resume")
+        print(f"resume {name}")
         await resume_run(run_id, DB, quiet=True)
 
 
 async def _fill_missing() -> None:
-    """Фаза 2: добить недостающие игры по плану (модель × номер), пропуская уже начатые.
+    """Фаза 2: добить недостающие игры по плану (модель × номер). Имя прогона = '<модель> <i>',
+    номер итерации i — с 1 (по модели).
 
-    Ищем по имени прогона: если прогон с таким именем уже есть (доигран в фазе 1 либо ранее,
-    или ещё открыт) — пропускаем; иначе считаем новый. Так продолжаем с первой непрогнанной
-    записи в фиксированном порядке MODELS × индекс."""
+    Ищем по имени: если прогон с таким именем уже есть (доигран в фазе 1 либо ранее, или ещё
+    открыт) — пропускаем; иначе считаем новый. Так продолжаем с первой непрогнанной записи.
+    Печатаем `calculating <name>` до запуска и `done <wall-time>` после."""
     for label, model_id in MODELS:
-        for i in range(GAMES_PER_MODEL):
+        for i in range(1, GAMES_PER_MODEL + 1):      # номер итерации у модели — с 1
             name = f"{label} {i}"
             st = Storage(DB)
             try:
@@ -63,8 +65,10 @@ async def _fill_missing() -> None:
                 st.close()
             if exists:
                 continue
-            print(f"[{name}] calculating")
+            print(f"calculating {name}")
+            t0 = time.monotonic()
             await run(_cfg_for_model(model_id), DB, name, quiet=True)
+            print(f"done {time.monotonic() - t0:.1f}s")
 
 
 async def _main() -> None:
