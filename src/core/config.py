@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import yaml
 
@@ -56,6 +56,13 @@ DEFAULT_RULES = (
     "given the transcript of your past rounds (if any) followed by the current situation; "
     "respond only with the exact JSON requested in that message."
 )
+
+# Полный системный промпт агента — ОДНА строка-шаблон. Прежней склейки identity+persona+rules
+# больше нет: весь system задаётся одним полем AgentSpec.system_prompt. Движок подставляет в нём
+# только параметры {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns} (Agent.system_prompt); всё
+# остальное берётся дословно. Дефолт воспроизводит прежний текст (преамбула + правила); удобно
+# задавать общий промпт YAML-якорем (&system_default) и подключать ссылкой (*system_default).
+DEFAULT_SYSTEM_PROMPT = DEFAULT_IDENTITY_PROMPT + "\n\n" + DEFAULT_RULES
 
 # Фраза «ты открываешь раунд» — общий текст для истории (прошлый раунд, где первым ходил
 # сам агент) и для живого talk_open_prompt, чтобы обе фазы читались дословно одинаково.
@@ -220,7 +227,6 @@ class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
-    rules: str = DEFAULT_RULES                  # system-prompt game rules ({R}/{T}/{P}/{S})
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
     talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
     # rationale=True -> используется *_prompt (просит рассуждать перед числом),
@@ -289,10 +295,12 @@ class JudgeCfg:
 
 @dataclass(frozen=True)
 class AgentSpec:
-    persona: str | None      # None -> агент без persona (только преамбула + правила в system)
     count: int = 1                   # how many agents of this type to build
     play_strategy: str = "direct"        # "direct" | "prediction" — стратегия игры этого спека
     prediction_mapping: str = "match"    # отображение predict->выбор (только при play_strategy="prediction")
+    # Полный system агента (ОДНА строка). Прежних persona/identity_prompt/rules нет — всё тут.
+    # Подставляются {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns}; задаётся обычно YAML-якорем.
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
 @dataclass(frozen=True)
@@ -300,15 +308,33 @@ class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
     # Провайдер LLM, общий на всю популяцию (вариативность модели между агентами не нужна —
-    # это фиксированная рамка эпизода, как и правила/identity). Обязателен, дефолта нет.
+    # это фиксированная рамка эпизода). Обязателен, дефолта нет.
     provider: ProviderCfg
-    # Преамбула system-промпта, общая на всю популяцию ({id} -> id агента). Дефолт
-    # покрывает обычный случай; перекрывается полем identity_prompt в блоке population.
-    identity_prompt: str = DEFAULT_IDENTITY_PROMPT
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
     last_name_pool: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ChangePoint:
+    """Одна точка изменения расписания эпизода (вступает в силу с раунда `from_round`).
+
+    Виды правок (могут сочетаться в одной точке):
+      patch   — частичный override скалярного конфига (game/payoffs/промпты/стратегия и т.п.),
+                **липкий**: действует с from_round и далее (сворачивается deep-merge'ем).
+      roster  — {"join": [...], "leave": [...]} — мутация состава, событие (Фаза 2).
+      pairing — явная разбивка на пары для ЭТОГО раунда, **разовая** (Фаза 3).
+      inject  — {agent_id: number} — навязать число агенту в ЭТОМ раунде, разовая (Фаза 4).
+
+    Хранится разреженно. Полный конфиг раунда собирает cfg_for_round (только patch);
+    императивные директивы (roster/pairing/inject) обрабатывает контроллер (Фазы 2–4)."""
+
+    from_round: int
+    patch: dict | None = None
+    roster: dict | None = None
+    pairing: tuple | None = None
+    inject: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -322,6 +348,7 @@ class EpisodeCfg:
     idle_payoff: float = 1.0         # C3: idle pays P by default
     max_concurrency: int = 4
     judge: JudgeCfg | None = None          # None = LLM-судья выключен
+    schedule: tuple[ChangePoint, ...] = ()  # пораундовое расписание правок (см. cfg_for_round); пусто = один конфиг на весь прогон
     # NB: стратегия (play_strategy/prediction_mapping) теперь живёт на агенте (AgentSpec),
     # а не на эпизоде — популяция может быть гетерогенной (direct + prediction в одном эпизоде).
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
@@ -333,6 +360,7 @@ def _provider_cfg(d: dict) -> ProviderCfg:
 
 def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
+    d.pop("rules", None)             # legacy: правила больше не отдельное поле — едут внутри system_prompt
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
     return GameCfg(payoffs=payoffs, **d)
 
@@ -345,17 +373,19 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
+    # legacy-ключи persona/identity_prompt просто игнорируются (a.get их не читает) — старые
+    # сохранённые конфиги по-прежнему грузятся, лишившись лишь удалённых полей.
     agents = [
-        AgentSpec(persona=a.get("persona"), count=a.get("count", 1),
+        AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
-                  prediction_mapping=a.get("prediction_mapping", "match"))
+                  prediction_mapping=a.get("prediction_mapping", "match"),
+                  system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         for a in d["agents"]
     ]
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
         provider=_provider_cfg(d["provider"]),
-        identity_prompt=d.get("identity_prompt", DEFAULT_IDENTITY_PROMPT),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
     )
@@ -399,12 +429,37 @@ def _validate(d: dict) -> None:
         if len(pool) < total:
             raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
 
+    # Раннее (fail-fast) подтверждение каждой фазы расписания: липкие patch-точки
+    # сворачиваются по порядку, и КАЖДЫЙ свёрнутый конфиг тоже должен быть валиден —
+    # иначе ошибка вылезет лишь в момент раунда. folded не содержит ключа "schedule",
+    # поэтому _validate на нём делает только проверки полей (без повторного цикла).
+    schedule = d.get("schedule")
+    if schedule:
+        folded = {k: v for k, v in d.items() if k != "schedule"}
+        patches = sorted((c for c in schedule if c.get("patch")), key=lambda c: c["from_round"])
+        for cp in patches:
+            folded = _deep_merge(folded, cp["patch"])
+            _validate(folded)
 
-def load_episode(path: str) -> EpisodeCfg:
-    """Load one episode config from YAML. pyyaml resolves &anchors / *aliases itself,
-    so a provider shared via *default arrives as the same dict for every agent."""
-    with open(path) as f:
-        d = yaml.safe_load(f)
+
+def _change_point(c: dict) -> ChangePoint:
+    """Собрать ChangePoint из словаря (YAML или asdict). pairing — список → кортеж пар."""
+    pairing = c.get("pairing")
+    return ChangePoint(
+        from_round=c["from_round"],
+        patch=c.get("patch"),
+        roster=c.get("roster"),
+        pairing=tuple(tuple(p) for p in pairing) if pairing is not None else None,
+        inject=c.get("inject"),
+    )
+
+
+def episode_from_dict(d: dict) -> EpisodeCfg:
+    """Собрать EpisodeCfg из словаря — общий путь для YAML и для сохранённого runs.config.
+
+    Принимает как YAML-словарь (load_episode), так и asdict(cfg) из БД (runner.resume_run
+    при возобновлении/доращивании прогона): обе формы структурно совпадают (game.payoffs —
+    вложенный dict, population.agents — список спеков). Валидация одна на оба пути."""
     _validate(d)
     return EpisodeCfg(
         seed=d["seed"],
@@ -416,4 +471,41 @@ def load_episode(path: str) -> EpisodeCfg:
         idle_payoff=d.get("idle_payoff", 1.0),
         max_concurrency=d.get("max_concurrency", 4),
         judge=_judge_cfg(d["judge"]) if d.get("judge") else None,
+        schedule=tuple(_change_point(c) for c in d.get("schedule") or ()),
     )
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    """Рекурсивно наложить patch на base (новый словарь).
+
+    dict → вглубь; всё прочее (скаляры, списки) — замена целиком. Списки НЕ сливаются:
+    это осознанно — листовые поля заменяются, а состав (списочное поле population.agents)
+    меняют roster-директивы, не patch (Фаза 2)."""
+    out = dict(base)
+    for k, v in patch.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def cfg_for_round(cfg: EpisodeCfg, r: int) -> EpisodeCfg:
+    """Материализовать полный EpisodeCfg для раунда r, свернув липкие patch-точки.
+
+    Чистая функция: одинаковый (cfg, r) → одинаковый результат. Императивные директивы
+    (roster/pairing/inject) здесь НЕ применяются — их обрабатывает контроллер (Фазы 2–4).
+    Без расписания возвращается тот же объект (никакой пересборки)."""
+    if not cfg.schedule:
+        return cfg
+    d = asdict(cfg)
+    d.pop("schedule", None)                              # расписание не входит в конфиг одного раунда
+    for cp in sorted(cfg.schedule, key=lambda c: c.from_round):
+        if cp.from_round <= r and cp.patch:
+            d = _deep_merge(d, cp.patch)
+    return episode_from_dict(d)
+
+
+def load_episode(path: str) -> EpisodeCfg:
+    """Load one episode config from YAML. pyyaml resolves &anchors / *aliases itself,
+    so a provider shared via *default arrives as the same dict for every agent."""
+    with open(path) as f:
+        d = yaml.safe_load(f)
+    return episode_from_dict(d)

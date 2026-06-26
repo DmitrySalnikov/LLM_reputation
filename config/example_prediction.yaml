@@ -21,20 +21,32 @@ provider_default: &default
   temperature: 0.7
   max_tokens: 1000
 
+# Полный system агента — одной строкой (см. example.yaml). Подставляются {id} и {R}/{T}/{P}/{S}.
+system_pragmatic: &system_pragmatic |-
+  You are AI agent {id}, a pragmatic, self-interested player who tries to win.
+  You play a repeated game: each round you face one opponent, exchange a few non-binding
+  messages, then both secretly pick an integer 0-9. Equal numbers score {R} each; a number
+  exactly one above the opponent's scores {T} (the other {S}); anything else scores {P} each.
+  Maximize your own total score. Your own lines are tagged <you>, the opponent's <Name>, the
+  game's <game>; respond only with the exact JSON requested.
+system_cautious: &system_cautious |-
+  You are AI agent {id}, a cautious player who values trust.
+  You play a repeated game: each round you face one opponent, exchange a few non-binding
+  messages, then both secretly pick an integer 0-9. Equal numbers score {R} each; a number
+  exactly one above the opponent's scores {T} (the other {S}); anything else scores {P} each.
+  Maximize your own total score. Your own lines are tagged <you>, the opponent's <Name>, the
+  game's <game>; respond only with the exact JSON requested.
+
 population:
   kind: roster
   provider: *default          # one LLM provider, shared by all agents
-  identity_prompt: "You are AI agent {id}."   # system opener, shared by all agents; {id} -> agent id
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  # per-agent keys: persona, count, play_strategy, prediction_mapping. Here the whole
-  # population предсказывает партнёра и играет on-above (best-response к предсказанию).
-  # one_above — рациональный best-response: на единицу выше предсказанного числа партнёра.
+  # per-agent keys: count, play_strategy, prediction_mapping, system_prompt (*alias). Here the
+  # whole population предсказывает партнёра и играет one_above (best-response к предсказанию).
   agents:
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2,
-       play_strategy: prediction, prediction_mapping: one_above}
-    - {persona: "You are a cautious player who values trust.", count: 2,
-       play_strategy: prediction, prediction_mapping: one_above}
+    - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_pragmatic}
+    - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_cautious}

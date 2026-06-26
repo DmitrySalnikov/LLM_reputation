@@ -39,8 +39,8 @@ def created(monkeypatch):
 _PROVIDER = ProviderCfg(base_url="http://x/v1", model="m")
 
 
-def _spec(persona, count=1):
-    return AgentSpec(persona=persona, count=count)
+def _spec(system_prompt, count=1):
+    return AgentSpec(system_prompt=system_prompt, count=count)
 
 
 def _pop_cfg(specs, provider=_PROVIDER):
@@ -52,7 +52,7 @@ def test_roster_expands_by_count_and_ids(created):
     pop = make_population(_pop_cfg(specs)).build(random.Random(0))
     assert isinstance(pop, Population)
     assert pop.ids() == ["A1", "A2", "A3", "A4", "A5"]
-    assert [a.setup.persona for a in pop] == ["p0", "p0", "p0", "p1", "p1"]   # grouped by type
+    assert [a.setup.system_prompt for a in pop] == ["p0", "p0", "p0", "p1", "p1"]   # grouped by type
     assert len(pop) == 5
 
 

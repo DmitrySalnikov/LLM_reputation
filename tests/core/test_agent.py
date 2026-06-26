@@ -29,17 +29,17 @@ class RaisingProvider:
         pass
 
 
-def _agent(provider, persona="You are A.", **kw):
+def _agent(provider, system="You are A.", **kw):
     cfg = ProviderCfg(base_url="http://x/v1", model="m", temperature=0.0, max_tokens=64)
-    return Agent("A1", AgentSetup(persona, cfg, "You are AI agent {id}."), provider, **kw)
+    return Agent("A1", AgentSetup(system, cfg), provider, **kw)
 
 
-def _decide(context="Pick a number.", rules="RULES"):
-    return Phase(PhaseKind.DECIDE, context, rules=rules)
+def _decide(context="Pick a number."):
+    return Phase(PhaseKind.DECIDE, context)
 
 
-def _talk(context="Negotiate.", rules="RULES"):
-    return Phase(PhaseKind.TALK, context, rules=rules)
+def _talk(context="Negotiate."):
+    return Phase(PhaseKind.TALK, context)
 
 
 async def test_decide_clean_json():
@@ -103,8 +103,8 @@ async def test_decide_rejects_bool_number():
     assert len(p.calls) == 2
 
 
-def _reflect(context="Reflect on the outcome.", rules="RULES"):
-    return Phase(PhaseKind.REFLECT, context, rules=rules)
+def _reflect(context="Reflect on the outcome."):
+    return Phase(PhaseKind.REFLECT, context)
 
 
 async def test_reflect_clean_json():
@@ -134,8 +134,8 @@ async def test_reflect_persistent_failure_raises():
     assert len(p.calls) == 3
 
 
-def _note(context="Summarize your memory.", rules="RULES"):
-    return Phase(PhaseKind.NOTE, context, rules=rules)
+def _note(context="Summarize your memory."):
+    return Phase(PhaseKind.NOTE, context)
 
 
 async def test_note_clean_json():
@@ -177,7 +177,7 @@ async def test_game_blocks_merged_at_history_live_seam():
                              my_number=4, my_rationale="", partner_number=4,
                              outcome="CC", payoff=3.0, partner_payoff=3.0))
     await a.act(Phase(PhaseKind.DECIDE,
-                      "<game>Round 2 · opponent A2\nThe chat has been open.</game>", rules="R"))
+                      "<game>Round 2 · opponent A2\nThe chat has been open.</game>"))
     _, messages = p.calls[-1]
     content = messages[-1].content
     assert "</game>" in content and "<game>" in content   # теги остались
@@ -195,8 +195,7 @@ async def test_game_blocks_merged_at_phase_junction_within_round():
     a.memory.add(MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[],   # без talk
                              my_number=5, my_rationale="", partner_number=5,
                              outcome="CC", payoff=3.0, partner_payoff=3.0))
-    await a.act(Phase(PhaseKind.DECIDE, "<game>Round 2 · opponent A2\nThe chat has been open.</game>",
-                      rules="R"))
+    await a.act(Phase(PhaseKind.DECIDE, "<game>Round 2 · opponent A2\nThe chat has been open.</game>"))
     content = p.calls[-1][1][-1].content
     assert not re.search(r"</game>\s*<game>", content)   # ни одного стыка фаз не осталось
     assert "The chat has been open." in content and "The chat has been closed" in content  # обе фазы целы
@@ -213,7 +212,7 @@ async def test_notes_buffer_labels_and_buffer_live_seam_merges():
                              my_number=5, my_rationale="", partner_number=5,
                              outcome="CC", payoff=3.0, partner_payoff=3.0))
     await a.act(Phase(PhaseKind.DECIDE,
-                      "<game>Round 3 · opponent A2\nThe chat has been open.</game>", rules="R"))
+                      "<game>Round 3 · opponent A2\nThe chat has been open.</game>"))
     content = p.calls[-1][1][-1].content
     assert "Your notes from earlier rounds:" in content        # метки вернулись
     assert "Your rounds since those notes:" in content
@@ -222,30 +221,32 @@ async def test_notes_buffer_labels_and_buffer_live_seam_merges():
     assert "Round 2" in content and "Round 3 · opponent A2" in content
 
 
-async def test_system_and_messages_assembly():
+async def test_system_is_the_agent_system_prompt_verbatim():
+    # Склейки больше нет: system = AgentSetup.system_prompt дословно (только {id} подставляется).
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
-    await _agent(p, persona="PERSONA").act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
+    await _agent(p, system="PERSONA\n\nGAME RULES").act(Phase(PhaseKind.DECIDE, "SITUATION"))
     system, messages = p.calls[0]
-    assert "PERSONA" in system and "GAME RULES" in system
+    assert system == "PERSONA\n\nGAME RULES"
     assert messages[-1].role == "user"
     assert messages[-1].content == "SITUATION"
     assert len(messages) == 1  # empty memory -> only the situation message
 
 
-async def test_system_omits_persona_when_none():
+async def test_system_prompt_substitutes_id():
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
-    await _agent(p, persona=None).act(Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES"))
+    await _agent(p, system="Ты ИИ-игрок {id}. Play well.").act(Phase(PhaseKind.DECIDE, "S"))
     system, _ = p.calls[0]
-    assert system == "You are AI agent A1.\n\nGAME RULES"
+    assert system == "Ты ИИ-игрок A1. Play well."     # {id} подставлен агентом, остальное дословно
 
 
-async def test_identity_prompt_from_setup_fills_id():
+async def test_system_prompt_substitutes_payoffs_from_game_cfg():
+    # Подстановка payoff'ов {R}/{T}/{P}/{S}/{max_talk_turns} переехала из rules_text в system_prompt.
+    from src.core.config import GameCfg
     p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
-    cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    agent = Agent("A1", AgentSetup(None, cfg, identity_prompt="Ты ИИ-игрок {id}."), p)
-    await agent.act(Phase(PhaseKind.DECIDE, "SITUATION", rules="R"))
+    agent = _agent(p, system="R={R} T={T} P={P} S={S} budget={max_talk_turns}")
+    await agent.act(Phase(PhaseKind.DECIDE, "S", game_cfg=GameCfg(max_talk_turns=4)))
     system, _ = p.calls[0]
-    assert system == "Ты ИИ-игрок A1.\n\nR"          # шаблон из AgentSetup, {id} подставлен агентом
+    assert system == "R=3 T=5 P=1 S=0 budget=4"
 
 
 async def test_usage_summed_over_retries():
@@ -296,7 +297,7 @@ async def test_talk_persistent_failure_raises():
 
 async def test_predict_phase_parses_number_and_rationale():
     p = ScriptedProvider(['{"number": 7, "rationale": "mid is safe"}'])
-    r = await _agent(p).act(Phase(PhaseKind.PREDICT, "predict your partner", rules="R"))
+    r = await _agent(p).act(Phase(PhaseKind.PREDICT, "predict your partner"))
     assert r.data["number"] == 7
     assert r.data["rationale"] == "mid is safe"
     assert r.public_text is None  # PREDICT produces no public message
@@ -319,7 +320,7 @@ async def test_memory_diary_precedes_situation_in_one_message():
             partner_payoff=0.0,
         )
     )
-    await a.act(Phase(PhaseKind.DECIDE, "SITUATION", rules="R"))
+    await a.act(Phase(PhaseKind.DECIDE, "SITUATION"))
     _system, messages = p.calls[0]
     assert len(messages) == 1 and messages[0].role == "user"   # дневник и ситуация склеены
     content = messages[0].content
@@ -335,8 +336,8 @@ def _trace_records(caplog):
 async def test_decide_logs_full_llm_input_at_debug(caplog):
     caplog.set_level(logging.DEBUG, logger="src.core.agent")
     p = ScriptedProvider(['{"number": 4, "rationale": "ok"}'])
-    await _agent(p, persona="PERSONA").act(
-        Phase(PhaseKind.DECIDE, "SITUATION", rules="GAME RULES")
+    await _agent(p, system="PERSONA\n\nGAME RULES").act(
+        Phase(PhaseKind.DECIDE, "SITUATION")
     )
     records = _trace_records(caplog)
     assert len(records) == 1
@@ -348,7 +349,7 @@ async def test_decide_logs_full_llm_input_at_debug(caplog):
 async def test_predict_logs_llm_input_at_debug(caplog):
     caplog.set_level(logging.DEBUG, logger="src.core.agent")
     p = ScriptedProvider(['{"number": 7, "rationale": "guess"}'])
-    await _agent(p).act(Phase(PhaseKind.PREDICT, "PREDICT-CTX", rules="R"))
+    await _agent(p).act(Phase(PhaseKind.PREDICT, "PREDICT-CTX"))
     records = _trace_records(caplog)
     assert len(records) == 1
     assert "PREDICT-CTX" in records[0].getMessage()

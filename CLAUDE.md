@@ -27,7 +27,7 @@ src/
 │   └── orchestrator.py run_episode: rounds loop, semaphore, observer callback
 ├── games/
 │   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
-│   ├── prompts.py        English prompt builders (rules/talk/decide/predict/reflect)
+│   ├── prompts.py        English prompt builders (talk/decide/predict/reflect/notes)
 │   └── base.py           PairingRecord, Game Protocol
 ├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
 │                   partner, map via match/one_above) — base.py, mappings.py
@@ -117,9 +117,11 @@ If the new kind needs config validation, extend `_validate` in `src/core/config.
 
 <important if="you are changing Agent.act, phases, prompts, or memory rendering">
 - The LLM input is assembled in `Agent.act` (`src/core/agent.py`): system =
-  persona + game rules; a single user message = memory diary + phase context (+ correction
-  appended on JSON parse retry, max 2 retries, then `ActParseError` — the pairing is
-  aborted, no substitution/fallback). The diary and phase context are glued into one
+  the agent's single `system_prompt` template taken **verbatim** (no more identity+persona+rules
+  assembly), with only `{id}` and the payoff placeholders `{R}/{T}/{P}/{S}/{max_talk_turns}`
+  substituted (the latter from `Phase.game_cfg`). A single user message = memory diary + phase
+  context (+ correction appended on JSON parse retry, max 2 retries, then `ActParseError` — the
+  pairing is aborted, no substitution/fallback). The diary and phase context are glued into one
   user message (not sent as consecutive same-role messages).
 - JSON extraction is lenient (raw / fenced / balanced-brace); validators per phase.
 - DECIDE/PREDICT inputs are traced at DEBUG via the `src.core.agent` logger

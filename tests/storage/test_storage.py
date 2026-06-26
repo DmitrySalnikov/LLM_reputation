@@ -16,7 +16,7 @@ from src.matchmaking.base import RoundPlan
 from src.population import base as popbase
 from src.population import make_population
 from src.providers.base import Completion, HttpAttempt
-from src.storage import DuplicateRunError, Storage
+from src.storage import Storage
 
 
 class FixedProvider:
@@ -40,7 +40,7 @@ def _fake_providers(monkeypatch):
 
 
 def _cfg(seed=0, n=3, rounds=2):
-    spec = AgentSpec(persona="p", count=n)
+    spec = AgentSpec(count=n)
     return EpisodeCfg(
         seed=seed, rounds=rounds, matchmaker="random",
         population=PopulationCfg(kind="roster", agents=[spec],
@@ -64,9 +64,10 @@ def test_begin_writes_runs_and_agents(tmp_path):
     st = _store(tmp_path)
     try:
         run_id = st.begin(cfg, _pop(cfg))
+        assert run_id == 1           # первый прогон в свежей БД -> инкрементный id = 1
         c = st._conn
-        assert c.execute("SELECT run_id, seed FROM runs").fetchall() == [(run_id, 0)]
-        agents = c.execute("SELECT agent_id, persona FROM agents ORDER BY agent_id").fetchall()
+        assert c.execute("SELECT run_id, seed FROM runs").fetchall() == [(1, 0)]
+        agents = c.execute("SELECT agent_id, system_prompt FROM agents ORDER BY agent_id").fetchall()
         assert [a for a, _ in agents] == ["A1", "A2", "A3"]
         assert json.loads(c.execute("SELECT config FROM runs").fetchone()[0])["matchmaker"] == "random"
         assert json.loads(c.execute("SELECT provider FROM agents LIMIT 1").fetchone()[0])["model"] == "m"
@@ -74,25 +75,43 @@ def test_begin_writes_runs_and_agents(tmp_path):
         st.close()
 
 
-def test_run_id_deterministic_and_config_sensitive(tmp_path):
-    a, b, d = _store(tmp_path, "a.db"), _store(tmp_path, "b.db"), _store(tmp_path, "d.db")
+def test_run_id_is_incremental_and_config_hash_groups_runs(tmp_path):
+    # run_id — счётчик (1, 2, 3 …), а группирует прогоны одного конфига колонка config_hash
+    st = _store(tmp_path)
     try:
-        id_a = a.begin(_cfg(seed=1), _pop(_cfg(seed=1)))
-        id_b = b.begin(_cfg(seed=1), _pop(_cfg(seed=1)))
-        id_d = d.begin(_cfg(seed=2), _pop(_cfg(seed=2)))
-        assert id_a == id_b          # same config -> same run_id
-        assert id_a != id_d          # different seed -> different run_id
+        id1 = st.begin(_cfg(seed=1), _pop(_cfg(seed=1)))
+        id2 = st.begin(_cfg(seed=1), _pop(_cfg(seed=1)))   # тот же конфиг -> НОВЫЙ номер
+        id3 = st.begin(_cfg(seed=2), _pop(_cfg(seed=2)))
+        assert [id1, id2, id3] == [1, 2, 3]
+        hashes = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
+        assert hashes[id1] == hashes[id2]      # одинаковый конфиг -> одинаковый config_hash
+        assert hashes[id1] != hashes[id3]      # иной seed -> иной config_hash
     finally:
-        a.close(); b.close(); d.close()
+        st.close()
 
 
-def test_begin_twice_raises_duplicate_run_error(tmp_path):
+def test_config_hash_ignores_rounds(tmp_path):
+    # rounds — «докуда досимулировали», не часть дизайна: прогон и его продолжение делят config_hash
+    st = _store(tmp_path)
+    try:
+        short = _cfg(seed=1, rounds=2)
+        long = replace(short, rounds=20)
+        id_s = st.begin(short, _pop(short))
+        id_l = st.begin(long, _pop(long))
+        h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
+        assert h[id_s] == h[id_l]               # разная длина -> один config_hash (одна семья)
+    finally:
+        st.close()
+
+
+def test_begin_twice_creates_two_distinct_runs(tmp_path):
     cfg = _cfg(seed=1)
     st = _store(tmp_path)
     try:
-        st.begin(cfg, _pop(cfg))
-        with pytest.raises(DuplicateRunError):       # de-dup сигналим отдельным исключением,
-            st.begin(cfg, _pop(cfg))                 # а не общим IntegrityError (его глотал runner)
+        first = st.begin(cfg, _pop(cfg))
+        second = st.begin(cfg, _pop(cfg))            # дедупа больше нет: второй прогон — новый номер
+        assert first != second
+        assert st._conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
     finally:
         st.close()
 
@@ -132,14 +151,14 @@ def test_delete_run_removes_all_rows(tmp_path):
         st.close()
 
 
-def test_begin_accepts_null_persona(tmp_path):
-    spec = AgentSpec(persona=None, count=1)
+def test_begin_stores_agent_system_prompt(tmp_path):
+    spec = AgentSpec(count=1, system_prompt="You are {id}. Custom frame.")
     cfg = replace(_cfg(), population=PopulationCfg(kind="roster", agents=[spec],
                                                    provider=ProviderCfg(base_url="http://x/v1", model="m")))
     st = _store(tmp_path)
     try:
         st.begin(cfg, _pop(cfg))
-        assert st._conn.execute("SELECT persona FROM agents").fetchone() == (None,)
+        assert st._conn.execute("SELECT system_prompt FROM agents").fetchone() == ("You are {id}. Custom frame.",)
     finally:
         st.close()
 
@@ -312,20 +331,102 @@ async def test_logs_full_episode(tmp_path):
         st.close()
 
 
+# ---- Slice: load_state — реконструкция состояния прогона из БД (resume) ----
+
+async def test_load_state_reconstructs_memory_and_scores(tmp_path):
+    # гоняем реальный эпизод, затем восстанавливаем из БД: дневники должны рендериться
+    # ПОБАЙТОВО как у «живой» популяции, счёт — совпадать, last_round — номер последнего раунда
+    cfg = _cfg(n=3, rounds=3)
+    pop = _pop(cfg)
+    st = _store(tmp_path)
+    rid = st.begin(cfg, pop)
+    try:
+        await orch.run_episode(cfg, pop, observer=st.observe)
+    finally:
+        await pop.aclose()
+
+    state = st.load_state(rid, cfg.idle_payoff)
+    try:
+        assert state.last_round == 3
+        assert state.scores == {a.id: a.score for a in pop}        # счёт восстановлен точно (с idle)
+        for a in pop:
+            live = [m.content for m in a.memory.render(cfg.context_window, cfg.game)]
+            restored = [m.content for m in state.memories[a.id].render(cfg.context_window, cfg.game)]
+            assert restored == live                                 # память рендерится идентично
+    finally:
+        st.close()
+
+
+def test_load_state_restores_notes_buffer_and_idle_score(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    rid = st.begin(cfg, _pop(cfg))
+    try:
+        # раунд 1: A1 vs A2 (A1 свернул заметки), A3 idle
+        rec1 = PairingRecord(
+            round=1, a_id="A1", b_id="A2", transcript=[],
+            a_number=4, b_number=4, a_rationale="ra", b_rationale="rb",
+            outcome="CC", a_payoff=3.0, b_payoff=3.0, a_notes="A2 is honest",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+        )
+        st.observe(1, RoundPlan(pairings=[("A1", "A2")], idle=["A3"], events=[]), [rec1])
+        # раунд 2: A1 vs A3 (буфер после заметок), A2 idle; A1 перебил A3
+        rec2 = PairingRecord(
+            round=2, a_id="A1", b_id="A3", transcript=[],
+            a_number=5, b_number=4, a_rationale="ra2", b_rationale="rb2",
+            outcome="DC", a_payoff=5.0, b_payoff=0.0,
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+        )
+        st.observe(2, RoundPlan(pairings=[("A1", "A3")], idle=["A2"], events=[]), [rec2])
+
+        state = st.load_state(rid, cfg.idle_payoff)
+        assert state.last_round == 2
+        m = state.memories["A1"]
+        assert m.notes == "A2 is honest"
+        assert m.noted_upto == 1                  # один раунд свёрнут в заметки
+        assert len(m.entries) == 2                # свежий буфер (раунд 2) сохранён
+        # счёт: A1 = 3+5 = 8; A2 сыграл r1 (+3) и idle r2 (+1) = 4; A3 idle r1 (+1) + r2 (0) = 1
+        assert state.scores == {"A1": 8.0, "A2": 4.0, "A3": 1.0}
+    finally:
+        st.close()
+
+
 # ---- Slice 4: LLM judge — run_id stability and verdict persistence ----
 
 def _judge_cfg():
     return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
 
 
-def test_run_id_ignores_judge_block(tmp_path):
+def test_config_hash_ignores_judge_block(tmp_path):
     base = _cfg(seed=1)
     judged = replace(base, judge=_judge_cfg())
-    a, b = _store(tmp_path, "a.db"), _store(tmp_path, "b.db")
+    st = _store(tmp_path)
     try:
-        assert a.begin(base, _pop(base)) == b.begin(judged, _pop(judged))  # судья — аналитика, не геймплей
+        id_base = st.begin(base, _pop(base))
+        id_judged = st.begin(judged, _pop(judged))
+        h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
+        assert h[id_base] == h[id_judged]      # судья — аналитика, не геймплей: config_hash не меняется
     finally:
-        a.close(); b.close()
+        st.close()
+
+
+def test_config_hash_changes_with_schedule(tmp_path):
+    # расписание — часть дизайна: иной schedule -> иной config_hash; но rounds по-прежнему вне хеша
+    from src.core.config import ChangePoint
+
+    base = _cfg(seed=1)
+    scheduled = replace(base, schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"T": 6}}}),))
+    longer = replace(scheduled, rounds=base.rounds + 5)
+    st = _store(tmp_path)
+    try:
+        id_base = st.begin(base, _pop(base))
+        id_sched = st.begin(scheduled, _pop(scheduled))
+        id_long = st.begin(longer, _pop(longer))
+        h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
+        assert h[id_base] != h[id_sched]       # расписание меняет дизайн
+        assert h[id_sched] == h[id_long]       # rounds всё ещё вне хеша (та же семья)
+    finally:
+        st.close()
 
 
 def test_judge_config_still_persisted_in_runs(tmp_path):

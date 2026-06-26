@@ -2,8 +2,8 @@
 
 Imports neither the game nor the strategies, to avoid import cycles. The prompt TEXT lives
 in GameCfg (config layer); these builders just fill placeholders by literal replacement
-(NOT str.format — the templates contain real JSON braces):
-    rules:                {R} {T} {P} {S} {max_talk_turns}
+(NOT str.format — the templates contain real JSON braces). Правила/payoff'ы в system
+теперь подставляет Agent.system_prompt (из AgentSpec.system_prompt), не эти билдеры:
     talk:                 {partner} {round} {feed} {opener} (кто открыл раунд)
     decide:               {partner} {round} {feed} {reason}; флаг rationale выбирает decide_prompt|_bare
     predict:              {partner} {round} {feed} {reason}; флаг rationale выбирает predict_prompt|_bare
@@ -18,17 +18,6 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
 from __future__ import annotations
 
 from src.core.config import GameCfg
-
-
-def rules_text(cfg: GameCfg) -> str:
-    """Static game-rules text (goes into the system prompt after the persona)."""
-    p = cfg.payoffs
-    return (
-        cfg.rules
-        .replace("{R}", f"{p.R:g}").replace("{T}", f"{p.T:g}")
-        .replace("{P}", f"{p.P:g}").replace("{S}", f"{p.S:g}")
-        .replace("{max_talk_turns}", str(cfg.max_talk_turns))
-    )
 
 
 def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,

@@ -6,7 +6,7 @@ from src.core.agent import ActParseError, Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.core.memory import MemoryEntry, both_agreed, pick_opener, render_turns
 from src.games.base import PairingRecord
-from src.games.prompts import notes_context, reflect_context, rules_text, talk_context
+from src.games.prompts import notes_context, reflect_context, talk_context
 from src.providers.base import ProviderError
 from src.strategy.base import PlayStrategy
 
@@ -15,10 +15,10 @@ _FLIP = {"CC": "CC", "DD": "DD", "DC": "CD", "CD": "DC"}
 
 
 class ReputationPD:
-    def __init__(self, cfg: GameCfg, rules: str | None = None,
-                 strategy: PlayStrategy | None = None):
+    def __init__(self, cfg: GameCfg, strategy: PlayStrategy | None = None):
         self.cfg = cfg
-        self._rules = rules if rules is not None else rules_text(cfg)
+        # Правила больше не собираются здесь: весь system (с правилами) задаётся одной строкой
+        # AgentSpec.system_prompt, а payoff'ы подставляются в Agent.system_prompt из Phase.game_cfg.
         # Стратегия теперь живёт на агенте (agent.setup.play_strategy). Объект собирается
         # лениво и кэшируется по (play_strategy, prediction_mapping). Явно переданный
         # `strategy` — однородный override (для тестов и простого случая) поверх per-agent.
@@ -59,9 +59,9 @@ class ReputationPD:
             # Та же причина закрытия, что увидят агенты в истории этого раунда (см. memory).
             reason = (self.cfg.reason_agreed if both_agreed(transcript, a.id, b.id)
                       else self.cfg.reason_limit)
-            da = await self._strategy_for(a).decide(a, b.id, round, feed_a, self._rules, reason)
+            da = await self._strategy_for(a).decide(a, b.id, round, feed_a, reason)
             post_calls += list(da.calls)
-            db = await self._strategy_for(b).decide(b, a.id, round, feed_b, self._rules, reason)
+            db = await self._strategy_for(b).decide(b, a.id, round, feed_b, reason)
             post_calls += list(db.calls)
             x, y = da.number, db.number
             outcome, pa, pb = self.resolve(x, y)
@@ -135,7 +135,7 @@ class ReputationPD:
         ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
                               my_number=my_number, partner_number=partner_number, payoff=payoff,
                               score=agent.score)
-        res = await agent.act(Phase(PhaseKind.REFLECT, ctx, rules=self._rules, game_cfg=self.cfg))
+        res = await agent.act(Phase(PhaseKind.REFLECT, ctx, game_cfg=self.cfg))
         return res.data["reflection"], res.usage, res.calls
 
     def _notes_due(self, agent: Agent) -> bool:
@@ -162,7 +162,7 @@ class ReputationPD:
             Тройка (текст заметок, usage запроса, сырые LLMCall'ы фазы NOTE).
         """
         ctx = notes_context(self.cfg, round, score=agent.score)
-        res = await agent.act(Phase(PhaseKind.NOTE, ctx, rules=self._rules, game_cfg=self.cfg))
+        res = await agent.act(Phase(PhaseKind.NOTE, ctx, game_cfg=self.cfg))
         agent.memory.set_notes(res.data["notes"])
         return res.data["notes"], res.usage, res.calls
 
@@ -183,7 +183,7 @@ class ReputationPD:
                                  self.cfg.opener_self, self.cfg.opener_partner)
             ctx = talk_context(self.cfg, oth.id, round, self._feed(transcript, cur.id),
                                cur.score, opener)
-            res = await cur.act(Phase(PhaseKind.TALK, ctx, rules=self._rules, game_cfg=self.cfg))
+            res = await cur.act(Phase(PhaseKind.TALK, ctx, game_cfg=self.cfg))
             transcript.append(
                 {
                     "speaker": cur.id,

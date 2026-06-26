@@ -23,12 +23,12 @@ def _ollama_up() -> bool:
 async def test_decide_against_ollama():
     cfg = ProviderCfg(base_url=OLLAMA_URL, model=OLLAMA_MODEL, temperature=0.0, max_tokens=256)
     provider = make_provider(cfg)
-    agent = Agent("A1", AgentSetup("You are a player in a simple number game.", cfg, "You are AI agent {id}."), provider)
+    agent = Agent("A1", AgentSetup("You are a player in a simple number game.", cfg), provider)
     phase = Phase(
         PhaseKind.DECIDE,
         'Choose a number from 0 to 9. Respond ONLY as JSON: '
         '{"number": <integer 0-9>, "rationale": "<short>"}',
-        rules="This is a test round.",
+
     )
     try:
         r = await agent.act(phase)
@@ -42,12 +42,12 @@ async def test_decide_against_ollama():
 async def test_talk_against_ollama():
     cfg = ProviderCfg(base_url=OLLAMA_URL, model=OLLAMA_MODEL, temperature=0.0, max_tokens=256)
     provider = make_provider(cfg)
-    agent = Agent("A1", AgentSetup("You are a player negotiating in a number game.", cfg, "You are AI agent {id}."), provider)
+    agent = Agent("A1", AgentSetup("You are a player negotiating in a number game.", cfg), provider)
     phase = Phase(
         PhaseKind.TALK,
         "Tell your partner which number you propose. Respond ONLY as JSON: "
         '{"message": "<your line>", "finish": <true|false>}',
-        rules="This is a test round.",
+
     )
     try:
         r = await agent.act(phase)

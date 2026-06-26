@@ -5,7 +5,7 @@ import inspect
 import random
 from typing import Awaitable, Callable, Optional
 
-from src.core.config import EpisodeCfg
+from src.core.config import EpisodeCfg, cfg_for_round
 from src.games.base import PairingRecord
 from src.games.reputation_pd import ReputationPD
 from src.matchmaking import RoundPlan, make_matchmaker
@@ -34,26 +34,35 @@ async def _guarded(coro, sem: asyncio.Semaphore):
         return await coro
 
 
-async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | None = None) -> None:
+async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | None = None,
+                      start_round: int = 1) -> None:
     """Drive one episode over a caller-owned population.
 
     Side effects only: mutates agents (score / memory) and emits each round to
     `observer`. Returns nothing — final state lives on `pop`, which the caller builds,
     inspects (scores / memory) and closes (`aclose`). `pop` must come from
     `cfg.population`, e.g. make_population(cfg.population, ...).build(Random(cfg.seed)).
+
+    `start_round` (>=1) — с какого раунда играть: 1 для нового эпизода, last+1 для
+    возобновления. Матчмейкер засевается ПО РАУНДУ (Random(f"{seed}:matchmaker:{r}")),
+    поэтому пара раунда r одинакова независимо от того, играем мы с начала или
+    возобновляемся — перематывать rng-поток не нужно (см. resume в runner).
     """
-    game = ReputationPD(cfg.game)   # стратегия берётся per-agent из agent.setup (см. _strategy_for)
     mm = make_matchmaker(cfg.matchmaker)
-    mm.setup(pop.ids(), random.Random(f"{cfg.seed}:matchmaker"), cfg)   # M1: matcher's own rng
+    mm.setup(pop.ids(), cfg)
+    # seed / max_concurrency / matchmaker — рамка всего прогона (не патчатся по раундам).
     sem = asyncio.Semaphore(cfg.max_concurrency)
-    for r in range(1, cfg.rounds + 1):                                 # раунды нумеруются с 1
-        plan = await mm.plan_round(pop.ids(), r, actor=None)
+    for r in range(start_round, cfg.rounds + 1):                       # раунды нумеруются с 1
+        cfg_r = cfg_for_round(cfg, r)            # пораундовый конфиг: payoffs/talk/промпты/idle
+        game = ReputationPD(cfg_r.game)          # пересобираем — игра без состояния между парами; стратегия per-agent (agent.setup)
+        rng = random.Random(f"{cfg.seed}:matchmaker:{r}")             # M1: rng отдельный на раунд
+        plan = await mm.plan_round(pop.ids(), r, rng, actor=None)
         recs = await asyncio.gather(*[                                  # fail-fast (C2)
             _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)
             for a, b in plan.pairings
         ])
         for c in plan.idle:
-            pop.get(c).score += cfg.idle_payoff                        # C3
+            pop.get(c).score += cfg_r.idle_payoff                      # C3
         if observer is not None:                                       # the only output channel
             res = observer(r, plan, recs)
             if inspect.isawaitable(res):

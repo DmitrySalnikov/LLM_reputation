@@ -21,6 +21,24 @@ provider_default: &default
   temperature: 0.7
   max_tokens: 1000
 
+# The WHOLE system prompt per agent is one string (no more identity+persona+rules assembly).
+# Define them once as YAML anchors and reference per-agent with *alias. The engine substitutes
+# only {id} and the payoff placeholders {R}/{T}/{P}/{S}/{max_talk_turns}; everything else is verbatim.
+system_pragmatic: &system_pragmatic |-
+  You are AI agent {id}, a pragmatic, self-interested player who tries to win.
+  You play a repeated game: each round you face one opponent, exchange a few non-binding
+  messages, then both secretly pick an integer 0-9. Equal numbers score {R} each; a number
+  exactly one above the opponent's scores {T} (the other {S}); anything else scores {P} each.
+  Maximize your own total score. Your own lines are tagged <you>, the opponent's <Name>, the
+  game's <game>; respond only with the exact JSON requested.
+system_cautious: &system_cautious |-
+  You are AI agent {id}, a cautious player who values trust.
+  You play a repeated game: each round you face one opponent, exchange a few non-binding
+  messages, then both secretly pick an integer 0-9. Equal numbers score {R} each; a number
+  exactly one above the opponent's scores {T} (the other {S}); anything else scores {P} each.
+  Maximize your own total score. Your own lines are tagged <you>, the opponent's <Name>, the
+  game's <game>; respond only with the exact JSON requested.
+
 # Optional LLM judge: a separate model that reads the episode's public cheap-talk once
 # at the end and decides whether a reputation institute emerged (verdict is printed;
 # in experiment.py runs it is also stored and replay.py highlights cited messages).
@@ -35,13 +53,12 @@ provider_default: &default
 population:
   kind: roster                # each type's `count` agents are built; total = sum(counts)
   provider: *default          # one LLM provider, shared by all agents
-  identity_prompt: "You are AI agent {id}."   # system opener, shared by all agents; {id} -> agent id
   # Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
   first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
                     Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
                     Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
                     Takarada, Amasawa]
-  agents:    # per-agent keys: persona, count
-    - {persona: "You are a pragmatic, self-interested player who tries to win.", count: 2}
-    - {persona: "You are a cautious player who values trust.", count: 2}
+  agents:    # per-agent keys: count, play_strategy, prediction_mapping, system_prompt (*alias)
+    - {count: 2, system_prompt: *system_pragmatic}
+    - {count: 2, system_prompt: *system_cautious}
