@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from src.games.base import PairingRecord
 from src.judge.transcript import render_transcript, valid_refs
 
@@ -43,3 +45,22 @@ def test_empty_transcript_notes_silence():
 def test_valid_refs_lists_every_message():
     refs = valid_refs([_rec(round=0), _rec(round=1, transcript=[])])
     assert refs == {(0, 0, 0), (0, 0, 1)}            # round 1 has no messages
+
+
+def _rec_with_pair(round, pair):
+    """Запись с явным pair_idx (как восстановленная из БД ReplayRecord)."""
+    return SimpleNamespace(
+        round=round, pair=pair, a_id="A1", b_id="A2",
+        transcript=[{"speaker": "A1", "text": "hi there", "ready": False}],
+    )
+
+
+def test_explicit_pair_overrides_enumeration():
+    out = render_transcript([_rec_with_pair(0, 5)])   # истинный pair_idx=5, не позиция 0
+    assert "[r0.p5.t0] A1: hi there" in out
+    assert "Pairing r0.p5:" in out
+
+
+def test_valid_refs_uses_explicit_pair():
+    refs = valid_refs([_rec_with_pair(1, 3)])
+    assert refs == {(1, 3, 0)}
