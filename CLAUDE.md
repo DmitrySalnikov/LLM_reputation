@@ -56,6 +56,9 @@ uv run pytest -k resolve                              # by name
 uv run python examples/orchestrator_demo.py                          # run example.yaml episode
 uv run python examples/orchestrator_demo.py config/example_prediction.yaml
 LLM_TRACE=1 uv run python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
+uv run python judge_runs.py                            # backfill judge verdicts for stored runs
+uv run python collect_stats.py                         # aggregate verdicts -> stats.json + stats.csv
+uv run python plot_stats.py                            # stats.json -> stats.png (Wilson CI bars)
 uv run python experiment.py [config.yaml] ["run name"]               # one run -> experiment.db
 uv run python research.py                                            # model×game sweep -> research.db (idempotent/resumable)
 ```

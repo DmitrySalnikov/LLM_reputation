@@ -67,6 +67,18 @@ class Storage:
         init_schema(self._conn)
         self._run_id: int | None = None
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Доступ к соединению на чтение (реконструкция записей, выборка прогонов)."""
+        return self._conn
+
+    def has_verdict(self, run_id: int) -> bool:
+        """True, если у прогона уже есть вердикт судьи."""
+        row = self._conn.execute(
+            "SELECT 1 FROM judge_verdicts WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return row is not None
+
     def begin(self, cfg: EpisodeCfg, pop: Population, name: str | None = None) -> int:
         """Step 0: write the run + agents; returns run_id — целочисленный автоинкремент.
 
@@ -291,14 +303,18 @@ class Storage:
                 [(a.score, rid, a.id) for a in pop],
             )
 
-    def save_verdict(self, verdict: JudgeVerdict, *, model: str) -> None:
-        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run)."""
+    def save_verdict(self, verdict: JudgeVerdict, *, model: str, run_id: int | None = None) -> None:
+        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run).
+
+        run_id=None — текущий прогон (живой путь); явный run_id — для backfill, где одна
+        Storage оценивает много сохранённых прогонов."""
+        rid = run_id if run_id is not None else self._run_id
         with self._conn:
             self._conn.execute(
                 """INSERT INTO judge_verdicts(run_id, emerged, explanation, evidence, model, created_at)
                    VALUES (?,?,?,?,?,?)""",
                 (
-                    self._run_id,
+                    rid,
                     int(verdict.emerged),
                     verdict.explanation,
                     json.dumps([asdict(e) for e in verdict.evidence]),
