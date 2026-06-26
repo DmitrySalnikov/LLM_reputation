@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import asdict, dataclass, field
 
 import yaml
@@ -454,6 +455,20 @@ def _change_point(c: dict) -> ChangePoint:
     )
 
 
+def _resolve_seed(seed):
+    """Преобразовать поле `seed` конфига в конкретный int.
+
+    `random` (строка, регистр не важен) означает «выбери случайный сид при загрузке»: каждая
+    загрузка конфига рождает новый сид. Это ЕДИНСТВЕННАЯ намеренная точка недетерминизма в
+    сборке конфига — системный источник энтропии (`SystemRandom`), не симуляционный rng
+    (тот по-прежнему строится из готового сида в runner). Выбранный int дословно сохраняется
+    в прогон (runs.seed/config), поэтому сам прогон остаётся воспроизводимым по этому числу;
+    при resume/extend сохранённый int возвращается как есть (строки `random` там уже нет)."""
+    if isinstance(seed, str) and seed.strip().lower() == "random":
+        return random.SystemRandom().randrange(2 ** 31)
+    return seed
+
+
 def episode_from_dict(d: dict) -> EpisodeCfg:
     """Собрать EpisodeCfg из словаря — общий путь для YAML и для сохранённого runs.config.
 
@@ -462,7 +477,7 @@ def episode_from_dict(d: dict) -> EpisodeCfg:
     вложенный dict, population.agents — список спеков). Валидация одна на оба пути."""
     _validate(d)
     return EpisodeCfg(
-        seed=d["seed"],
+        seed=_resolve_seed(d["seed"]),
         rounds=d["rounds"],
         matchmaker=d["matchmaker"],
         population=_population_cfg(d["population"]),

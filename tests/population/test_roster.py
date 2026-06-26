@@ -117,3 +117,25 @@ def test_empty_pools_fall_back_to_a_ids(created):
     # No pools provided -> A1.. ids (keeps programmatic construction working).
     pop = make_population(_pop_cfg([_spec("p", count=2)])).build(random.Random(0))
     assert pop.ids() == ["A1", "A2"]
+
+
+def test_only_first_pool_uses_names_without_surname(created):
+    # один пул (без фамилий) -> id = само имя из пула (напр. "Player 348")
+    firsts = ["Player 348", "Player 712", "Player 905"]
+    pop = make_population(_pop_cfg_named([_spec("p", count=3)], firsts, [])).build(random.Random(0))
+    ids = pop.ids()
+    assert len(ids) == 3 and len(set(ids)) == 3
+    assert all(i in firsts for i in ids)
+
+
+def test_only_last_pool_uses_names_without_first(created):
+    # симметрично: задан только last_name_pool -> id = его элементы
+    lasts = ["348", "712", "905", "246"]
+    pop = make_population(_pop_cfg_named([_spec("p", count=2)], [], lasts)).build(random.Random(0))
+    assert all(i in lasts for i in pop.ids())
+
+
+def test_single_pool_numeric_entries_become_str_ids(created):
+    # числовые элементы пула (YAML-числа) превращаются в строковые id
+    pop = make_population(_pop_cfg_named([_spec("p", count=2)], [348, 712, 905], [])).build(random.Random(0))
+    assert all(isinstance(i, str) for i in pop.ids())
