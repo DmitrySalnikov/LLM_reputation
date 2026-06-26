@@ -56,7 +56,13 @@ uv run pytest -k resolve                              # by name
 uv run python examples/orchestrator_demo.py                          # run example.yaml episode
 uv run python examples/orchestrator_demo.py config/example_prediction.yaml
 LLM_TRACE=1 uv run python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
+uv run python experiment.py [config.yaml] ["run name"]               # one run -> experiment.db
+uv run python research.py                                            # model×game sweep -> research.db (idempotent/resumable)
 ```
+
+`research.py` runs a grid (MODELS × `GAMES_PER_MODEL`) into `research.db`; runs are named
+`"<model> <n>"`. It first resumes every unfinished run, then fills missing games by name —
+re-running it just continues where it left off (prints each run's name + `resume`/`calculating`).
 
 Running an episode needs a reachable provider; the API key is read from `.env`
 (`TOGETHER_API_KEY`). `.env` is gitignored — never commit it.

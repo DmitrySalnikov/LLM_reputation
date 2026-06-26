@@ -129,6 +129,29 @@ def test_is_finished_reflects_finished_at(tmp_path):
         st.close()
 
 
+def test_unfinished_runs_lists_only_open_runs(tmp_path):
+    cfg = _cfg()
+    st = _store(tmp_path)
+    try:
+        r1 = st.begin(cfg, _pop(cfg), name="m 0")     # доиграем
+        r2 = st.begin(cfg, _pop(cfg), name="m 1")     # оставим открытым
+        st._conn.execute("UPDATE runs SET finished_at=? WHERE run_id=?", ("2026-01-01", r1))
+        assert st.unfinished_runs() == [(r2, "m 1")]   # только незавершённый, с именем
+    finally:
+        st.close()
+
+
+def test_run_id_by_name_finds_run(tmp_path):
+    cfg = _cfg()
+    st = _store(tmp_path)
+    try:
+        rid = st.begin(cfg, _pop(cfg), name="llama 7")
+        assert st.run_id_by_name("llama 7") == rid
+        assert st.run_id_by_name("nope") is None        # нет такого имени
+    finally:
+        st.close()
+
+
 def test_delete_run_removes_all_rows(tmp_path):
     cfg = _cfg(n=3)
     st = _store(tmp_path)
