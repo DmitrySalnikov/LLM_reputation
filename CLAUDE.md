@@ -28,6 +28,7 @@ src/
 ├── games/
 │   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
 │   ├── prompts.py        English prompt builders (talk/decide/predict/reflect/notes)
+│   ├── talk_rules.py     TalkStopRule Protocol + make_talk_rule (latch | revocable)
 │   └── base.py           PairingRecord, Game Protocol
 ├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
 │                   partner, map via match/one_above) — base.py, mappings.py
@@ -58,7 +59,13 @@ LLM_TRACE=1 uv run python examples/orchestrator_demo.py             # + print ex
 uv run python judge_runs.py                            # backfill judge verdicts for stored runs
 uv run python collect_stats.py                         # aggregate verdicts -> stats.json + stats.csv
 uv run python plot_stats.py                            # stats.json -> stats.png (Wilson CI bars)
+uv run python experiment.py [config.yaml] ["run name"]               # one run -> experiment.db
+uv run python research.py                                            # model×game sweep -> research.db (idempotent/resumable)
 ```
+
+`research.py` runs a grid (MODELS × `GAMES_PER_MODEL`) into `research.db`; runs are named
+`"<model> <n>"`. It first resumes every unfinished run, then fills missing games by name —
+re-running it just continues where it left off (prints each run's name + `resume`/`calculating`).
 
 Running an episode needs a reachable provider; the API key is read from `.env`
 (`TOGETHER_API_KEY`). `.env` is gitignored — never commit it.
@@ -86,7 +93,7 @@ Running an episode needs a reachable provider; the API key is read from `.env`
 - Details and conventions: `docs/testing.md`.
 </important>
 
-<important if="you are adding a new provider, strategy, matchmaker, or population generator">
+<important if="you are adding a new provider, strategy, matchmaker, population generator, or talk-stop rule">
 Implement the Protocol and register it through its `make_*` factory:
 
 | seam | Protocol | factory |
@@ -95,6 +102,7 @@ Implement the Protocol and register it through its `make_*` factory:
 | strategy | `PlayStrategy` (`src/strategy/base.py`) | `make_strategy` (`src/strategy/base.py:37`) |
 | matchmaker | `Matchmaker` (`src/matchmaking/base.py`) | `make_matchmaker` (`src/matchmaking/base.py:20`) |
 | population | `PopulationGenerator` (`src/population/base.py`) | `make_population` (`src/population/base.py:67`) |
+| talk-stop rule | `TalkStopRule` (`src/games/talk_rules.py`) | `make_talk_rule` (`src/games/talk_rules.py`) |
 
 If the new kind needs config validation, extend `_validate` in `src/core/config.py`.
 </important>

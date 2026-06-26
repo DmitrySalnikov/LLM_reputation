@@ -108,6 +108,26 @@ class Storage:
         ).fetchone()
         return bool(row and row[0])
 
+    def unfinished_runs(self) -> list[tuple[int, str | None]]:
+        """Все недоигранные прогоны (finished_at IS NULL) как (run_id, name), по возрастанию id.
+
+        Нужно сводным скриптам (research.py), которые сперва доигрывают оборванное, затем
+        добивают недостающее."""
+        return [
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT run_id, name FROM runs WHERE finished_at IS NULL ORDER BY run_id"
+            )
+        ]
+
+    def run_id_by_name(self, name: str) -> int | None:
+        """run_id первого прогона с таким именем (или None). Имя — человеческая метка прогона;
+        сводный скрипт ищет по нему, что уже посчитано/начато (resume по run_id)."""
+        row = self._conn.execute(
+            "SELECT run_id FROM runs WHERE name=? ORDER BY run_id LIMIT 1", (name,)
+        ).fetchone()
+        return row[0] if row else None
+
     def run_config(self, run_id: int) -> str | None:
         """Вернуть сохранённый config (JSON-строка) прогона или None, если его нет.
         Используется при возобновлении: из него восстанавливается EpisodeCfg."""

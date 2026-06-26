@@ -242,6 +242,43 @@ def test_concrete_int_seed_is_preserved(tmp_path):
     assert load_episode(_seed_yaml(tmp_path, 11)).seed == 11
 
 
+def test_talk_stop_rule_revocable_loads(tmp_path):
+    f = tmp_path / "rule.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {talk_stop_rule: both_ready_revocable}
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    assert load_episode(str(f)).game.talk_stop_rule == "both_ready_revocable"
+
+
+def test_unknown_talk_stop_rule_raises(tmp_path):
+    f = tmp_path / "badrule.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {talk_stop_rule: bogus}
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError):
+        load_episode(str(f))
+
+
 def test_missing_required_raises(tmp_path):
     f = tmp_path / "bad.yaml"
     f.write_text("rounds: 3\nmatchmaker: random\n")  # no seed, no population
