@@ -63,10 +63,21 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
 
 1. **Cheap talk** (`_cheap_talk`): agents alternate short messages. `a` always
    opens (the matcher fixes orientation via pairing order — no rng in the game).
-   Stop rule `both_ready_latch`: a turn ends only when **both** agents have set
-   `finish: true` (the agent-facing JSON key; stored internally as `ready`); once
-   ready, an agent latches silent. Hard ceiling `cfg.max_talk_turns`. Each agent
-   necessarily speaks at least once.
+   All `talk_stop_rule` variants end the chat only when **both** agents have set
+   `finish: true` (the agent-facing JSON key; stored internally as `ready`); they vary along
+   two independent axes — does a finished agent keep talking, and is `finish` revocable:
+   - **`both_ready_latch`** (default): once it sets `finish: true` it latches silent and just
+     waits for the other to mature (sticky flag, stops talking);
+   - **`both_ready_revocable`**: it keeps taking turns and the `finish` flag is revocable
+     (overwritten by each reply, so `finish: false` takes its readiness back);
+   - **`both_ready_committed`**: it keeps taking turns but the `finish` flag is sticky — once
+     set it cannot be revoked.
+   The rule is a pluggable seam: `TalkStopRule` (Protocol, `src/games/talk_rules.py`) exposes
+   `skip_turn` (does an already-ready speaker stay silent this turn?), `next_ready` (how the
+   readiness flag updates per reply — sticky vs revocable), and `is_over` (stop now?);
+   `make_talk_rule(name)` is the factory, validated at load via `_validate`. Add a rule:
+   implement the Protocol, register it in `make_talk_rule`. Hard ceiling `cfg.max_talk_turns`.
+   Each agent necessarily speaks at least once.
 2. **Decide**: each agent's own `PlayStrategy.decide` (per `agent.setup`, see Strategies)
    is called with the public talk feed. This produces a `Decision` (final number +
    rationale, plus optional prediction).

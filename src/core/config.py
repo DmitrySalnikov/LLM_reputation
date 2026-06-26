@@ -415,6 +415,10 @@ def _validate(d: dict) -> None:
     if judge is not None and "provider" not in judge:
         raise ValueError("блок judge требует provider: модель судьи настраивается отдельно")
 
+    from src.games.talk_rules import make_talk_rule
+
+    make_talk_rule(d.get("game", {}).get("talk_stop_rule", "both_ready_latch"))  # raises on unknown
+
     notes_every = d.get("game", {}).get("memory_notes_every", 0)
     if not isinstance(notes_every, int) or isinstance(notes_every, bool) or notes_every < 0:
         raise ValueError(f"memory_notes_every должен быть целым ≥ 0, получено: {notes_every!r}")

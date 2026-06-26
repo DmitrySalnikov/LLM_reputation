@@ -28,6 +28,7 @@ src/
 ├── games/
 │   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
 │   ├── prompts.py        English prompt builders (talk/decide/predict/reflect/notes)
+│   ├── talk_rules.py     TalkStopRule Protocol + make_talk_rule (latch | revocable)
 │   └── base.py           PairingRecord, Game Protocol
 ├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
 │                   partner, map via match/one_above) — base.py, mappings.py
@@ -83,7 +84,7 @@ Running an episode needs a reachable provider; the API key is read from `.env`
 - Details and conventions: `docs/testing.md`.
 </important>
 
-<important if="you are adding a new provider, strategy, matchmaker, or population generator">
+<important if="you are adding a new provider, strategy, matchmaker, population generator, or talk-stop rule">
 Implement the Protocol and register it through its `make_*` factory:
 
 | seam | Protocol | factory |
@@ -92,6 +93,7 @@ Implement the Protocol and register it through its `make_*` factory:
 | strategy | `PlayStrategy` (`src/strategy/base.py`) | `make_strategy` (`src/strategy/base.py:37`) |
 | matchmaker | `Matchmaker` (`src/matchmaking/base.py`) | `make_matchmaker` (`src/matchmaking/base.py:20`) |
 | population | `PopulationGenerator` (`src/population/base.py`) | `make_population` (`src/population/base.py:67`) |
+| talk-stop rule | `TalkStopRule` (`src/games/talk_rules.py`) | `make_talk_rule` (`src/games/talk_rules.py`) |
 
 If the new kind needs config validation, extend `_validate` in `src/core/config.py`.
 </important>

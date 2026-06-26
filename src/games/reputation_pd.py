@@ -7,6 +7,7 @@ from src.core.config import GameCfg
 from src.core.memory import MemoryEntry, both_agreed, pick_opener, render_turns
 from src.games.base import PairingRecord
 from src.games.prompts import notes_context, reflect_context, talk_context
+from src.games.talk_rules import make_talk_rule
 from src.providers.base import ProviderError
 from src.strategy.base import PlayStrategy
 
@@ -169,14 +170,17 @@ class ReputationPD:
     async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict]) -> None:
         # Наполняет переданный transcript на месте (чтобы при LLM-сбое частичный
         # cheap-talk и его L2-лог не терялись — каждая реплика несёт свои "calls").
+        # Стоп-правило — подключаемый модуль (src/games/talk_rules.py): skip_turn решает,
+        # молчит ли уже-готовый говорящий (защёлка), is_over — пора ли завершить переговоры.
+        rule = make_talk_rule(self.cfg.talk_stop_rule)
         ready = {a.id: False, b.id: False}
         order = [a, b]  # a opens; the matcher sets orientation via pairing order
         i = 0
         while len(transcript) < self.cfg.max_talk_turns:
             cur, oth = order[i % 2], order[(i + 1) % 2]
             i += 1
-            if ready[cur.id]:
-                if ready[oth.id]:
+            if rule.skip_turn(cur.id, ready):
+                if rule.is_over(ready):
                     break
                 continue  # latched: stays silent while the other matures
             opener = pick_opener(transcript, cur.id, oth.id,
@@ -193,10 +197,11 @@ class ReputationPD:
                     "calls": res.calls,      # сырой L2-лог реплики (turn_idx доклеит игра)
                 }
             )
-            ready[cur.id] = res.data["ready"]
+            # next_ready решает, перезаписать флаг сигналом (отзываемо) или защёлкнуть (липко).
+            ready[cur.id] = rule.next_ready(ready[cur.id], res.data["ready"])
             # Each agent necessarily speaks at least once: ending needs BOTH ready,
             # and an agent is marked ready only after it has spoken.
-            if ready[a.id] and ready[b.id]:
+            if rule.is_over(ready):
                 break
 
     def _feed(self, transcript: list[dict], me_id: str) -> str:

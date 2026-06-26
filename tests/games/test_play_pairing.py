@@ -120,6 +120,41 @@ async def test_latched_agent_stays_silent():
     assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A2"]
 
 
+async def test_revocable_finisher_keeps_talking():
+    # both_ready_revocable: первый выставивший finish НЕ замолкает — он продолжает брать
+    # ходы; диалог рвётся, только когда finish стоит у ОБОИХ (тут — на t4).
+    g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_revocable"))
+    a = _agent("A1", [_talk("done", True), _talk("still here", True), _decide(0)])
+    b = _agent("A2", [_talk("hmm", False), _talk("ok", True), _decide(0)])
+    rec = await g.play_pairing(a, b, 1)
+    assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]  # A1 спикает дважды
+    assert rec.transcript[-1]["ready"] is True
+    assert rec.outcome == "CC"
+
+
+async def test_revocable_stops_only_on_mutual_finish():
+    # Один finish не останавливает: A финиширует на t1, B — нет; продолжаем, пока B не финиширует.
+    g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_revocable"))
+    a = _agent("A1", [_talk("a1", True), _talk("a2", True), _decide(2)])
+    b = _agent("A2", [_talk("b1", False), _talk("b2", True), _decide(2)])
+    rec = await g.play_pairing(a, b, 1)
+    assert len(rec.transcript) == 4                       # не оборвалось на первом finish
+    assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]
+
+
+async def test_committed_finish_is_sticky_but_keeps_talking():
+    # both_ready_committed: агент продолжает говорить (как revocable), но finish ЛИПКИЙ —
+    # A выставляет finish на t1, на t3 пытается отозвать (finish=false), но ready[A] остаётся
+    # true, поэтому второй finish от B на t4 завершает чат.
+    g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_committed"))
+    a = _agent("A1", [_talk("done", True), _talk("nvm", False), _decide(0)])
+    b = _agent("A2", [_talk("hmm", False), _talk("ok", True), _decide(0)])
+    rec = await g.play_pairing(a, b, 1)
+    assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]
+    assert rec.transcript[2]["ready"] is False   # A публично сказал finish=false на своём 2-м ходу…
+    assert rec.outcome == "CC"                   # …но чат всё равно закрылся (finish был липким)
+
+
 async def test_first_speaker_is_first_arg():
     # The matcher fixes who opens via pairing order: the first positional agent speaks first.
     g = ReputationPD(GameCfg(max_talk_turns=6))
