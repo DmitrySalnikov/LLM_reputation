@@ -1,24 +1,4 @@
-"""Прогон исследования: сетка «модель × игра» в один research.db.
-
-Дизайн исследования (config/research.yaml): 10 игроков (8 обычных + 2 «плохих»/дефектора),
-temperature 0.7, 10 раундов, без memory notes. Здесь задаётся только то, что варьируется
-между прогонами: список моделей (MODELS) и число игр на модель (GAMES_PER_MODEL).
-
-Каждая игра — отдельный прогон (run) в общей БД; имя прогона = "<модель> <номер>"
-(напр. "llama-3-8b 0"). Скрипт ИДЕМПОТЕНТЕН и возобновим:
-
-  uv run python research.py
-
-  1) сперва доигрывает ВСЕ незавершённые прогоны (resume);
-  2) затем добивает недостающие игры по плану (модель × номер), пропуская уже посчитанные
-     — поиск по имени прогона.
-
-На каждый прогон в консоль печатается ТОЛЬКО его имя и статус — `resume` или `calculating`
-(движок гонится в тихом режиме, quiet=True: пораундовая narration и scoreboard подавлены,
-наружу пробиваются лишь сообщения об обрыве прогона).
-Для каждой НОВОЙ игры конфиг грузится заново (seed: random -> свежий сид), а provider.model
-переопределяется на текущую модель. Возобновление берёт сохранённый конфиг прогона как есть.
-"""
+# uv run python research.py
 
 from __future__ import annotations
 
@@ -36,10 +16,6 @@ load_dotenv()                       # ключи API из .env (TOGETHER_API_KEY
 CONFIG = "config/research.yaml"
 DB = "research.db"
 GAMES_PER_MODEL = 100
-
-# (метка прогона, Together model id). Метка идёт в имя прогона ("<метка> <номер>").
-# NB: точные slug'и DeepSeek-V4-Pro и gpt-oss-20b на Together уточни по каталогу
-# (https://api.together.xyz/models) — при несовпадении прогоны посыплются ProviderError.
 MODELS = [
     ("llama-3-8b",      "meta-llama/Meta-Llama-3-8B-Instruct-Lite"),
     ("qwen2.5-7b",      "Qwen/Qwen2.5-7B-Instruct-Turbo"),
