@@ -1,14 +1,14 @@
 #   uv run python experiment.py
 
-# ── Episode (src/core/config.py: EpisodeCfg) ──────────────────────────────────
-seed: 11
+# ── Episode (EpisodeCfg) ──────────────────────────────────
+seed: random                  # (random|int)
 rounds: 2
 max_concurrency: 5
 matchmaker: random            # only "random" in the MVP
-context_window: null          # null = whole memory; int = last N entries
+context_window: null          # (null|int)
 idle_payoff: 1
 
-# ── Population (src/core/config.py: PopulationCfg) ────────────────────────────
+# ── Population (PopulationCfg) ────────────────────────────
 population:
   system_default: &system_default |-
     You are AI agent {id}.
@@ -58,20 +58,18 @@ population:
     model: meta-llama/Meta-Llama-3-8B-Instruct-Lite
     temperature: 0.7
     max_tokens: 2000
-    timeout_s: 300                            # HTTP timeout per LLM call, seconds
+    timeout_s: 300
   kind: roster
-  Optional name pools: if both are set, agents are named "First Last"; else they get A1..An.
-  first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi,
-                    Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
-  last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou,
-                    Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon,
-                    Takarada, Amasawa]
-  # last_name_pool:  [348, 712, 905, 246, 583, 167, 829, 471, 630, 394]
+  # entries must be UNIQUE, pool size >= число агентов:
+  # оба пула  -> id = "First Last";   один пул -> id = сам элемент (без фамилии);   ни одного -> A1..An.
+  # first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi, Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
+  # last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou, Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon, Takarada, Amasawa]
+  first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
 
-# ── Game (src/core/config.py: GameCfg) ────────────────────────────────────────
+# ── Game (GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 6                   # hard ceiling on total cheap-talk turns in a pairing
-  memory_notes_every: 0               # 0 = off; иначе каждые N сыгранных АГЕНТОМ раундов он сворачивает память в заметки (idle не считается; напр. 3)
+  max_talk_turns: 6
+  memory_notes_every: 0               # 0 = off (idle не считается)
   payoffs: {R: 3, T: 5, P: 1, S: 0}   # invariants: T > R > P > S and 2R > T + S
   rationale: false                    # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
   reflection: false                   # post-game reflection: an extra LLM call after the outcome
@@ -93,42 +91,42 @@ game:
   # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
   # (правила игры — в system_prompt агента, см. &system_default выше)
   talk_prompt: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
   # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   # rationale=false -> активны *_bare шаблоны (только число). rationale: true -> берутся
   # decide_prompt/predict_prompt (рассуждать перед числом). Оба варианта заданы здесь явно,
   # чтобы конфиг был самодостаточен (без падения на код-дефолты). {reason} — как закрылся чат.
   decide_prompt: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Reason first, then commit to a number. Please, write your reasoning and number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
   decide_prompt_bare: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
   # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/закрытия, только директива: предсказать число co-player.
   predict_prompt: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Reason first, then commit to a number. Please, write your reasoning and the predicted number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
   predict_prompt_bare: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
   # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
-    <game>Round {round} · co-player {partner}
+    <game>Round {round} with {partner}:
     The chat has been open.</game>
   # {opener} — кто открыл раунд (фраза одинакова в истории и в живом talk). Заданы явно,
   # чтобы не падать на код-дефолт opener_self с «opponent».
@@ -154,7 +152,7 @@ game:
   history_reflection_prompt: "<you>(my takeaway: {my_reflection})</you>"
   # Used only when reflection=true:
   reflect_prompt: |-
-    Current round: [Round {round} · co-player {partner} · score {score}]
+    Current round: [Round {round} with {partner}: · score {score}]
     Talk:
     {feed}
 

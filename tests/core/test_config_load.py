@@ -203,6 +203,45 @@ def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
     assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT   # persona отброшена -> дефолт
 
 
+def _seed_yaml(tmp_path, seed):
+    f = tmp_path / "seed.yaml"
+    f.write_text(textwrap.dedent(
+        f"""
+        seed: {seed}
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          provider: {{base_url: "http://x/v1", model: "m"}}
+          agents:
+            - {{count: 1}}
+        """
+    ))
+    return str(f)
+
+
+def test_seed_random_resolves_to_concrete_int(tmp_path):
+    cfg = load_episode(_seed_yaml(tmp_path, "random"))
+    assert isinstance(cfg.seed, int) and not isinstance(cfg.seed, bool)
+
+
+def test_seed_random_regenerates_each_load(tmp_path):
+    # каждая загрузка `seed: random` рождает НОВЫЙ сид -> среди нескольких загрузок есть разные
+    path = _seed_yaml(tmp_path, "random")
+    seeds = {load_episode(path).seed for _ in range(8)}
+    assert len(seeds) > 1
+
+
+def test_seed_random_is_case_insensitive(tmp_path):
+    cfg = load_episode(_seed_yaml(tmp_path, "Random"))
+    assert isinstance(cfg.seed, int)
+
+
+def test_concrete_int_seed_is_preserved(tmp_path):
+    # обычный числовой сид остаётся дословно (воспроизводимость resume/extend)
+    assert load_episode(_seed_yaml(tmp_path, 11)).seed == 11
+
+
 def test_missing_required_raises(tmp_path):
     f = tmp_path / "bad.yaml"
     f.write_text("rounds: 3\nmatchmaker: random\n")  # no seed, no population

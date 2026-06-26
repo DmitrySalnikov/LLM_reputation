@@ -47,7 +47,7 @@ resume/extend (it's a whole-episode analytics pass — score the run separately)
 
 | field | meaning |
 |-------|---------|
-| `seed` | drives population build + a derived matchmaker rng stream |
+| `seed` | drives population build + a derived matchmaker rng stream. Int = fixed seed; `random` = draw a fresh seed at load time (each run differs). The drawn int is persisted into the run (`runs.seed`/`config`), so the run stays reproducible by that number, and resume/extend reuses the stored int. |
 | `rounds` | number of rounds in the episode |
 | `matchmaker` | only `random` is implemented |
 | `context_window` | per-agent memory window; `null` = unbounded |
@@ -157,8 +157,8 @@ population:
   kind: roster                       # only roster is implemented
   provider: *default                 # one LLM provider, shared by all agents (required)
   n_agents: 4
-  first_name_pool: [...]             # >= n_agents unique names, validated
-  last_name_pool:  [...]             # >= n_agents unique names, validated
+  first_name_pool: [...]             # >= n_agents unique names, validated (optional)
+  last_name_pool:  [...]             # >= n_agents unique names, validated (optional)
   agents:                            # shorter than n_agents -> cycled at build time
     - {count: 2, play_strategy: direct, system_prompt: *system_pragmatic}
     - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_pragmatic}
@@ -182,9 +182,17 @@ prediction`), `system_prompt` (above). **Strategy is per-agent**, so a populatio
 direct and prediction agents in one episode; `_validate` checks each spec's strategy/mapping,
 and the game builds each agent's strategy from `agent.setup` (`ReputationPD._strategy_for`).
 
-Agent ids are sampled as unique `First Last` strings from the two pools. `_validate`
-(`src/core/config.py:88`) enforces: both pools present, no duplicates within a pool,
-each pool ≥ `n_agents`. Empty pools fall back to `A1`, `A2`, … ids.
+Agent ids are sampled from the name pools, in one of three modes:
+
+- **both pools** → unique `First Last` strings;
+- **one pool only** → the id is the pool entry itself, no surname (e.g. a single
+  `first_name_pool: [Player 348, Player 712, ...]` yields ids `Player 348` …); numeric
+  entries are coerced to strings;
+- **no pools** → fall back to `A1`, `A2`, … ids.
+
+`_validate` (`src/core/config.py`) enforces, **per non-empty pool**: no duplicates within
+the pool and size ≥ `n_agents`. Pools are optional and validated independently, so a single
+pool is valid on its own.
 
 ## Adding a config knob
 

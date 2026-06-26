@@ -35,18 +35,27 @@ class RosterGenerator:
 
 
 def _sample_names(cfg, rng) -> list[str | None]:
-    """Сэмплировать уникальные имена 'Имя Фамилия' без повторов.
+    """Сэмплировать уникальные id из пулов имён без повторов.
+
+    Три режима в зависимости от того, какие пулы заданы:
+      * оба пула  -> 'Имя Фамилия' (по одному уникальному имени и фамилии на агента);
+      * один пул  -> id = сам элемент пула, без фамилии (напр. 'Player 348' одним полем);
+      * ни одного -> None (роутер назначит резервные A1..An).
 
     Args:
-        cfg: Конфигурация популяции с пулами имён и фамилий.
+        cfg: Конфигурация популяции с (опциональными) пулами имён и фамилий.
         rng: Генератор случайных чисел.
 
     Returns:
-        Список строк 'Имя Фамилия' длиной sum(count); список None при пустых пулах.
+        Список id длиной sum(count); список None при пустых пулах. Числовые элементы пула
+        (YAML-числа) приводятся к строке.
     """
     total = sum(spec.count for spec in cfg.agents)
-    if not cfg.first_name_pool or not cfg.last_name_pool:
-        return [None] * total
-    firsts = rng.sample(cfg.first_name_pool, total)
-    lasts = rng.sample(cfg.last_name_pool, total)
-    return [f"{f} {l}" for f, l in zip(firsts, lasts)]
+    firsts, lasts = cfg.first_name_pool, cfg.last_name_pool
+    if firsts and lasts:
+        f = rng.sample(firsts, total)
+        l = rng.sample(lasts, total)
+        return [f"{a} {b}" for a, b in zip(f, l)]
+    if firsts or lasts:                          # ровно один пул -> id = сам элемент (без фамилии)
+        return [str(x) for x in rng.sample(firsts or lasts, total)]
+    return [None] * total                        # пулов нет -> A1..An
