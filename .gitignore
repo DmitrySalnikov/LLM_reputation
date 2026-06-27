@@ -11,3 +11,6 @@ together_chat_models.txt
 
 # Секреты окружения (ключи API)
 .env
+
+# Локальные git-worktree, управляемые Claude Code
+.claude/worktrees/

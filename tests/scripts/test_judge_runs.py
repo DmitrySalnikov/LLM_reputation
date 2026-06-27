@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from src.core.config import JudgeCfg, ProviderCfg
 from src.judge import judge as judge_mod
 from src.storage import Storage
 
 import judge_runs
+
+
+def test_load_judge_cfg_takes_judge_from_config(monkeypatch):
+    judge = JudgeCfg(provider=ProviderCfg(base_url="u", model="main-model"))
+    monkeypatch.setattr(judge_runs, "load_episode", lambda path: SimpleNamespace(judge=judge))
+    assert judge_runs.load_judge_cfg("any.yaml").provider.model == "main-model"
+
+
+def test_load_judge_cfg_falls_back_when_no_judge_block(monkeypatch):
+    monkeypatch.setattr(judge_runs, "load_episode", lambda path: SimpleNamespace(judge=None))
+    assert judge_runs.load_judge_cfg("any.yaml") is judge_runs.JUDGE_DEFAULT
 
 
 class ScriptedProvider:

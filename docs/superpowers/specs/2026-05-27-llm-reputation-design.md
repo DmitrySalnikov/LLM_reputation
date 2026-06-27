@@ -23,8 +23,8 @@ Out of scope (v1):
 - Concurrency / parallelism within a round
 - Resume-from-crash
 - Per-agent strategy overrides (architecture supports it; not exposed in v1 config)
-- Anthropic / native HF transformers adapters (architecture supports adding them; only OpenAI-compat ships)
 - Analysis tooling — the framework produces data; analysis is downstream
+- LLM-judge analysis to determine emergent reputation institute
 
 ## 1. Hierarchy & terminology
 
@@ -60,7 +60,7 @@ For each of the `AGENT_COUNT` agents we sample one first name and one last name 
 
 No built-in prompt asks an agent to describe, evaluate, or share information about other agents. The notes prompt says "reflect on the round/episode", not "tell us about each agent you met". Gossip during negotiation must be the agent's own initiative.
 
-## 2. Architecture (Approach A — layered with Protocol extension points)
+## 2. Architecture
 
 ```
 LLM_reputation/
@@ -118,6 +118,7 @@ LLM_reputation/
 | New prediction mapping | `PredictionMapping` Protocol in `strategy.py` | `config.py` factory |
 | New model backend (Anthropic, native Ollama, native vLLM) | `LLMClient` Protocol in `llm/client.py` | new file in `llm/`, `config.py` factory |
 | New persistence sink (Postgres, JSONL, etc.) | `EventSink` Protocol in `persistence/sink.py` | `config.py` factory |
+| New cache backend (e.g. separate SQLite file, Redis) | `LLMCache` Protocol (new, in `llm/cache.py`) | `config.py` factory |
 
 ## 3. Configuration (`.env`)
 
@@ -125,10 +126,10 @@ Single `.env` file, loaded by `pydantic-settings` at startup. Validation runs on
 
 ```ini
 # === Population & schedule ===
-AGENT_COUNT=4
-FIRST_NAME_POOL="Alice,Bob,Carol,Dave,Eve,Frank"   # all unique, |pool| >= AGENT_COUNT
-LAST_NAME_POOL="Smith,Jones,Brown,Davis,Wilson"    # all unique, |pool| >= AGENT_COUNT
-ROUNDS_PER_EXPERIMENT=5
+AGENT_COUNT=10 # all unique, |pool| >= AGENT_COUNT
+FIRST_NAME_POOL="Rintarou,Kurisu,Mayuri,Itaru,Moeka,Ruka,Suzuha,Maho,Takumi,Rimi,Sena,Ayase,Kaito,Akiho,Nae,Takuru,Serika,Yuuta,Pollon,Momo"
+LAST_NAME_POOL="Okabe,Makise,Shiina,Hashida,Kiryuu,Urushibara,Amane,Hiyajo,Nishijou,Sakihata,Aoi,Kishimoto,Yashio,Senomiya,Tennouji,Miyashiro,Onoe,Gamon,Takarada,Amasawa"
+ROUNDS_PER_EXPERIMENT=7
 PARTNERS_PER_ROUND=3                                # K; each agent plays this many partners per round, no repeats
 GAMES_PER_EPISODE=3
 NEGOTIATION_TURNS_PER_AGENT=2                       # messages each agent sends per game before choosing
@@ -140,11 +141,11 @@ H3=0
 H4=-5
 
 # === Model (OpenAI-compatible; covers OpenAI / Ollama / vLLM via /v1) ===
-MODEL_BASE_URL=https://api.openai.com/v1
+MODEL_BASE_URL=https://api.together.ai/v1
 MODEL_API_KEY=sk-...
-MODEL_NAME=gpt-4o-mini
-MODEL_TEMPERATURE=0.7
-MODEL_MAX_TOKENS=512                                # per single response
+MODEL_NAME=moonshotai/Kimi-K2.6
+MODEL_TEMPERATURE=0
+MODEL_MAX_TOKENS=1024                                # per single response
 
 # === Play strategy ===
 PLAY_STRATEGY=direct                                # "direct" | "prediction"
@@ -275,14 +276,15 @@ LLM is asked directly via `CHOICE_PROMPT`. Full agent context (system + global n
 Two-step decision:
 
 1. **Predict:** LLM is called with `PREDICTION_PROMPT`. Full context provided. Response parsed as integer 0–9. The whole exchange (prompt + LLM's raw response + parsed prediction) is appended to the agent's *private game scratchpad* — visible in this agent's future context, never in the partner's.
-2. **Map:** A pure function `PredictionMapping(predicted: int) -> int` produces the final choice.
+2. **Map:** A pure function `PredictionMapping(predicted: int, partner_history: list[int]) -> int` produces the final choice. `partner_history` is the ordered list of choices the partner made in all previous games of the **current episode** (empty on game 0). Mappings that don't need history simply ignore the second argument.
 
 ### `PredictionMapping` implementations
 
-| Name | Function |
-|---|---|
-| `match` | `choose = predicted` |
-| `one_above` | `choose = (predicted + 1) mod 10` |
+| Name | Function | Uses history? |
+|---|---|---|
+| `match` | `choose = predicted` | No |
+| `one_above` | `choose = (predicted + 1) mod 10` | No |
+| `counter_most_common` | `choose = (mode(partner_history) + 1) mod 10`, falls back to `predicted` when history is empty | Yes |
 
 New mappings are added by implementing the Protocol and registering a name in `config.py`.
 
@@ -554,6 +556,7 @@ async def run_experiment(config: Config):
 - Choices in a single game are computed without sharing — `decide(a, …)` and `decide(b, …)` see only their own context.
 - `reset_round_memory()` is the *only* mechanism that drops episode notes; everything else is append-only.
 - All `sink.*` calls happen before the next state transition — a crash mid-round leaves a complete record of everything up to that point.
+— Notes (global notes, episode notes, private scratchpad) are owned by the writing agent and never passed to any other agent's context. The only cross-agent data flow is: negotiation messages (via observe_partner_message) and orchestrator-injected public events (schedule, game outcomes, standings).
 
 ## 9. Testing strategy
 
@@ -566,7 +569,7 @@ TDD per project conventions: failing tests before implementation. AAA pattern. O
 - `test_scheduler.py` — no duplicate partners per agent within a round; all agents used; K respected; deterministic with seed
 - `test_name_generator.py` — uniqueness of first names, uniqueness of last names, deterministic with seed
 - `test_config.py` — validation rules (H ordering, pool sizes ≥ `AGENT_COUNT`, `AGENT_COUNT × K` even, prompt placeholders required when relevant mode is enabled)
-- `test_strategy.py` — `MatchPrediction` and `OneAbovePredicted` mappings; with `FakeLLMClient`, prediction strategy populates the private scratchpad
+- `test_strategy.py` — `MatchPrediction` and `OneAbovePredicted` mappings; with `FakeLLMClient`, prediction strategy populates the private scratchpad; history-aware mappings receive the correct `partner_history` slice (empty on game 0, grows by one entry per game); mappings that ignore history remain correct when a non-empty history is passed
 
 **2. Test doubles:**
 - `FakeLLMClient` — two modes:
@@ -579,7 +582,11 @@ TDD per project conventions: failing tests before implementation. AAA pattern. O
 - Multi-round: verify global_snapshot per round + round memory reset
 - Mode `episode`: verify episode notes persisted to SQLite **and** dropped from agent context after round end
 - Strategy variants: direct vs prediction (verify `decisions.predicted_value` populated only for prediction)
-- Privacy: assert agent A's transcript never contains agent B's prediction reasoning
+- Privacy — four separate tests, each using `FakeLLMClient(callback=…)` to inject a unique sentinel string into a specific note type, then asserting it never appears in any other agent's LLM call history:
+  - **Global notes**: sentinel injected into agent A's global notes; assert it never appears in any message list passed to agent B's or C's `complete()` calls across all subsequent rounds
+  - **Episode notes** (`MEMORY_MODE=episode`): sentinel injected into agent A's episode note after an A–B episode; assert it never appears in agent B's context for the remainder of that round, nor in any other agent's context ever
+  - **Round memory**: sentinel appears in agent A's negotiation reply during an A–B episode; assert it never appears in agent C's context (C was not party to that episode) for the rest of the round
+  - **Prediction scratchpad** (`PLAY_STRATEGY=prediction`): sentinel injected into agent A's prediction reasoning; assert it never appears in agent B's message list at any point during or after the same game
 
 **4. Live smoke (not in CI):**
 - One tiny run against a real OpenAI-compat endpoint behind `@pytest.mark.live` — verifies wiring only
@@ -593,6 +600,7 @@ TDD per project conventions: failing tests before implementation. AAA pattern. O
 | LLM response unparseable as number | One retry with stricter prompt; second failure → abort |
 | SQLite write fails | Log Russian error and raise — never silently lose data |
 | Schedule unschedulable | Caught at config validation, never reaches runtime |
+| Cache miss in `replay` mode | Log Russian error and abort — never silently fall back to a live API call during replay |
 
 Research data integrity > graceful degradation. A crash with a clear log beats a silently corrupted experiment.
 
@@ -602,7 +610,45 @@ A given `RANDOM_SEED` deterministically fixes:
 - Name assignment (which agent gets which first/last name)
 - The pairing schedule produced by `RandomKPartnerScheduler` for every round
 
-LLM responses themselves are not reproducible (depend on provider + temperature), but the experimental setup is. The full config snapshot is persisted as `config_snapshot.json` alongside the SQLite file.
+The full config snapshot is persisted as `config_snapshot.json` alongside the SQLite file.
+
+### LLM response reproducibility
+
+LLM responses are not reproducible by default (depend on provider + temperature), but the following three-layer strategy makes experiments permanently replayable:
+
+**Layer 1 — Greedy decoding.** Set `MODEL_TEMPERATURE=0` to enable greedy decoding. Most providers make this deterministic within a fixed model version, but outputs can change silently when the provider updates the backend.
+
+**Layer 2 — Provider seed.** `OpenAICompatClient` passes `seed=RANDOM_SEED` in every API call. OpenAI returns a `system_fingerprint` in the response; the client logs it so a fingerprint change is detectable in the experiment record. Ollama and vLLM support the same parameter with no code changes.
+
+**Layer 3 — Record-and-replay cache (primary guarantee).** Every LLM request/response pair is stored in a `llm_cache` table, keyed by a SHA-256 hash of the serialized message list. On any subsequent run with the same inputs, the cache is served instead of calling the API. This makes experiments permanently replayable regardless of provider changes or model deprecations.
+
+```sql
+CREATE TABLE llm_cache (
+    id             INTEGER PRIMARY KEY,
+    messages_hash  TEXT    NOT NULL UNIQUE,   -- sha256(json(messages))
+    messages_json  TEXT    NOT NULL,
+    response       TEXT    NOT NULL,
+    model          TEXT    NOT NULL,
+    created_at     TEXT    NOT NULL
+);
+```
+
+`OpenAICompatClient` is wrapped by a `CachingLLMClient` that checks `llm_cache` before every call and writes misses back. This preserves the `LLMClient` protocol — no changes to agent or orchestrator code.
+
+A new env flag controls cache behaviour:
+
+```ini
+# === Reproducibility ===
+LLM_CACHE_MODE=write   # "write" (default) | "replay" | "off"
+```
+
+| Mode | Behaviour |
+|---|---|
+| `write` | Serve cached response on hit; call API and store on miss. Default for live runs. |
+| `replay` | Serve cached response on hit; raise and abort on miss. Guarantees bit-for-bit replay. |
+| `off` | Bypass cache entirely; always call API. Useful during prompt development. |
+
+The cache lives inside the same `experiment.sqlite` file, so a single file is all that is needed to replay an experiment.
 
 ## 12. Open questions / future work
 
