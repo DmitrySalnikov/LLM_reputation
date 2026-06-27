@@ -72,6 +72,60 @@ async def test_request_shape():
     assert captured["req"].url.path == "/v1/chat/completions"
 
 
+async def test_reasoning_disabled_sends_enabled_false():
+    # reasoning=False -> Non-think: payload несёт {"reasoning": {"enabled": false}}.
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    p = _provider_with(handler, reasoning=False)
+    await _call(p)
+    assert captured["body"]["reasoning"] == {"enabled": False}
+    assert "reasoning_effort" not in captured["body"]
+
+
+async def test_reasoning_enabled_by_default_sends_nothing():
+    # Дефолт reasoning=True ничего не шлёт — не-reasoning модели не должны получать поле.
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    p = _provider_with(handler)            # reasoning по умолчанию True
+    await _call(p)
+    assert "reasoning" not in captured["body"]
+    assert "reasoning_effort" not in captured["body"]
+
+
+async def test_reasoning_effort_sent_when_set():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    p = _provider_with(handler, reasoning_effort="high")
+    await _call(p)
+    assert captured["body"]["reasoning_effort"] == "high"
+
+
+async def test_make_provider_threads_reasoning_from_cfg():
+    # make_provider должен прокинуть reasoning из ProviderCfg в payload.
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    cfg = ProviderCfg(base_url="http://x/v1", model="m", reasoning=False)
+    p = make_provider(cfg, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    await _call(p)
+    assert captured["body"]["reasoning"] == {"enabled": False}
+
+
 async def test_completion_carries_sent_request():
     captured = {}
 

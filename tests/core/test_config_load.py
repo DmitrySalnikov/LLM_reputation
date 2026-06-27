@@ -107,6 +107,61 @@ def test_reflection_loaded_from_game_block(example):
     assert cfg.game.reflection is True   # включено в примере конфигурации
 
 
+def test_reasoning_loaded_from_provider_block(tmp_path):
+    f = tmp_path / "reasoning.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m", reasoning: false, reasoning_effort: high}
+          agents:
+            - {count: 1}
+        """
+    ))
+    p = load_episode(str(f)).population.provider
+    assert p.reasoning is False and p.reasoning_effort == "high"
+
+
+def test_reasoning_defaults_to_enabled_no_effort(tmp_path):
+    f = tmp_path / "reasoning_default.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    p = load_episode(str(f)).population.provider
+    assert p.reasoning is True and p.reasoning_effort == ""
+
+
+def test_corrections_loaded_from_game_block(tmp_path):
+    f = tmp_path / "corr.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {decide_correction_bare: "ONLY_NUMBER", talk_correction: "ONLY_MESSAGE"}
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    g = load_episode(str(f)).game
+    assert g.decide_correction_bare == "ONLY_NUMBER" and g.talk_correction == "ONLY_MESSAGE"
+
+
 def test_population_provider_loaded(example):
     cfg = load_episode(example)
     p = cfg.population.provider                       # один провайдер на популяцию (&default / *default)

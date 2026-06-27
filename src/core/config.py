@@ -14,6 +14,12 @@ class ProviderCfg:
     temperature: float = 0.7
     max_tokens: int = 512
     timeout_s: float = 120.0
+    # Управление рассуждениями для reasoning-моделей (например, DeepSeek-V4-Pro на Together).
+    # reasoning=False -> в payload уходит {"reasoning": {"enabled": false}} (Non-think); True (дефолт)
+    # ничего не шлёт — провайдер сам решает (для не-reasoning моделей поле игнорируется).
+    # reasoning_effort (если непусто) -> {"reasoning_effort": "<val>"} ("high"/"max"; задел на будущее).
+    reasoning: bool = True
+    reasoning_effort: str = ""
 
 
 @dataclass(frozen=True)
@@ -200,6 +206,33 @@ DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
 DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
 
 
+# Поправка на ретрае парсинга: дописывается к user-сообщению, КОГДА ответ фазы не разобрался
+# (Agent.act, max 2 ретрая). Раньше текст был зашит в src/core/agent.py одним dict'ом и для
+# DECIDE/PREDICT всегда требовал схему с rationale — даже в bare-режиме (rationale=false), из-за
+# чего противоречил самому промпту. Теперь это поля конфига, по одному на фазу + bare-вариант, и
+# движок выбирает bare/rationale так же, как для самого промпта (по флагу rationale). Плейсхолдеров
+# нет — текст уходит дословно.
+DEFAULT_TALK_CORRECTION = (
+    "Respond with ONLY valid JSON, nothing else: "
+    '{"message": "<your message>", "finish": <true|false>}'
+)
+DEFAULT_DECIDE_CORRECTION = (
+    "Respond with ONLY valid JSON, nothing else: "
+    '{"rationale": "<short reason>", "number": <integer 0-9>}'
+)
+DEFAULT_DECIDE_CORRECTION_BARE = (
+    'Respond with ONLY valid JSON, nothing else: {"number": <integer 0-9>}'
+)
+DEFAULT_PREDICT_CORRECTION = DEFAULT_DECIDE_CORRECTION
+DEFAULT_PREDICT_CORRECTION_BARE = DEFAULT_DECIDE_CORRECTION_BARE
+DEFAULT_REFLECT_CORRECTION = (
+    'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
+)
+DEFAULT_NOTE_CORRECTION = (
+    'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
+)
+
+
 # Judge prompt. Placeholder (literal replacement, NOT str.format): {transcript}.
 DEFAULT_JUDGE_PROMPT = (
     "You are an impartial judge reviewing the public communication from a multi-agent "
@@ -220,6 +253,13 @@ DEFAULT_JUDGE_PROMPT = (
     'If there is no such evidence, return an empty list and "emerged": false.\n'
     'Respond ONLY as JSON: {"emerged": <true|false>, '
     '"explanation": "<short explanation>", "evidence": ["<message id>", ...]}'
+)
+
+# Поправка судьи на ретрае (раньше зашита в src/judge/judge.py). Без плейсхолдеров.
+DEFAULT_JUDGE_CORRECTION = (
+    "Respond with ONLY valid JSON, nothing else: "
+    '{"emerged": <true|false>, "explanation": "<short explanation>", '
+    '"evidence": ["<message id>", ...]}'
 )
 
 
@@ -264,6 +304,15 @@ class GameCfg:
     history_predicted_prompt: str = DEFAULT_HISTORY_PREDICTED_PROMPT    # {partner} {my_predicted}
     history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale}
     history_reflection_prompt: str = DEFAULT_HISTORY_REFLECTION_PROMPT  # {my_reflection}
+    # Поправки на ретрае парсинга (по фазе; DECIDE/PREDICT — bare/rationale как у самого промпта).
+    # Без плейсхолдеров — дописываются дословно к user-сообщению при неразобравшемся ответе.
+    talk_correction: str = DEFAULT_TALK_CORRECTION
+    decide_correction: str = DEFAULT_DECIDE_CORRECTION
+    decide_correction_bare: str = DEFAULT_DECIDE_CORRECTION_BARE
+    predict_correction: str = DEFAULT_PREDICT_CORRECTION
+    predict_correction_bare: str = DEFAULT_PREDICT_CORRECTION_BARE
+    reflect_correction: str = DEFAULT_REFLECT_CORRECTION
+    note_correction: str = DEFAULT_NOTE_CORRECTION
 
     def __post_init__(self) -> None:
         """Заполнить пустые шаблоны DECIDE/PREDICT (оба варианта) дефолтами.
@@ -292,6 +341,7 @@ class JudgeCfg:
 
     provider: ProviderCfg
     prompt: str = DEFAULT_JUDGE_PROMPT   # английский шаблон с плейсхолдером {transcript}
+    correction: str = DEFAULT_JUDGE_CORRECTION  # поправка на ретрае при неразобравшемся ответе
 
 
 @dataclass(frozen=True)
@@ -370,6 +420,8 @@ def _judge_cfg(d: dict) -> JudgeCfg:
     kwargs = {}
     if "prompt" in d:
         kwargs["prompt"] = d["prompt"]
+    if "correction" in d:
+        kwargs["correction"] = d["correction"]
     return JudgeCfg(provider=_provider_cfg(d["provider"]), **kwargs)
 
 

@@ -22,12 +22,6 @@ _log = logging.getLogger(__name__)
 
 _REF_RE = re.compile(r"^r(\d+)\.p(\d+)\.t(\d+)$")
 
-_CORRECTION = (
-    "Respond with ONLY valid JSON, nothing else: "
-    '{"emerged": <true|false>, "explanation": "<short explanation>", '
-    '"evidence": ["<message id>", ...]}'
-)
-
 
 async def judge_episode(cfg: JudgeCfg, records: list[PairingRecord]) -> JudgeVerdict:
     """Вынести вердикт о возникновении института репутации в эпизоде.
@@ -69,7 +63,7 @@ async def judge_episode(cfg: JudgeCfg, records: list[PairingRecord]) -> JudgeVer
             messages = [
                 Message("user", prompt),
                 Message("assistant", comp.text),
-                Message("user", _CORRECTION),
+                Message("user", cfg.correction),
             ]
         raise JudgeError("судья вернул неразборчивый ответ после повторной попытки")
     finally:

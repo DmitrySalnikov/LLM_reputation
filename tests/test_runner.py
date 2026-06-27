@@ -216,6 +216,40 @@ async def test_resume_already_complete_is_noop(tmp_path, capsys):
     out = capsys.readouterr().out.lower()
     assert res == rid
     assert "nothing to do" in out
+
+
+async def test_resume_finalizes_run_aborted_on_final_round(tmp_path):
+    # Эпизод, оборванный на ПОСЛЕДНЕМ раунде: все round-строки уже записаны (сорванная пара
+    # пишется в БД до EpisodeAborted), но finished_at не проставлен — last_round == rounds.
+    # Старый guard на этом отдавал «nothing to do», и прогон оставался навечно недоигранным.
+    # resume должен ЗАКРЫТЬ его (проставить finished_at), не доигрывая новых раундов.
+    import random
+    import sqlite3
+
+    from src.core.orchestrator import run_episode
+    from src.population import make_population
+    from src.storage import Storage
+
+    cfg = _cfg(n=3, rounds=2)
+    db = str(tmp_path / "t.db")
+    pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
+    st = Storage(db)
+    rid = st.begin(cfg, pop)
+    await run_episode(cfg, pop, observer=st.observe)        # сыграны оба раунда, но БЕЗ finish
+    assert not st.is_finished(rid)
+    st.close()
+    await pop.aclose()
+
+    done = await runner.resume_run(rid, db)                 # last_round(2) >= rounds(2), но не finished
+    assert done == rid
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
+        assert conn.execute(
+            "SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # без новых раундов
+    finally:
+        conn.close()
     import sqlite3
     conn = sqlite3.connect(db)
     try:

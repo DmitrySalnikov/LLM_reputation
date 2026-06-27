@@ -6,7 +6,7 @@ import pytest
 from conftest import ScriptedProvider
 
 from src.core.agent import ActParseError, Agent, AgentSetup, Phase, PhaseKind
-from src.core.config import ProviderCfg
+from src.core.config import GameCfg, ProviderCfg
 from src.core.memory import MemoryEntry
 from src.providers.base import HttpAttempt, ProviderUnavailable
 
@@ -48,6 +48,35 @@ async def test_decide_clean_json():
     assert r.data == {"number": 4, "rationale": "ok"}
     assert r.public_text is None
     assert len(p.calls) == 1
+
+
+async def test_decide_bare_correction_omits_rationale():
+    # Косяк: в bare-режиме (rationale=false) поправка на ретрае не должна требовать rationale —
+    # раньше движок навязывал {"rationale","number"}, противореча промпту, который просил {"number"}.
+    p = ScriptedProvider(["nope", '{"number": 3}'])
+    phase = Phase(PhaseKind.DECIDE, "Pick a number.", game_cfg=GameCfg(rationale=False))
+    r = await _agent(p).act(phase)
+    assert r.data["number"] == 3
+    correction = p.calls[1][1][-1].content        # последнее user-сообщение второй попытки
+    assert '"number"' in correction
+    assert "rationale" not in correction          # bare — без rationale
+
+
+async def test_decide_rationale_correction_asks_for_rationale():
+    p = ScriptedProvider(["nope", '{"number": 3, "rationale": "r"}'])
+    phase = Phase(PhaseKind.DECIDE, "Pick a number.", game_cfg=GameCfg(rationale=True))
+    await _agent(p).act(phase)
+    correction = p.calls[1][1][-1].content
+    assert "rationale" in correction and '"number"' in correction
+
+
+async def test_decide_correction_text_comes_from_config():
+    # Текст поправки берётся из GameCfg, а не из зашитой строки.
+    p = ScriptedProvider(["nope", '{"number": 1}'])
+    phase = Phase(PhaseKind.DECIDE, "Pick a number.",
+                  game_cfg=GameCfg(rationale=False, decide_correction_bare="JUST_NUMBER_PLEASE"))
+    await _agent(p).act(phase)
+    assert "JUST_NUMBER_PLEASE" in p.calls[1][1][-1].content
 
 
 async def test_decide_json_in_fence():

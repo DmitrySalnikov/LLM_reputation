@@ -33,6 +33,8 @@ class OpenAICompatibleProvider:
         model: str,
         *,
         timeout_s: float = 120.0,
+        reasoning: bool = True,
+        reasoning_effort: str = "",
         client: httpx.AsyncClient | None = None,
     ):
         self._url = base_url.rstrip("/") + "/chat/completions"
@@ -41,6 +43,8 @@ class OpenAICompatibleProvider:
             "Content-Type": "application/json",
         }
         self._model = model
+        self._reasoning = reasoning
+        self._reasoning_effort = reasoning_effort
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=timeout_s, write=30.0, pool=10.0)
@@ -63,6 +67,13 @@ class OpenAICompatibleProvider:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        # Управление рассуждениями reasoning-моделей: выключаем — явным флагом {"enabled": false}
+        # (Non-think); включённость по дефолту не шлём (провайдер решает сам, не-reasoning модели
+        # поле игнорируют). reasoning_effort шлём, только если задан (задел на будущее: high/max).
+        if not self._reasoning:
+            payload["reasoning"] = {"enabled": False}
+        if self._reasoning_effort:
+            payload["reasoning_effort"] = self._reasoning_effort
         # _post_with_retries гарантирует resp с извлекаемым ответом (битый конверт и кривую
         # форму он ретраит, как 5xx). Здесь парсим ещё раз — уже для извлечения контента.
         resp, attempts = await self._post_with_retries(payload)   # raises уже несут request+attempts
@@ -156,7 +167,8 @@ def make_provider(
 ) -> LLMProvider:
     api_key = (os.environ.get(cfg.api_key_env) if cfg.api_key_env else None) or "sk-noauth"
     return OpenAICompatibleProvider(
-        cfg.base_url, api_key, cfg.model, timeout_s=cfg.timeout_s, client=client
+        cfg.base_url, api_key, cfg.model, timeout_s=cfg.timeout_s,
+        reasoning=cfg.reasoning, reasoning_effort=cfg.reasoning_effort, client=client
     )
 
 

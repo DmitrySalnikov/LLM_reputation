@@ -56,6 +56,8 @@ population:
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
+    reasoning: false      # Non-think: reasoning-моделям (DeepSeek-V4-Pro) шлём {"reasoning": {"enabled": false}};
+                          # не-reasoning модели поле игнорируют. reasoning_effort (high/max) — не задан.
   kind: roster
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
 
@@ -81,6 +83,11 @@ game:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
+  # Поправки на ретрае парсинга (используются только те фазы, что реально идут в свипе:
+  # talk + decide_bare, т.к. rationale=false и стратегия direct). Bare-вариант просит ровно
+  # {"number"} — без rationale, в тон decide_prompt_bare выше (раньше движок навязывал rationale).
+  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
+  decide_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
   history_round_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>

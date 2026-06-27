@@ -158,7 +158,13 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
     if rounds is not None:
         cfg = replace(cfg, rounds=rounds)               # extend: растим целевое число раундов
     state = st.load_state(run_id, cfg.idle_payoff)
-    if state.last_round >= cfg.rounds:
+    # «Доигрывать нечего» — только если прогон УЖЕ закрыт (finished_at проставлен). Если все
+    # раунды записаны, но finished_at пуст — это эпизод, оборванный на ПОСЛЕДНЕМ раунде
+    # (сорванная пара пишется в БД до EpisodeAborted, поэтому round-строка последнего раунда
+    # есть). Новых раундов нет, но прогон надо закрыть — пройдём общий путь ниже: run_episode
+    # сыграет 0 раундов, st.finish проставит finished_at. Иначе такой прогон не доигрался бы
+    # никогда (resume каждый раз отдавал «nothing to do»).
+    if state.last_round >= cfg.rounds and st.is_finished(run_id):
         if not quiet:
             print(f"run {run_id}: уже сыграно {state.last_round} раундов (>= {cfg.rounds}) — nothing to do")
         st.close()
@@ -170,8 +176,12 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
     _apply_run_state(pop, state)
     start = state.last_round + 1
     if not quiet:
-        print(f"Resuming run {run_id} into {db_path}: rounds {start}..{cfg.rounds}, "
-              f"{len(pop)} agents, seed={cfg.seed}")
+        if start > cfg.rounds:                          # все раунды есть — только закрываем оборванный прогон
+            print(f"Finalizing run {run_id} into {db_path}: все {cfg.rounds} раундов записаны, "
+                  f"проставляю finished_at ({len(pop)} agents)")
+        else:
+            print(f"Resuming run {run_id} into {db_path}: rounds {start}..{cfg.rounds}, "
+                  f"{len(pop)} agents, seed={cfg.seed}")
     try:
         st.resume(run_id, cfg)                          # _run_id, снять finished_at, обновить config
         def observer(r, plan, recs):                    # persist AND (если не quiet) narrate each new round

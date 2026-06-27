@@ -127,6 +127,18 @@ game:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
+  # ── Поправки на ретрае парсинга ─────────────────────────────────────────────
+  # Дописываются к user-сообщению, когда ответ фазы не разобрался (max 2 ретрая). DECIDE/PREDICT
+  # выбирают bare/rationale по тому же флагу rationale, что и сам промпт фазы: при rationale=false
+  # активны *_correction_bare (только {"number"}), при true — *_correction (с rationale). Раньше
+  # текст был зашит в src/core/agent.py и в bare-режиме всё равно требовал rationale — это и был косяк.
+  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
+  decide_correction: 'Respond with ONLY valid JSON, nothing else: {"rationale": "<short reason>", "number": <0-9>}'
+  decide_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
+  predict_correction: 'Respond with ONLY valid JSON, nothing else: {"rationale": "<short reason>", "number": <0-9>}'
+  predict_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
+  reflect_correction: 'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
+  note_correction: 'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
   # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
   history_round_prompt: |-
     <game>Round {round} with {partner}:

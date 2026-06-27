@@ -109,28 +109,24 @@ class AgentSetup:
     prediction_mapping: str = "match"    # отображение predict->выбор (только для prediction)
 
 
-_CORRECTION = {
-    PhaseKind.DECIDE: (
-        "Respond with ONLY valid JSON, nothing else: "
-        '{"rationale": "<short reason>", "number": <integer 0-9>}'
-    ),
-    PhaseKind.TALK: (
-        "Respond with ONLY valid JSON, nothing else: "
-        '{"message": "<your message>", "finish": <true|false>}'
-    ),
-    PhaseKind.PREDICT: (
-        "Respond with ONLY valid JSON, nothing else: "
-        '{"rationale": "<short reason>", "number": <integer 0-9>}'
-    ),
-    PhaseKind.REFLECT: (
-        "Respond with ONLY valid JSON, nothing else: "
-        '{"reflection": "<short reflection>"}'
-    ),
-    PhaseKind.NOTE: (
-        "Respond with ONLY valid JSON, nothing else: "
-        '{"notes": "<your notes>"}'
-    ),
-}
+# Текст поправок на ретрае живёт в конфиге (GameCfg.*_correction), не зашит здесь. Для фаз,
+# собранных без game_cfg (юнит-тесты), берём дефолтный GameCfg(). DECIDE/PREDICT выбирают
+# bare/rationale-вариант по тому же флагу rationale, что и сам промпт фазы — поэтому в bare-режиме
+# поправка больше не требует rationale (прежний _CORRECTION требовал, противореча промпту).
+_DEFAULT_GAME_CFG = GameCfg()
+
+
+def _correction(game_cfg: "GameCfg | None", kind: PhaseKind) -> str:
+    cfg = game_cfg if game_cfg is not None else _DEFAULT_GAME_CFG
+    if kind is PhaseKind.DECIDE:
+        return cfg.decide_correction if cfg.rationale else cfg.decide_correction_bare
+    if kind is PhaseKind.PREDICT:
+        return cfg.predict_correction if cfg.rationale else cfg.predict_correction_bare
+    if kind is PhaseKind.TALK:
+        return cfg.talk_correction
+    if kind is PhaseKind.REFLECT:
+        return cfg.reflect_correction
+    return cfg.note_correction  # PhaseKind.NOTE
 
 
 class Agent:
@@ -207,7 +203,7 @@ class Agent:
                 self.id, phase.kind, attempt, comp.attempts, parsed=data is not None))
             if data is not None:
                 return _result(phase.kind, data, (prompt_toks, comp_toks), tuple(calls))
-            correction = _CORRECTION[phase.kind]
+            correction = _correction(phase.game_cfg, phase.kind)
 
         # all parse-retries exhausted: no fallback — abort the pairing (finished=0)
         self.parse_failures += 1
