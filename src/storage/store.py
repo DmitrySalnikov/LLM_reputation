@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from src.core.config import EpisodeCfg
 from src.core.memory import Memory, MemoryEntry
 from src.games.base import PairingRecord
-from src.judge import JudgeVerdict
+from src.judge import JudgeVerdict, KeywordCount
 from src.matchmaking import RoundPlan
 from src.population import Population
 from src.storage.schema import init_schema
@@ -321,6 +321,19 @@ class Storage:
                     model,
                     _now(),
                 ),
+            )
+
+    def save_keyword_count(self, count: KeywordCount, *, run_id: int) -> None:
+        """Сохранить счётчик упоминаний термина для прогона (upsert по (run_id, term)).
+
+        Повторный запуск того же термина для прогона заменяет прежнюю строку."""
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO
+                       keyword_counts(run_id, term, count, speakers, created_at)
+                   VALUES (?,?,?,?,?)""",
+                (run_id, count.term, count.count,
+                 json.dumps(list(count.speakers)), _now()),
             )
 
     def close(self) -> None:

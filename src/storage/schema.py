@@ -125,6 +125,16 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS keyword_counts (
+    run_id     INTEGER NOT NULL,
+    term       TEXT NOT NULL,
+    count      INTEGER NOT NULL,   -- число разных говорящих, упомянувших термин
+    speakers   TEXT NOT NULL,      -- JSON-список id говорящих
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, term),
+    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS ix_llm_calls_agent  ON llm_calls(run_id, agent_id);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_status ON llm_calls(run_id, status);
 CREATE INDEX IF NOT EXISTS ix_runs_config_hash ON runs(config_hash);
