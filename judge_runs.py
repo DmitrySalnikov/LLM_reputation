@@ -9,7 +9,7 @@
 кода: правь модель там (judge.provider или якорь *provider = модель агентов). Модель судьи
 пишется в judge_verdicts.model.
 
-    uv run python judge_runs.py [--config config/experiment.yaml] \\
+    uv run python judge_runs.py [--db experiment.db] [--config config/experiment.yaml] \\
                                 [--design HASH ...] [--exclude-design HASH ...] \\
                                 [--name LABEL ...] [--exclude-name LABEL ...] [--force]
 """
@@ -30,7 +30,7 @@ from src.storage.records import reconstruct_records
 
 load_dotenv()                       # подхватить TOGETHER_API_KEY из .env
 
-DB = "experiment.db"
+DB = "experiment.db"                        # БД по умолчанию; переопределяется флагом --db
 JUDGE_CONFIG = "config/experiment.yaml"     # откуда брать судью (judge-блок этого конфига)
 
 # Запасной судья, если в конфиге нет judge-блока. Модель совпадает с main model дефолтного
@@ -40,6 +40,15 @@ JUDGE_DEFAULT = JudgeCfg(provider=ProviderCfg(
     api_key_env="TOGETHER_API_KEY",
     model="meta-llama/Meta-Llama-3-8B-Instruct-Lite",
 ))
+
+
+def db_path_from_argv(argv: list[str], default: str = DB) -> str:
+    """Путь к БД из флага `--db PATH`; если флага нет — `default`."""
+    if "--db" in argv:
+        i = argv.index("--db")
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return default
 
 
 def load_judge_cfg(path: str = JUDGE_CONFIG) -> JudgeCfg:
@@ -92,9 +101,11 @@ async def backfill(db_path: str, argv: list[str], judge_cfg: JudgeCfg) -> dict[s
 def main() -> None:
     args = sys.argv[1:]
     config_path = args[args.index("--config") + 1] if "--config" in args else JUDGE_CONFIG
+    db_path = db_path_from_argv(args)
     judge_cfg = load_judge_cfg(config_path)
     print(f"Судья: {judge_cfg.provider.model} ({config_path})")
-    counts = asyncio.run(backfill(DB, args, judge_cfg))
+    print(f"БД: {db_path}")
+    counts = asyncio.run(backfill(db_path, args, judge_cfg))
     print(f"\nИтог: {counts}")
 
 

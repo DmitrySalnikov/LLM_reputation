@@ -24,6 +24,14 @@ def test_load_judge_cfg_falls_back_when_no_judge_block(monkeypatch):
     assert judge_runs.load_judge_cfg("any.yaml") is judge_runs.JUDGE_DEFAULT
 
 
+def test_db_path_from_argv_returns_flag_value():
+    assert judge_runs.db_path_from_argv(["--db", "qwen3.db"]) == "qwen3.db"
+
+
+def test_db_path_from_argv_defaults_when_flag_absent():
+    assert judge_runs.db_path_from_argv(["--force"]) == judge_runs.DB
+
+
 class ScriptedProvider:
     """Минимальный двойник провайдера: отдаёт заранее заданный текст вердикта."""
 
