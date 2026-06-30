@@ -88,7 +88,7 @@ game:
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
   # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.
   # NB: правила игры теперь живут в system_prompt агента (см. &system_default выше), а не здесь.
-  #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
+  #   talk:            {partner} {round} {feed}
   #   talk_open:       {partner} {round} {feed}
   #   decide:          {partner} {round} {feed} {reason}; rationale выбирает decide_prompt|decide_prompt_bare
   #   predict:         {partner} {round} {feed} {reason}; rationale выбирает predict_prompt|predict_prompt_bare
@@ -96,7 +96,7 @@ game:
   #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
   #   notes_block:      {notes} (обёртка <you> сохранённых заметок; заголовки notes_header/buffer_header — <game>)
   # Весь вход — один игровой транскрипт: история прошлых раундов (теги <game>/<you>/<имя>, см.
-  # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
+  # history_*/msg_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
   # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
   # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
   # (правила игры — в system_prompt агента, см. &system_default выше)
@@ -106,7 +106,6 @@ game:
     {feed}
     <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
-  # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
@@ -150,11 +149,6 @@ game:
   history_round_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
-  # {opener} — кто открыл раунд (фраза одинакова в истории и в живом talk). Заданы явно,
-  # чтобы не падать на код-дефолт opener_self с «opponent».
-  opener_self: |-
-    You speak first this round — send a short message to your co-player. Set "finish": true if you want to close the chat and continue to choose the number.
-  opener_partner: "{partner} starts first:"
   msg_self: <you>{text}</you>
   msg_partner: <{partner}>{text}</{partner}>
   history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>

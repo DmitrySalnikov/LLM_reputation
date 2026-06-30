@@ -17,7 +17,7 @@ from src.storage import Storage
 load_dotenv()                       # ключи API из .env (TOGETHER_API_KEY)
 
 CONFIG = "config/research.yaml"
-DB = "qwen3.db"
+DB = "qwen3_mem_notes.db"
 SPLIT_DIR = _out_dir_for(DB)        # папка с по-прогонными файлами = имя БД без расширения (qwen3.db -> qwen3/)
 TARGET_ROUNDS = load_episode(CONFIG).rounds   # целевое число раундов = rounds из конфига (сейчас 10)
 GAMES_PER_MODEL = 100
@@ -58,7 +58,13 @@ async def _extend_existing() -> None:
     доросшие до цели, resume_run пропускает («nothing to do»), поэтому фаза идемпотентна."""
     conn = sqlite3.connect(DB)
     try:
-        runs = conn.execute("SELECT run_id, name FROM runs ORDER BY run_id").fetchall()
+        # свежая/пустая БД: таблицы ещё нет (её создаст Storage в фазе 2) — расширять нечего
+        has_runs = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'"
+        ).fetchone()
+        runs = conn.execute(
+            "SELECT run_id, name FROM runs ORDER BY run_id"
+        ).fetchall() if has_runs else []
     finally:
         conn.close()
     for run_id, name in runs:

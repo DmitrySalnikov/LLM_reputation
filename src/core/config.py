@@ -41,7 +41,7 @@ class Payoffs:
 #   talk/decide/predict:  {partner} {round} {feed}
 #   reflect:              {partner} {round} {feed} {me} {my_number} {partner_number} {payoff}
 # History (a past round is replayed to the agent as a game transcript — see the `history_*`,
-# `msg_*`, `opener_*`, `reason_*` fields below). The whole input is one flowing transcript:
+# `msg_*`, `reason_*` fields below). The whole input is one flowing transcript:
 # the system rules declare the tags <game>/<you>/<opponent name>; memory renders past rounds
 # with them, and the live talk/decide prompts continue the same transcript for this round.
 DEFAULT_IDENTITY_PROMPT = "You are AI agent {id}."
@@ -71,16 +71,9 @@ DEFAULT_RULES = (
 # задавать общий промпт YAML-якорем (&system_default) и подключать ссылкой (*system_default).
 DEFAULT_SYSTEM_PROMPT = DEFAULT_IDENTITY_PROMPT + "\n\n" + DEFAULT_RULES
 
-# Фраза «ты открываешь раунд» — общий текст для истории (прошлый раунд, где первым ходил
-# сам агент) и для живого talk_open_prompt, чтобы обе фазы читались дословно одинаково.
-_OPENER_SELF = (
-    "You speak first this round — send a short message to your opponent. "
-    'Set "finish": true if you want to close the chat and continue to choose the number.'
-)
-
 DEFAULT_TALK_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open. {opener}</game>\n"
+    "The chat has been open.</game>\n"
     "{feed}\n"
     "<game>Your turn — reply to your opponent. "
     'Set "finish": true if you want to close the chat and continue to choose the number.\n'
@@ -90,7 +83,8 @@ DEFAULT_TALK_PROMPT = (
 # Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
 DEFAULT_TALK_OPEN_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open. " + _OPENER_SELF + "\n"
+    "The chat has been open. You speak first this round — send a short message to your opponent. "
+    'Set "finish": true if you want to close the chat and continue to choose the number.\n'
     "Please, write your first message in the following JSON format: "
     'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
@@ -122,19 +116,15 @@ DEFAULT_DECIDE_PROMPT_BARE = (
 # secret number as a <you> line, and a revealing <game> result line. src/core/memory.py
 # fills the placeholders; the live talk/decide prompts above reuse `msg_self`/`msg_partner`
 # to render the current round's feed, so past and present read identically.
-#   history_round_prompt:  {round} {partner} {opener}
-#   opener_self / opener_partner:  the {opener} sentence (partner-form takes {partner});
-#                          opener_self is the same text the live talk_open_prompt opens with
+#   history_round_prompt:  {round} {partner}
 #   msg_self / msg_partner:  one cheap-talk line ({text}; partner-form also {partner})
 #   history_close_prompt:  {reason}  (same wording as the live decide close line)
 #   reason_limit / reason_agreed:  the {reason} phrase
 #   history_result_prompt: {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
 #                          ({total} = score after the round; own number shown above as a <you> line)
 DEFAULT_HISTORY_ROUND_PROMPT = (
-    "<game>Round {round} · opponent {partner}\nThe chat has been open. {opener}</game>"
+    "<game>Round {round} · opponent {partner}\nThe chat has been open.</game>"
 )
-DEFAULT_OPENER_SELF = _OPENER_SELF
-DEFAULT_OPENER_PARTNER = "{partner} starts first:"
 DEFAULT_MSG_SELF = "<you>{text}</you>"
 DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
 DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
@@ -287,9 +277,7 @@ class GameCfg:
     buffer_header: str = DEFAULT_BUFFER_HEADER  # метка-заголовок над буфером раундов после консолидации
     # История прошлого раунда отрисовывается агенту как игровой транскрипт (теги <game>/<you>/<имя>);
     # эти шаблоны живут в конфиге, чтобы текст промпта не был зашит в коде (см. src/core/memory.py).
-    history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner} {opener}
-    opener_self: str = DEFAULT_OPENER_SELF                     # фраза {opener}, когда первым говорил сам агент
-    opener_partner: str = DEFAULT_OPENER_PARTNER               # фраза {opener}, когда первым говорил партнёр ({partner})
+    history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner}
     msg_self: str = DEFAULT_MSG_SELF                           # строка реплики самого агента ({text})
     msg_partner: str = DEFAULT_MSG_PARTNER                     # строка реплики партнёра ({partner}/{text})
     history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason}

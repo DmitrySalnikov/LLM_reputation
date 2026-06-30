@@ -4,7 +4,7 @@ Imports neither the game nor the strategies, to avoid import cycles. The prompt 
 in GameCfg (config layer); these builders just fill placeholders by literal replacement
 (NOT str.format — the templates contain real JSON braces). Правила/payoff'ы в system
 теперь подставляет Agent.system_prompt (из AgentSpec.system_prompt), не эти билдеры:
-    talk:                 {partner} {round} {feed} {opener} (кто открыл раунд)
+    talk:                 {partner} {round} {feed}
     decide:               {partner} {round} {feed} {reason}; флаг rationale выбирает decide_prompt|_bare
     predict:              {partner} {round} {feed} {reason}; флаг rationale выбирает predict_prompt|_bare
     reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
@@ -20,15 +20,11 @@ from __future__ import annotations
 from src.core.config import GameCfg
 
 
-def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
-                 opener: str = "") -> str:
-    """Cheap-talk turn context. Пустой фид = первый ход -> шаблон-опенер (без блока Talk).
-
-    `opener` — кто открыл раунд (та же фраза, что в истории); подставляется в {opener}
-    строки открытия talk_prompt. У talk_open_prompt опенер уже вшит (агент сам открывает)."""
+def talk_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0) -> str:
+    """Cheap-talk turn context. Пустой фид = первый ход -> шаблон-опенер (без блока Talk)."""
     if not feed:
         return _fill(cfg.talk_open_prompt, partner, round, "", score)
-    return _fill(cfg.talk_prompt, partner, round, feed, score).replace("{opener}", opener)
+    return _fill(cfg.talk_prompt, partner, round, feed, score)
 
 
 def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,

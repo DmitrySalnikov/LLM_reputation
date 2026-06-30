@@ -85,18 +85,6 @@ def render_turns(transcript: list[dict], me_id: str, msg_self: str, msg_partner:
     return "\n".join(lines)
 
 
-def pick_opener(transcript: list[dict], me_id: str, partner_id: str,
-                opener_self: str, opener_partner: str) -> str:
-    """Фраза {opener}: кто открыл раунд с точки зрения зрителя `me_id`.
-
-    Первым говорит тот, кто стоит первым в transcript. Если это сам зритель — берём
-    opener_self, иначе opener_partner с подставленным именем партнёра. Единый источник
-    истины для строки открытия — и в истории (memory), и в живом talk_prompt (reputation_pd)."""
-    if transcript and transcript[0].get("speaker") == me_id:
-        return opener_self
-    return opener_partner.replace("{partner}", partner_id)
-
-
 def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]:
     if window is None:
         return entries
@@ -109,12 +97,10 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
     # Один прошлый раунд как кусок транскрипта: открытие чата, реплики, закрытие, своё
     # секретное число (<you>), вскрывающая строка результата. Партнёр назван по имени, свои
     # реплики — <you>; кто открыл раунд видно по первому говорящему в transcript.
-    opener = pick_opener(e.transcript, e.my_id, e.partner_id, cfg.opener_self, cfg.opener_partner)
     lines = [
         cfg.history_round_prompt
         .replace("{round}", str(e.round))
         .replace("{partner}", e.partner_id)
-        .replace("{opener}", opener)
     ]
     if e.transcript:
         lines.append(render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner))

@@ -64,41 +64,49 @@ population:
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 6
-  memory_notes_every: 0
+  memory_notes_every: 1
   payoffs: {R: 3, T: 5, P: 1, S: 0}
   rationale: false
   reflection: false
   talk_stop_rule: both_ready_committed
 
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+
+  reason_limit: the messages number limit has been reached
+  reason_agreed: both players agreed to stop
+
+  talk_open_prompt: |-
+    <game>Round {round} with {partner}:
+    The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   talk_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  talk_open_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  talk_correction: |-
+    Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}
+
   decide_prompt_bare: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
-  # Поправки на ретрае парсинга (используются только те фазы, что реально идут в свипе:
-  # talk + decide_bare, т.к. rationale=false и стратегия direct). Bare-вариант просит ровно
-  # {"number"} — без rationale, в тон decide_prompt_bare выше (раньше движок навязывал rationale).
-  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
-  decide_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
+  decide_correction_bare: |-
+    Respond with ONLY valid JSON, nothing else: {"number": <0-9>}
+
   history_round_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
-  opener_self: |-
-    You speak first this round — send a short message to your co-player. Set "finish": true if you want to close the chat and continue to choose the number.
-  opener_partner: "{partner} starts first:"
-  msg_self: <you>{text}</you>
-  msg_partner: <{partner}>{text}</{partner}>
   history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>
-  reason_limit: the messages number limit has been reached
-  reason_agreed: both players agreed to stop
   history_result_prompt: |-
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
+
+  notes_prompt: |-
+    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
+  notes_block_prompt: <you>{notes}</you>
+  notes_header: <game>Your notes from earlier rounds:</game>
+  buffer_header: <game>Your rounds since those notes:</game>
+  note_correction: |-
+    Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}

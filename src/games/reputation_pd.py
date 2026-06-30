@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from src.core.agent import ActParseError, Agent, Phase, PhaseKind
 from src.core.config import GameCfg
-from src.core.memory import MemoryEntry, both_agreed, pick_opener, render_turns
+from src.core.memory import MemoryEntry, both_agreed, render_turns
 from src.games.base import PairingRecord
 from src.games.prompts import notes_context, reflect_context, talk_context
 from src.games.talk_rules import make_talk_rule
@@ -183,10 +183,8 @@ class ReputationPD:
                 if rule.is_over(ready):
                     break
                 continue  # latched: stays silent while the other matures
-            opener = pick_opener(transcript, cur.id, oth.id,
-                                 self.cfg.opener_self, self.cfg.opener_partner)
             ctx = talk_context(self.cfg, oth.id, round, self._feed(transcript, cur.id),
-                               cur.score, opener)
+                               cur.score)
             res = await cur.act(Phase(PhaseKind.TALK, ctx, game_cfg=self.cfg))
             transcript.append(
                 {

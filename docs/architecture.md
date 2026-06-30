@@ -92,20 +92,20 @@ Payoff invariants live next to `Payoffs` in `src/core/config.py:18` (`T > R > P 
    `system_prompt` declares — `<game>` / `<you>` / `<opponent name>` — so the whole LLM
    input (history + the current round's live `{feed}` and prompt) reads as one
    continuous transcript. The line templates live in `GameCfg`
-   (`history_*`, `msg_*`, `opener_*`, `reason_*`) and ride into `render` via
+   (`history_*`, `msg_*`, `reason_*`) and ride into `render` via
    `Phase.game_cfg` (which also carries the payoffs substituted into the system prompt);
    `render_turns` (`src/core/memory.py`)
    renders the cheap-talk lines for both the history and the live feed. Line
    wording is shared across phases so a line type reads identically live and in
    history. The game computes the per-round bits once and threads them into the
-   live prompts: who opened the round (`pick_opener` → `{opener}` in `talk_prompt`,
-   same phrase history uses) and how the chat closed (`both_agreed` → `{reason}` in
-   the DECIDE close line, reusing `history_close_prompt`'s wording); both helpers
-   live in `src/core/memory.py`. `opener_self` is also the text `talk_open_prompt`
-   opens with. After gluing history to the live prompt, `Agent.act` collapses
+   live prompts: how the chat closed (`both_agreed` → `{reason}` in
+   the DECIDE close line, reusing `history_close_prompt`'s wording); the helper
+   lives in `src/core/memory.py`. Each prompt is a complete template — who opened the
+   round is not injected as a separate phrase; the transcript order already shows it.
+   After gluing history to the live prompt, `Agent.act` collapses
    adjacent `<game>` blocks (`_merge_game_blocks`: a closing `</game>` separated from
    the next opening `<game>` by whitespace only — e.g. a round's result line meeting
-   the next round's opener — loses the seam tags), so the input is one running
+   the next round's opening line — loses the seam tags), so the input is one running
    transcript rather than a series of closed/reopened blocks.
 6. **Memory notes** (optional, `game.memory_notes_every: N`): each agent makes one
    extra `NOTE` LLM call after every **N rounds it has actually played** (counted
