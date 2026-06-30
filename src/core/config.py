@@ -20,6 +20,10 @@ class ProviderCfg:
     # reasoning_effort (если непусто) -> {"reasoning_effort": "<val>"} ("high"/"max"; задел на будущее).
     reasoning: bool = True
     reasoning_effort: str = ""
+    # Произвольные доп. поля payload, отправляемые как есть (provider-специфичные). Напр.,
+    # vLLM-выключение thinking у Qwen3: {"chat_template_kwargs": {"enable_thinking": false}}.
+    # Мёржится в payload последним и может переопределить базовые поля.
+    extra_body: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

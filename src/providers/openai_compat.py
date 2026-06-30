@@ -35,6 +35,7 @@ class OpenAICompatibleProvider:
         timeout_s: float = 120.0,
         reasoning: bool = True,
         reasoning_effort: str = "",
+        extra_body: dict | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         self._url = base_url.rstrip("/") + "/chat/completions"
@@ -45,6 +46,7 @@ class OpenAICompatibleProvider:
         self._model = model
         self._reasoning = reasoning
         self._reasoning_effort = reasoning_effort
+        self._extra_body = extra_body or {}
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=timeout_s, write=30.0, pool=10.0)
@@ -74,6 +76,9 @@ class OpenAICompatibleProvider:
             payload["reasoning"] = {"enabled": False}
         if self._reasoning_effort:
             payload["reasoning_effort"] = self._reasoning_effort
+        # extra_body — provider-специфичные поля (напр. vLLM chat_template_kwargs); мёржим
+        # последним, чтобы конфиг мог переопределить базовые поля при необходимости.
+        payload.update(self._extra_body)
         # _post_with_retries гарантирует resp с извлекаемым ответом (битый конверт и кривую
         # форму он ретраит, как 5xx). Здесь парсим ещё раз — уже для извлечения контента.
         resp, attempts = await self._post_with_retries(payload)   # raises уже несут request+attempts
@@ -168,7 +173,8 @@ def make_provider(
     api_key = (os.environ.get(cfg.api_key_env) if cfg.api_key_env else None) or "sk-noauth"
     return OpenAICompatibleProvider(
         cfg.base_url, api_key, cfg.model, timeout_s=cfg.timeout_s,
-        reasoning=cfg.reasoning, reasoning_effort=cfg.reasoning_effort, client=client
+        reasoning=cfg.reasoning, reasoning_effort=cfg.reasoning_effort,
+        extra_body=cfg.extra_body, client=client
     )
 
 

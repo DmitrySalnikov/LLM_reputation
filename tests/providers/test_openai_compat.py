@@ -126,6 +126,33 @@ async def test_make_provider_threads_reasoning_from_cfg():
     assert captured["body"]["reasoning"] == {"enabled": False}
 
 
+async def test_extra_body_merged_into_payload():
+    # extra_body уходит в payload как есть (vLLM: chat_template_kwargs для Qwen3 no-think).
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    p = _provider_with(handler, extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    await _call(p)
+    assert captured["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+async def test_make_provider_threads_extra_body_from_cfg():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    cfg = ProviderCfg(base_url="http://x/v1", model="m",
+                      extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    p = make_provider(cfg, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    await _call(p)
+    assert captured["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
 async def test_completion_carries_sent_request():
     captured = {}
 
