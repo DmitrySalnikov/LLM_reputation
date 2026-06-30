@@ -100,6 +100,42 @@ population:
 `base_url: http://localhost:11434/v1` в `provider_default`, а во `judge.provider` —
 внешний эндпоинт с `api_key_env`.
 
+### Оценка судьёй задним числом (backfill)
+
+`judge_runs.py` прогоняет LLM-судью по уже сохранённым в `experiment.db` запускам:
+восстанавливает публичный cheap-talk, зовёт судью и пишет вердикт в базу (его потом
+подсвечивает `replay.py`). Модель судьи берётся из блока `judge:` конфига (по умолчанию
+`config/experiment.yaml`) — задайте её там (через `judge.provider` или якорь `*provider`,
+чтобы судья ходил той же моделью, что и агенты). Уже оценённые запуски пропускаются, если
+не передан `--force`.
+
+```bash
+uv run python judge_runs.py                            # оценить все завершённые запуски
+uv run python judge_runs.py --force                    # переоценить, в т.ч. уже оценённые
+uv run python judge_runs.py --config config/example.yaml   # взять судью из другого конфига
+uv run python judge_runs.py --design <HASH>            # только один дизайн (флаг повторяемый)
+uv run python judge_runs.py --exclude-name <LABEL>     # исключить запуски по имени
+```
+
+Запускам нужен доступный провайдер судьи; ключ читается из `.env`. Фильтры
+(`--design` / `--exclude-design` / `--name` / `--exclude-name`) выбирают, какие запуски
+оценивать.
+
+### Сбор статистики
+
+`collect_stats.py` агрегирует вердикты судьи по дизайнам (`config_hash`): доля запусков, где
+институт репутации возник, с 95% доверительным интервалом Вилсона. Печатает таблицу в консоль
+и пишет `stats.json` + `stats.csv`.
+
+```bash
+uv run python collect_stats.py                         # все оценённые запуски -> stats.json + stats.csv
+uv run python collect_stats.py --design <HASH>         # только выбранные дизайны (флаг повторяемый)
+uv run python collect_stats.py --out s.json --csv s.csv    # другие пути артефактов
+```
+
+`collect_stats.py` принимает те же фильтры выбора запусков, что и `judge_runs.py`. Учитываются
+только запуски, у которых уже есть вердикт судьи, — сначала прогоните `judge_runs.py`.
+
 Для отладки можно включить трассировку точного входа LLM перед выбором числа
 (флаг можно задать и в `.env`):
 
