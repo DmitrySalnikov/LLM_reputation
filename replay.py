@@ -7,7 +7,10 @@ engine and no LLM — it proves the normalized schema is enough to reconstruct a
 
 Run from the repo root:
 
-    uv run python replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]
+    uv run python replay.py <run_id> [--db PATH] [--config] [--calls] [--notes] [--call ID [--raw]]
+
+--db PATH selects the SQLite database to read (default experiment.db); use it to replay runs
+stored in another DB (e.g. research.db or a per-run file like qwen3/16.db).
 
 With no run_id it lists the runs in the DB and exits. Pass --config (or -c) to also show
 the episode config: the prompts in full, then the roster (each agent type plus the names
@@ -29,7 +32,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-DB_DEFAULT = "research.db"
+DB_DEFAULT = "experiment.db"
 
 # Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
 # секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
@@ -436,25 +439,30 @@ def main():
     show_notes = "--notes" in args                 # memory notes по умолчанию спрятаны
     raw = "--raw" in args                          # --call: не раскрывать \n
     call_spec = None
+    db_path = DB_DEFAULT
     pos = []
     skip = False
     for i, a in enumerate(args):
-        if skip:                                  # the value after --call
+        if skip:                                  # the value after --call / --db
             skip = False
             continue
         if a == "--call":
             call_spec = args[i + 1] if i + 1 < len(args) else None
             skip = True
             continue
+        if a == "--db":
+            db_path = args[i + 1] if i + 1 < len(args) else db_path
+            skip = True
+            continue
         if a in ("--config", "-c", "--calls", "--raw", "--notes"):
             continue
         pos.append(a)                             # positional args only
 
-    conn = sqlite3.connect(DB_DEFAULT)
+    conn = sqlite3.connect(db_path)
     try:
         if not pos:
-            print(f"usage: replay.py <run_id> [--config] [--calls] [--notes] [--call ID [--raw]]   "
-                  f"(run_id — число или config_hash; db: {DB_DEFAULT})\n")
+            print(f"usage: replay.py <run_id> [--db PATH] [--config] [--calls] [--notes] [--call ID [--raw]]   "
+                  f"(run_id — число или config_hash; db: {db_path})\n")
             list_runs(conn)
         else:
             target = _resolve_run_id(conn, pos[0])         # число или легаси-хеш -> int run_id

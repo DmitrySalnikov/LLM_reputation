@@ -3,11 +3,10 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
-*.db
-*.db-wal
-*.db-shm
+*.db*
 .ipynb_checkpoints/
 together_chat_models.txt
+.idea/
 
 # Секреты окружения (ключи API)
 .env
