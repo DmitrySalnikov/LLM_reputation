@@ -19,6 +19,7 @@ load_dotenv()                       # ключи API из .env (TOGETHER_API_KEY
 CONFIG = "config/research.yaml"
 DB = "qwen3.db"
 SPLIT_DIR = _out_dir_for(DB)        # папка с по-прогонными файлами = имя БД без расширения (qwen3.db -> qwen3/)
+TARGET_ROUNDS = load_episode(CONFIG).rounds   # целевое число раундов = rounds из конфига (сейчас 10)
 GAMES_PER_MODEL = 100
 
 
@@ -49,17 +50,21 @@ def _cfg_for_model(model_id: str) -> EpisodeCfg:
     return replace(cfg, population=replace(cfg.population, provider=provider))
 
 
-async def _resume_unfinished() -> None:
-    """Фаза 1: доиграть все незавершённые прогоны (finished_at IS NULL)."""
-    st = Storage(DB)
+async def _extend_existing() -> None:
+    """Фаза 1: довести КАЖДЫЙ существующий прогон до TARGET_ROUNDS.
+
+    resume_run с rounds=TARGET_ROUNDS доигрывает оборванные прогоны И доращивает уже
+    завершённые (rounds исключён из config_hash — дизайн не меняется). Прогоны, уже
+    доросшие до цели, resume_run пропускает («nothing to do»), поэтому фаза идемпотентна."""
+    conn = sqlite3.connect(DB)
     try:
-        unfinished = st.unfinished_runs()
+        runs = conn.execute("SELECT run_id, name FROM runs ORDER BY run_id").fetchall()
     finally:
-        st.close()
-    for run_id, name in unfinished:
-        print(f"resume {name}")
-        await resume_run(run_id, DB, quiet=True)
-        _split_off(run_id)                        # доигран — выгрузить в файл
+        conn.close()
+    for run_id, name in runs:
+        print(f"extend {name} -> {TARGET_ROUNDS} rounds")
+        await resume_run(run_id, DB, rounds=TARGET_ROUNDS, quiet=True)
+        _split_off(run_id)                        # дорастили — перезаписать файл
 
 
 async def _fill_missing() -> None:
@@ -87,7 +92,7 @@ async def _fill_missing() -> None:
 
 
 async def _main() -> None:
-    await _resume_unfinished()
+    await _extend_existing()
     await _fill_missing()
 
 
