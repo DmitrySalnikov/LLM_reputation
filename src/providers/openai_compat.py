@@ -17,7 +17,7 @@ from src.providers.base import (
     ProviderUnavailable,
 )
 
-_RETRY_BASE_S = 1.0
+_RETRY_BASE_S = 5.0
 _RETRY_CAP_S = 30.0
 _MAX_ATTEMPTS = 2
 

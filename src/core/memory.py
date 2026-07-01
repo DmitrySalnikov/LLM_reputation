@@ -94,9 +94,10 @@ def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]
 
 
 def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
-    # Один прошлый раунд как кусок транскрипта: открытие чата, реплики, закрытие, своё
-    # секретное число (<you>), вскрывающая строка результата. Партнёр назван по имени, свои
-    # реплики — <you>; кто открыл раунд видно по первому говорящему в transcript.
+    # Один прошлый раунд как кусок транскрипта: открытие чата, реплики, закрытие, ответ агента
+    # (при включённом rationale — обоснование и число одним <you>-блоком, иначе только число),
+    # вскрывающая строка результата. Партнёр назван по имени, свои реплики — <you>; кто открыл
+    # раунд видно по первому говорящему в transcript.
     lines = [
         cfg.history_round_prompt
         .replace("{round}", str(e.round))
@@ -105,8 +106,18 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
     if e.transcript:
         lines.append(render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner))
     reason = cfg.reason_agreed if _both_agreed(e) else cfg.reason_limit
-    lines.append(cfg.history_close_prompt.replace("{reason}", reason))
-    lines.append(cfg.msg_self.replace("{text}", str(e.my_number)))   # своё секретное число
+    # close-строка зеркалит выбранный decide_prompt: rationale-вариант просит обоснование перед
+    # числом, bare — только число (выбор по cfg.rationale, как в decide).
+    close_tmpl = cfg.history_close_prompt_rationale if cfg.rationale else cfg.history_close_prompt
+    lines.append(close_tmpl.replace("{reason}", reason))
+    # Ответ агента: при включённом rationale — обоснование и число одним <you>-блоком
+    # (как в JSON-ответе, обоснование раньше числа); иначе только секретное число.
+    if cfg.show_rationale and e.my_rationale:
+        lines.append(cfg.history_rationale_prompt
+                     .replace("{my_rationale}", e.my_rationale)
+                     .replace("{my_number}", str(e.my_number)))
+    else:
+        lines.append(cfg.msg_self.replace("{text}", str(e.my_number)))
     lines.append(
         cfg.history_result_prompt
         .replace("{round}", str(e.round))
@@ -117,14 +128,14 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
         .replace("{partner_payoff}", f"{e.partner_payoff:g}")
         .replace("{total}", f"{e.score + e.payoff:g}")
     )
-    # Приватные следы (prediction/rationale/reflection) — каждый под своим флагом; строка
+    # Приватные следы после результата (prediction/reflection) — каждый под своим флагом; строка
     # добавляется, только если флаг включён И её поле непусто. Шаблоны живут в конфиге.
+    # (rationale — не здесь: он в блоке ответа перед числом, см. history_rationale_prompt выше.)
     if cfg.show_predicted and e.my_predicted is not None:
         lines.append(cfg.history_predicted_prompt
                      .replace("{partner}", e.partner_id)
                      .replace("{my_predicted}", str(e.my_predicted)))
-    if cfg.show_rationale and e.my_rationale:
-        lines.append(cfg.history_rationale_prompt.replace("{my_rationale}", e.my_rationale))
+    # rationale больше не в хвосте — он в блоке ответа выше (history_rationale_prompt).
     if cfg.show_reflection and e.my_reflection:
         lines.append(cfg.history_reflection_prompt.replace("{my_reflection}", e.my_reflection))
     return "\n".join(lines)

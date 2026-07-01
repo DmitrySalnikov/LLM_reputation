@@ -17,7 +17,7 @@ from src.storage import Storage
 load_dotenv()                       # ключи API из .env (TOGETHER_API_KEY)
 
 CONFIG = "config/research.yaml"
-DB = "qwen3_mem_notes.db"
+DB = "qwen3_rationale.db"
 SPLIT_DIR = _out_dir_for(DB)        # папка с по-прогонными файлами = имя БД без расширения (qwen3.db -> qwen3/)
 TARGET_ROUNDS = load_episode(CONFIG).rounds   # целевое число раундов = rounds из конфига (сейчас 10)
 GAMES_PER_MODEL = 100

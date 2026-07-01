@@ -73,7 +73,7 @@ DEFAULT_SYSTEM_PROMPT = DEFAULT_IDENTITY_PROMPT + "\n\n" + DEFAULT_RULES
 
 DEFAULT_TALK_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open.</game>\n"
+    "The chat has been opened.</game>\n"
     "{feed}\n"
     "<game>Your turn — reply to your opponent. "
     'Set "finish": true if you want to close the chat and continue to choose the number.\n'
@@ -83,9 +83,9 @@ DEFAULT_TALK_PROMPT = (
 # Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
 DEFAULT_TALK_OPEN_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open. You speak first this round — send a short message to your opponent. "
+    "The chat has been opened. You speak first this round — send a short message to your opponent. "
     'Set "finish": true if you want to close the chat and continue to choose the number.\n'
-    "Please, write your first message in the following JSON format: "
+    "Please write your first message in the following JSON format: "
     'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
@@ -95,7 +95,7 @@ DEFAULT_TALK_OPEN_PROMPT = (
 # number. Both are complete and readable on their own.
 DEFAULT_DECIDE_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open.</game>\n"
+    "The chat has been opened.</game>\n"
     "{feed}\n"
     "<game>The chat has been closed as {reason}. Choose the number. "
     "Reason first, then commit to a number.\n"
@@ -104,7 +104,7 @@ DEFAULT_DECIDE_PROMPT = (
 
 DEFAULT_DECIDE_PROMPT_BARE = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open.</game>\n"
+    "The chat has been opened.</game>\n"
     "{feed}\n"
     "<game>The chat has been closed as {reason}. Choose the number.\n"
     'Respond ONLY as JSON: {"number": <0-9>}</game>'
@@ -123,11 +123,17 @@ DEFAULT_DECIDE_PROMPT_BARE = (
 #   history_result_prompt: {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
 #                          ({total} = score after the round; own number shown above as a <you> line)
 DEFAULT_HISTORY_ROUND_PROMPT = (
-    "<game>Round {round} · opponent {partner}\nThe chat has been open.</game>"
+    "<game>Round {round} · opponent {partner}\nThe chat has been opened.</game>"
 )
 DEFAULT_MSG_SELF = "<you>{text}</you>"
 DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
 DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
+# rationale-вариант close-строки истории: зеркалит живой decide_prompt (без JSON-хвоста), когда
+# rationale включён. Выбор bare/rationale в _render_entry — по флагу cfg.rationale, как в decide.
+# Аддитивно: history_close_prompt (без суффикса) остаётся bare-вариантом, старый ключ не трогаем.
+DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE = (
+    "<game>The chat has been closed as {reason}. Give your rationale first, then choose the number.</game>"
+)
 DEFAULT_REASON_LIMIT = "the messages number limit has been reached"
 DEFAULT_REASON_AGREED = "both players agreed to stop"
 DEFAULT_HISTORY_RESULT_PROMPT = (
@@ -136,19 +142,25 @@ DEFAULT_HISTORY_RESULT_PROMPT = (
     "Your total score after round {round} is {total} points.</game>"
 )
 
-# Private trace lines appended to a past round's transcript — the agent's own scratch notes
+# Private trace lines in a past round's transcript — the agent's own scratch notes
 # (prediction / reasoning / takeaway). Tagged <you>; each is rendered only when its field is
 # present AND its own flag (show_predicted / show_rationale / show_reflection) is on.
-# Placeholders: {partner} {my_predicted} (predicted), {my_rationale}, {my_reflection}.
+# Placeholders: {partner} {my_predicted} (predicted), {my_rationale} {my_number} (rationale),
+# {my_reflection}.
 DEFAULT_HISTORY_PREDICTED_PROMPT = "<you>(I predicted {partner} would pick {my_predicted})</you>"
-DEFAULT_HISTORY_RATIONALE_PROMPT = "<you>(my reasoning: {my_rationale})</you>"
+# history_rationale_prompt при включённом rationale (show_rationale) — это блок ответа агента:
+# один <you>-блок, повторяющий JSON-ответ {rationale, number} — обоснование и число вместе, как
+# одна реплика (обоснование раньше числа, тот же порядок, что в decide_prompt), на месте выбора,
+# перед вскрывающим результатом. Если rationale выключен — число рендерится отдельной msg_self-
+# строкой, а этот шаблон не используется. Плейсхолдеры: {my_rationale} {my_number}.
+DEFAULT_HISTORY_RATIONALE_PROMPT = "<you>rationale: {my_rationale}\nnumber: {my_number}</you>"
 DEFAULT_HISTORY_REFLECTION_PROMPT = "<you>(my takeaway: {my_reflection})</you>"
 
 # PREDICT mirrors DECIDE byte-for-byte (same transcript open/close lines, same {reason});
 # only the directive differs — predict the opponent's number instead of choosing your own.
 DEFAULT_PREDICT_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open.</game>\n"
+    "The chat has been opened.</game>\n"
     "{feed}\n"
     "<game>The chat has been closed as {reason}. "
     "Predict the number your opponent will secretly choose, from 0 to 9. "
@@ -158,7 +170,7 @@ DEFAULT_PREDICT_PROMPT = (
 
 DEFAULT_PREDICT_PROMPT_BARE = (
     "<game>Round {round} · opponent {partner}\n"
-    "The chat has been open.</game>\n"
+    "The chat has been opened.</game>\n"
     "{feed}\n"
     "<game>The chat has been closed as {reason}. "
     "Predict the number your opponent will secretly choose, from 0 to 9.\n"
@@ -280,7 +292,8 @@ class GameCfg:
     history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner}
     msg_self: str = DEFAULT_MSG_SELF                           # строка реплики самого агента ({text})
     msg_partner: str = DEFAULT_MSG_PARTNER                     # строка реплики партнёра ({partner}/{text})
-    history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason}
+    history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason} (bare / rationale=false)
+    history_close_prompt_rationale: str = DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE  # {reason} (rationale=true, зеркалит decide)
     reason_limit: str = DEFAULT_REASON_LIMIT                   # фраза {reason}: чат закрылся по лимиту реплик
     reason_agreed: str = DEFAULT_REASON_AGREED                 # фраза {reason}: оба согласились закрыть чат
     history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
@@ -290,7 +303,7 @@ class GameCfg:
     show_rationale: bool = True                                  # добавлять ли строку обоснования
     show_reflection: bool = True                                 # добавлять ли строку рефлексии
     history_predicted_prompt: str = DEFAULT_HISTORY_PREDICTED_PROMPT    # {partner} {my_predicted}
-    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale}
+    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale} {my_number} (rationale + число одним блоком)
     history_reflection_prompt: str = DEFAULT_HISTORY_REFLECTION_PROMPT  # {my_reflection}
     # Поправки на ретрае парсинга (по фазе; DECIDE/PREDICT — bare/rationale как у самого промпта).
     # Без плейсхолдеров — дописываются дословно к user-сообщению при неразобравшемся ответе.

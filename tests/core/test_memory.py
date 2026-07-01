@@ -163,8 +163,11 @@ def test_private_traces_rendered_when_flags_on():
     m.add(_trace_entry())
     rendered = m.render(None, GameCfg())[0].content
     assert "I predicted A2 would pick 4" in rendered   # {partner}/{my_predicted} подставлены
-    assert "my reasoning: risky" in rendered
+    # rationale и число — одним <you>-блоком (как в JSON-ответе), обоснование раньше числа
+    assert "<you>rationale: risky\nnumber: 5</you>" in rendered
     assert "my takeaway: trust holds" in rendered
+    # блок ответа идёт ПЕРЕД вскрывающим результатом: рассудил -> выбрал -> узнал исход
+    assert rendered.index("rationale: risky") < rendered.index("The choice has been accepted")
 
 
 def test_each_private_trace_has_its_own_flag():
@@ -178,13 +181,17 @@ def test_each_private_trace_has_its_own_flag():
         return m.render(None, GameCfg(**flags))[0].content
 
     no_pred = render(show_predicted=False)
-    assert "predict" not in no_pred.lower() and "my reasoning: risky" in no_pred and "my takeaway: trust holds" in no_pred
+    assert "predict" not in no_pred.lower() and "rationale: risky" in no_pred and "my takeaway: trust holds" in no_pred
 
     no_rat = render(show_rationale=False)
-    assert "my reasoning" not in no_rat and "I predicted A2 would pick 4" in no_rat and "my takeaway: trust holds" in no_rat
+    # rationale выключен -> блока ответа нет, число рендерится отдельной строкой msg_self
+    assert "rationale:" not in no_rat and "<you>5</you>" in no_rat
+    assert "I predicted A2 would pick 4" in no_rat and "my takeaway: trust holds" in no_rat
 
     no_ref = render(show_reflection=False)
-    assert "my takeaway" not in no_ref and "I predicted A2 would pick 4" in no_ref and "my reasoning: risky" in no_ref
+    assert "my takeaway" not in no_ref and "I predicted A2 would pick 4" in no_ref and "rationale: risky" in no_ref
 
     all_off = render(show_predicted=False, show_rationale=False, show_reflection=False)
-    assert all(s not in all_off.lower() for s in ("predict", "reasoning", "takeaway"))
+    # close-строка при rationale=True легально содержит слово "rationale" — проверяем именно
+    # маркер блока ответа "rationale:" (с двоеточием), а не голое слово.
+    assert all(s not in all_off.lower() for s in ("predict", "rationale:", "takeaway"))
