@@ -121,6 +121,26 @@ uv run python judge_runs.py --exclude-name <LABEL>     # исключить за
 (`--design` / `--exclude-design` / `--name` / `--exclude-name`) выбирают, какие запуски
 оценивать.
 
+### Детерминированный судья: упоминания термина
+
+`keyword_judge.py` — альтернатива LLM-судье без LLM. Для каждого выбранного запуска ищет
+ТЕРМИН (число или слово) в тексте публичных реплик и считает число РАЗНЫХ говорящих,
+упомянувших его (имена говорящих не учитываются — сопоставляется только текст реплики).
+Поиск подстроки с учётом регистра. Результат пишется в базу (таблица `keyword_counts`,
+upsert по `(run_id, term)`), в CSV и на экран.
+
+```bash
+uv run python keyword_judge.py 123                     # упоминания «123» во всех завершённых запусках
+uv run python keyword_judge.py 123 --db research.db    # другая база (по умолчанию experiment.db)
+uv run python keyword_judge.py trust --csv out.csv     # слово-термин + другой путь CSV
+uv run python keyword_judge.py 7 --design <HASH>       # только один дизайн (флаг повторяемый)
+uv run python keyword_judge.py 7 --exclude-name <LABEL>    # исключить запуски по имени
+```
+
+`keyword_judge.py` принимает те же фильтры выбора запусков, что и `judge_runs.py`
+(`--design` / `--exclude-design` / `--name` / `--exclude-name`); учитываются только
+завершённые запуски. LLM не нужен — провайдер и ключ не требуются.
+
 ### Сбор статистики
 
 `collect_stats.py` агрегирует вердикты судьи по дизайнам (`config_hash`): доля запусков, где

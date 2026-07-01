@@ -8,6 +8,11 @@ venv/
 together_chat_models.txt
 .idea/
 
+# Сгенерированные файлы статистики
+stats.json
+stats.csv
+stats.png
+
 # Секреты окружения (ключи API)
 .env
 
