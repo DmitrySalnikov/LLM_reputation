@@ -8,13 +8,16 @@ venv/
 together_chat_models.txt
 .idea/
 
-# Сгенерированные файлы статистики
+# Generated statistics files
 stats.json
 stats.csv
 stats.png
 
-# Секреты окружения (ключи API)
+# Environment secrets (API keys)
 .env
 
-# Локальные git-worktree, управляемые Claude Code
+# Local Claude Code instructions (personal, not for the repo)
+CLAUDE.md
+
+# Local git worktrees managed by Claude Code
 .claude/worktrees/
