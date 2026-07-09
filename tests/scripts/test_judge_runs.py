@@ -33,7 +33,7 @@ def test_db_path_from_argv_defaults_when_flag_absent():
 
 
 class ScriptedProvider:
-    """Минимальный двойник провайдера: отдаёт заранее заданный текст вердикта."""
+    """Minimal provider double: returns a pre-set verdict text."""
 
     def __init__(self, replies):
         self._queue = list(replies)
@@ -79,7 +79,7 @@ def test_judge_run_writes_verdict_then_skips(monkeypatch):
         status = asyncio.run(judge_runs.judge_run(st, 1, judge_runs.JUDGE_DEFAULT, force=False))
         assert status == "judged"
         assert st.has_verdict(1) is True
-        # второй прогон без --force — пропуск (провайдер не дёргается)
+        # second run without --force — skipped (provider not invoked)
         status2 = asyncio.run(judge_runs.judge_run(st, 1, judge_runs.JUDGE_DEFAULT, force=False))
         assert status2 == "skipped"
     finally:

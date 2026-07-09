@@ -14,14 +14,14 @@ _MAX_PARSE_RETRIES = 2
 
 _log = logging.getLogger(__name__)
 
-# Стык двух соседних <game>-блоков: закрывающий </game>, за которым через один лишь
-# пробельный промежуток идёт открывающий <game>. Склеиваем такие блоки в один (например,
-# строку результата раунда и открытие следующего раунда), сохраняя сам разделитель.
+# The seam between two adjacent <game> blocks: a closing </game> followed, after a single
+# whitespace gap, by an opening <game>. We merge such blocks into one (e.g. the round result
+# line and the opening of the next round), keeping the separator itself.
 _GAME_SEAM = re.compile(r"</game>(\s*)<game>")
 
 
 def _merge_game_blocks(text: str) -> str:
-    """Убрать стыки </game>…<game> между смежными блоками — получается один транскрипт."""
+    """Remove </game>…<game> seams between adjacent blocks — yields one transcript."""
     return _GAME_SEAM.sub(r"\1", text)
 
 
@@ -50,30 +50,30 @@ class PhaseKind(Enum):
 class Phase:
     kind: PhaseKind
     context: str          # rendered situation + output instruction (becomes a user message)
-    game_cfg: GameCfg | None = None  # шаблоны транскрипта истории + payoff'ы для подстановки в system; едет от игры
+    game_cfg: GameCfg | None = None  # history transcript templates + payoffs for substitution into system; comes from the game
 
 
 @dataclass(frozen=True)
 class LLMCall:
-    """Сырой L2-лог одного `provider.complete()` (включая парс-ретраи).
+    """Raw L2 log of one `provider.complete()` call (including parse retries).
 
-    Самодостаточная запись: всё, кроме `round_idx`/`pair_idx`/`call_idx` (их добавляет
-    `Storage.observe`). `turn_idx` проставляет игра для фазы TALK.
+    Self-contained record: everything except `round_idx`/`pair_idx`/`call_idx` (added by
+    `Storage.observe`). `turn_idx` is set by the game for the TALK phase.
 
     Attributes:
-        agent_id: Кто вызывал.
-        phase: Фаза (talk/decide/predict/reflect).
-        attempt: Парс-попытка Agent.act (1..3).
-        http_attempt: Сетевой ретрай внутри одного complete() (1..5).
+        agent_id: Who made the call.
+        phase: Phase (talk/decide/predict/reflect).
+        attempt: Agent.act parse attempt (1..3).
+        http_attempt: Network retry within one complete() call (1..5).
         status: ok | parse_error | bad_json | bad_shape | http_error | server_error | network.
-        status_code: HTTP-код попытки (None при сетевой ошибке).
-        request: Дословный отправленный payload (None, если провайдер его не отдал).
-        response: Извлечённый текст ответа (только на финальной ok-попытке).
-        response_raw: Дословное тело ответа строкой (resp.text, вкл. тело 5xx).
-        error: Сообщение сбоя.
-        prompt_tokens: Токены промпта (на финальной ok-попытке).
-        completion_tokens: Токены ответа (на финальной ok-попытке).
-        turn_idx: Индекс реплики для TALK; None для остальных фаз.
+        status_code: HTTP status code of the attempt (None on a network error).
+        request: The exact payload sent (None if the provider didn't return it).
+        response: Extracted response text (only on the final ok attempt).
+        response_raw: Exact response body as a string (resp.text, incl. a 5xx body).
+        error: Failure message.
+        prompt_tokens: Prompt tokens (on the final ok attempt).
+        completion_tokens: Completion tokens (on the final ok attempt).
+        turn_idx: Message turn index for TALK; None for other phases.
     """
 
     agent_id: str
@@ -96,23 +96,24 @@ class ActResult:
     public_text: str | None     # TALK -> message; DECIDE -> None
     data: dict                  # TALK -> {message, ready}; DECIDE -> {number, rationale}
     usage: tuple[int, int]      # (prompt_tokens, completion_tokens), summed over all attempts
-    calls: tuple[LLMCall, ...] = ()   # L2-лог всех попыток этого act()
+    calls: tuple[LLMCall, ...] = ()   # L2 log of all attempts of this act()
 
 
 @dataclass(frozen=True)
 class AgentSetup:
-    system_prompt: str        # полный system агента (ОДНА строка-шаблон); {id} и payoff'ы подставит Agent.system_prompt
+    system_prompt: str        # the agent's full system prompt (ONE template string); {id} and payoffs are substituted by Agent.system_prompt
     provider_cfg: ProviderCfg
-    # Стратегия игры этого агента — простые строки (core не импортирует strategy; объект
-    # стратегии собирается на уровне игры, см. ReputationPD._strategy_for).
+    # This agent's play strategy — plain strings (core does not import strategy; the strategy
+    # object is assembled at the game level, see ReputationPD._strategy_for).
     play_strategy: str = "direct"        # "direct" | "prediction"
-    prediction_mapping: str = "match"    # отображение predict->выбор (только для prediction)
+    prediction_mapping: str = "match"    # predict->choice mapping (prediction strategy only)
 
 
-# Текст поправок на ретрае живёт в конфиге (GameCfg.*_correction), не зашит здесь. Для фаз,
-# собранных без game_cfg (юнит-тесты), берём дефолтный GameCfg(). DECIDE/PREDICT выбирают
-# bare/rationale-вариант по тому же флагу rationale, что и сам промпт фазы — поэтому в bare-режиме
-# поправка больше не требует rationale (прежний _CORRECTION требовал, противореча промпту).
+# Correction text for retries lives in the config (GameCfg.*_correction), not hardcoded here.
+# For phases assembled without game_cfg (unit tests), we take the default GameCfg(). DECIDE/PREDICT
+# pick the bare/rationale variant using the same rationale flag as the phase prompt itself —
+# so in bare mode the correction no longer requires rationale (the old _CORRECTION required it,
+# contradicting the prompt).
 _DEFAULT_GAME_CFG = GameCfg()
 
 
@@ -147,11 +148,12 @@ class Agent:
         self._window = context_window
 
     def system_prompt(self, game_cfg: "GameCfg | None" = None) -> str:
-        """Полный system агента: шаблон self.setup.system_prompt с подставленными {id} и payoff'ами.
+        """The agent's full system prompt: self.setup.system_prompt template with {id} and payoffs substituted.
 
-        Прежней склейки (identity + persona + rules) нет — system задаётся одной строкой.
-        {id} подставляется всегда; payoff-параметры {R}/{T}/{P}/{S}/{max_talk_turns} — когда
-        известен game_cfg (для всех боевых фаз он едет в Phase.game_cfg)."""
+        There is no longer the old assembly (identity + persona + rules) — system is given
+        as a single string. {id} is always substituted; payoff parameters
+        {R}/{T}/{P}/{S}/{max_talk_turns} are substituted when game_cfg is known (for all
+        production phases it travels in Phase.game_cfg)."""
         system = self.setup.system_prompt.replace("{id}", self.id)
         if game_cfg is not None:
             p = game_cfg.payoffs
@@ -163,10 +165,10 @@ class Agent:
 
     async def act(self, phase: Phase) -> ActResult:
         system = self.system_prompt(phase.game_cfg)
-        # NOTE сворачивает память в заметки — для этого видит её целиком (без окна),
-        # чтобы ничего не потерять при консолидации; остальные фазы — с окном.
+        # NOTE folds memory into notes — for that it needs to see it in full (no window),
+        # so nothing is lost during consolidation; the other phases use the window.
         window = None if phase.kind is PhaseKind.NOTE else self._window
-        diary = self.memory.render(window, phase.game_cfg)  # [] или [user-сообщение с транскриптом истории]
+        diary = self.memory.render(window, phase.game_cfg)  # [] or [user message with the history transcript]
         history = f"{diary[0].content}\n\n" if diary else ""
         cfg = self.setup.provider_cfg
 
@@ -175,11 +177,11 @@ class Agent:
         calls: list[LLMCall] = []
         correction: str | None = None
         for attempt in range(1, _MAX_PARSE_RETRIES + 2):
-            # одно user-сообщение: дневник памяти + контекст фазы (+ поправка на ретрае парсинга)
+            # one user message: memory diary + phase context (+ correction on parse retry)
             content = history + phase.context
             if correction is not None:
                 content = f"{content}\n\n{correction}"
-            content = _merge_game_blocks(content)   # склеить стыки </game>…<game>
+            content = _merge_game_blocks(content)   # merge the </game>…<game> seams
             messages = [Message("user", content)]
             if phase.kind is not PhaseKind.TALK and _log.isEnabledFor(logging.DEBUG):
                 _log.debug(_render_trace(self.id, phase.kind, attempt, system, messages))
@@ -215,10 +217,11 @@ class Agent:
 
 
 def _calls_from_attempts(agent_id, kind, attempt, attempts, *, parsed: bool | None = None):
-    """Развернуть HTTP-попытки одного complete() в строки LLMCall (по одной на попытку).
+    """Unroll one complete() call's HTTP attempts into LLMCall rows (one per attempt).
 
-    На финальной удачной по HTTP попытке статус `ok` меняем на `parse_error`, если фазовый
-    валидатор отверг текст (`parsed=False`). Для сбойного complete() `parsed` не задаётся.
+    On the final HTTP-successful attempt, the `ok` status is changed to `parse_error` if the
+    phase validator rejected the text (`parsed=False`). For a failed complete(), `parsed` is
+    not set.
     """
     out = []
     n = len(attempts)
@@ -279,13 +282,13 @@ def _validate_talk(obj: dict) -> dict | None:
         return None
     if not isinstance(message, str):
         message = str(message)
-    # Агент-facing ключ — "finish" (закрыть чат); внутри по-прежнему храним как "ready".
+    # The agent-facing key is "finish" (close the chat); internally we still store it as "ready".
     return {"message": message, "ready": _coerce_bool(obj.get("finish"))}
 
 
 def _validate_reflect(obj: dict) -> dict | None:
     reflection = obj.get("reflection")
-    if reflection is None:  # ключ обязателен; иначе повтор с поправкой
+    if reflection is None:  # the key is required; otherwise retry with a correction
         return None
     if not isinstance(reflection, str):
         reflection = str(reflection)
@@ -294,7 +297,7 @@ def _validate_reflect(obj: dict) -> dict | None:
 
 def _validate_notes(obj: dict) -> dict | None:
     notes = obj.get("notes")
-    if notes is None:  # ключ обязателен; иначе повтор с поправкой
+    if notes is None:  # the key is required; otherwise retry with a correction
         return None
     if not isinstance(notes, str):
         notes = str(notes)
@@ -315,21 +318,21 @@ def _coerce_bool(value) -> bool:
 
 def _render_trace(agent_id: str, kind: PhaseKind, attempt: int,
                   system: str, messages: list[Message]) -> str:
-    """Отрендерить точный вход LLM (system + все сообщения) для записи в лог.
+    """Render the exact LLM input (system + all messages) for the log record.
 
     Args:
-        agent_id: Идентификатор агента, делающего запрос.
-        kind: Фаза запроса (DECIDE, PREDICT или REFLECT).
-        attempt: Номер попытки запроса (1..3, повторы из-за ошибок парсинга).
-        system: Полный системный промпт (персона + правила).
-        messages: Сообщения запроса — одно user-сообщение (дневник памяти + контекст
-            фазы + поправка), склеенное в Agent.act.
+        agent_id: Identifier of the agent making the request.
+        kind: Request phase (DECIDE, PREDICT or REFLECT).
+        attempt: Request attempt number (1..3, retries due to parse errors).
+        system: Full system prompt (persona + rules).
+        messages: Request messages — one user message (memory diary + phase
+            context + correction), assembled in Agent.act.
 
     Returns:
-        Многострочный текст записи лога.
+        Multi-line log record text.
     """
     parts = [
-        f"LLM-вход: агент {agent_id}, фаза {kind.value}, попытка {attempt}",
+        f"LLM input: agent {agent_id}, phase {kind.value}, attempt {attempt}",
         f"--- system ---\n{system}",
     ]
     parts += [f"--- {m.role} ---\n{m.content}" for m in messages]

@@ -9,16 +9,16 @@ from src.games.prompts import (
 def test_score_placeholder_filled_in_contexts():
     cfg = GameCfg(talk_prompt="t {score}", talk_open_prompt="o {score}",
                   decide_prompt="d {score}", predict_prompt="p {score}")
-    assert talk_context(cfg, "A2", 1, "  A2: hi", 7.0) == "t 7"     # с фидом -> talk_prompt
-    assert talk_context(cfg, "A2", 1, "", 5.0) == "o 5"             # пустой фид -> опенер
+    assert talk_context(cfg, "A2", 1, "  A2: hi", 7.0) == "t 7"     # with a feed -> talk_prompt
+    assert talk_context(cfg, "A2", 1, "", 5.0) == "o 5"             # empty feed -> opener
     assert decide_context(cfg, "A2", 1, "f", 3.0) == "d 3"
     assert predict_context(cfg, "A2", 1, "f", 9.0) == "p 9"
 
 
 def test_talk_context_uses_open_template_on_empty_feed():
     cfg = GameCfg(talk_open_prompt="OPEN {partner} r{round}", talk_prompt="REPLY {feed}")
-    assert talk_context(cfg, "A2", 1, "") == "OPEN A2 r1"          # первый ход -> опенер
-    assert talk_context(cfg, "A2", 1, "  A2: hi") == "REPLY   A2: hi"  # есть фид -> обычный шаблон
+    assert talk_context(cfg, "A2", 1, "") == "OPEN A2 r1"          # first turn -> opener
+    assert talk_context(cfg, "A2", 1, "  A2: hi") == "REPLY   A2: hi"  # has a feed -> regular template
 
 
 def test_notes_context_fills_round_and_score():
@@ -38,7 +38,7 @@ def test_predict_template_puts_rationale_before_number():
 
 
 def test_rationale_flag_selects_whole_template():
-    # флаг выбирает ЦЕЛЫЙ статичный шаблон (не склейку): rationale|bare
+    # the flag selects the WHOLE static template (not a concatenation): rationale|bare
     cfg = GameCfg(decide_prompt="THINK {feed}", decide_prompt_bare="BARE {feed}",
                   predict_prompt="PTHINK {feed}", predict_prompt_bare="PBARE {feed}")
     assert decide_context(cfg, "A2", 1, "f") == "THINK f"                       # rationale=True (default)
@@ -50,7 +50,7 @@ def test_rationale_flag_selects_whole_template():
 
 
 def test_predict_mirrors_decide_and_threads_reason():
-    # V1: predict зеркалит decide — тот же транскрипт + строка закрытия с {reason}
+    # V1: predict mirrors decide — the same transcript + a closing line with {reason}
     ctx = predict_context(GameCfg(), "A2", 1, "feed", reason="both players agreed to stop")
     assert "The chat has been closed as both players agreed to stop." in ctx
     assert "Predict the number your opponent will secretly choose" in ctx
@@ -73,7 +73,7 @@ def test_reflect_context_states_result_and_asks_json():
     assert "A2" in ctx and "Round 3" in ctx
     assert "take 4" in ctx                      # negotiation feed is restated
     assert "4" in ctx and "5" in ctx and "0" in ctx  # both numbers and the payoff
-    assert "A1 (you) picked 4" in ctx           # сам агент — "<имя> (you)", как в дневнике/фиде
+    assert "A1 (you) picked 4" in ctx           # the agent itself — "<name> (you)", as in the diary/feed
     assert '"reflection"' in ctx                # answer contract
 
 

@@ -30,7 +30,7 @@ def narrate_round(r, plan, recs) -> None:
         print(f"\n  {rec.a_id} vs {rec.b_id}  ({rec.a_id} opens):")
         if rec.transcript:
             for i, t in enumerate(rec.transcript, 1):
-                mark = "   [finish=true]" if t["ready"] else ""   # finish=false не печатаем
+                mark = "   [finish=true]" if t["ready"] else ""   # finish=false is not printed
                 print(f"    {i}. {t['speaker']}: {t['text']}{mark}")
         else:
             print("    (no messages exchanged)")
@@ -58,20 +58,20 @@ def narrate_round(r, plan, recs) -> None:
 
 
 def print_verdict(verdict: JudgeVerdict) -> None:
-    """Напечатать вердикт LLM-судьи (без цитат — подсветка живёт в replay)."""
+    """Print the LLM judge's verdict (without citations — highlighting lives in replay)."""
     bar = "=" * 60
     print(f"\n{bar}\n  JUDGE VERDICT\n{bar}")
     print(f"  reputation institute emerged: {'YES' if verdict.emerged else 'NO'}")
     print(f"  {verdict.explanation}")
-    print(f"  evidence: {len(verdict.evidence)} message(s) — replay подсветит их цветом")
+    print(f"  evidence: {len(verdict.evidence)} message(s) — replay will highlight them in color")
 
 
 async def _judge_and_store(cfg, records, st) -> None:
-    """Вызвать судью после эпизода; его ошибка не должна терять результаты run'а."""
+    """Call the judge after the episode; its failure must not lose the run's results."""
     try:
         verdict = await judge_episode(cfg, records)
     except (JudgeError, ProviderError) as e:
-        print(f"\nсудья не смог вынести вердикт: {e} — run сохранён без вердикта")
+        print(f"\njudge failed to reach a verdict: {e} — run saved without a verdict")
         return
     print_verdict(verdict)
     st.save_verdict(verdict, model=cfg.provider.model)
@@ -81,23 +81,24 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None,
                          quiet: bool = False) -> int:
     """Build the population, run the episode, persist + narrate each round, score it.
 
-    Returns the run_id (целочисленный автоинкремент). Каждый запуск — новый прогон:
-    дедупа по конфигу больше нет (повторный запуск того же конфига создаёт новый номер).
-    Возобновление/доращивание оборванных или завершённых прогонов — отдельный явный путь
-    по номеру прогона (см. resume, A5).
+    Returns the run_id (an auto-incrementing integer). Every run is a new run: there is
+    no longer dedup by config (re-running the same config creates a new number).
+    Resuming/extending aborted or finished runs is a separate, explicit path by run
+    number (see resume, A5).
 
-    `quiet=True` глушит пораундовую narration и финальный scoreboard (для свипов на сотни
-    прогонов, см. research.py) — персист в БД при этом полный; сообщения об обрыве остаются."""
+    `quiet=True` mutes the per-round narration and the final scoreboard (for sweeps of
+    hundreds of runs, see research.py) — the DB persistence stays complete; abort
+    messages remain."""
     pop = make_population(cfg.population, context_window=cfg.context_window).build(
         random.Random(cfg.seed)
     )
     st = Storage(db_path)
     try:
-        run_id = st.begin(cfg, pop, name)        # INSERT runs+agents; новый номер
+        run_id = st.begin(cfg, pop, name)        # INSERT runs+agents; a new number
 
-        records: list = []                       # копим записи для LLM-судьи
+        records: list = []                       # accumulate records for the LLM judge
 
-        def observer(r, plan, recs):             # persist AND (если не quiet) narrate each round live
+        def observer(r, plan, recs):             # persist AND (if not quiet) narrate each round live
             st.observe(r, plan, recs)
             if not quiet:
                 narrate_round(r, plan, recs)
@@ -117,7 +118,7 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None,
             for a in sorted(pop, key=lambda a: a.score, reverse=True):
                 print(f"  {a.id}: {a.score:g}")
 
-        if cfg.judge is not None:                # опциональный LLM-судья (см. JudgeCfg)
+        if cfg.judge is not None:                # optional LLM judge (see JudgeCfg)
             await _judge_and_store(cfg.judge, records, st)
     finally:
         st.close()
@@ -126,11 +127,11 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None,
 
 
 def _apply_run_state(pop, state) -> None:
-    """Наложить восстановленное состояние (счёт + память) на свежесобранную популяцию.
+    """Apply the restored state (score + memory) onto a freshly built population.
 
-    id агентов совпадают: популяция пересобрана из того же конфига тем же сидом, поэтому
-    имена сэмплируются идентично. Окно памяти живёт на агенте, не на объекте Memory, —
-    замена memory его не теряет."""
+    Agent ids match: the population is rebuilt from the same config with the same seed,
+    so names are sampled identically. The memory window lives on the agent, not on the
+    Memory object, so replacing memory does not lose it."""
     for agent in pop:
         agent.score = state.scores[agent.id]
         agent.memory = state.memories[agent.id]
@@ -138,15 +139,16 @@ def _apply_run_state(pop, state) -> None:
 
 async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
                      quiet: bool = False) -> int:
-    """Возобновить или дорастить существующий прогон по его номеру.
+    """Resume or extend an existing run by its number.
 
-    Без `rounds` — доигрываем оборванный прогон до `rounds` из его сохранённого конфига.
-    С `rounds` — растим до этого числа (extend); если уже сыграно столько же или больше —
-    ничего не делаем. Прошлые раунды читаются из БД (фактические пары), новые играются по
-    per-round rng, поэтому возобновимы и прогоны, записанные до перехода на per-round rng.
+    Without `rounds` — finish playing an aborted run up to `rounds` from its stored
+    config. With `rounds` — grow it to that number (extend); if that many or more
+    rounds are already played, do nothing. Past rounds are read from the DB (the
+    actual pairings), new ones are played with per-round rng, so runs recorded before
+    the switch to per-round rng are also resumable.
 
-    `quiet=True` (для свипов, см. research.py) глушит narration/заголовки/scoreboard —
-    сообщения об обрыве остаются; БД пишется полностью."""
+    `quiet=True` (for sweeps, see research.py) mutes narration/headers/scoreboard —
+    abort messages remain; the DB is written in full."""
     st = Storage(db_path)
     config_json = st.run_config(run_id)
     if config_json is None:
@@ -156,17 +158,17 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
 
     cfg = episode_from_dict(json.loads(config_json))
     if rounds is not None:
-        cfg = replace(cfg, rounds=rounds)               # extend: растим целевое число раундов
+        cfg = replace(cfg, rounds=rounds)               # extend: grow the target number of rounds
     state = st.load_state(run_id, cfg.idle_payoff)
-    # «Доигрывать нечего» — только если прогон УЖЕ закрыт (finished_at проставлен). Если все
-    # раунды записаны, но finished_at пуст — это эпизод, оборванный на ПОСЛЕДНЕМ раунде
-    # (сорванная пара пишется в БД до EpisodeAborted, поэтому round-строка последнего раунда
-    # есть). Новых раундов нет, но прогон надо закрыть — пройдём общий путь ниже: run_episode
-    # сыграет 0 раундов, st.finish проставит finished_at. Иначе такой прогон не доигрался бы
-    # никогда (resume каждый раз отдавал «nothing to do»).
+    # "Nothing to finish playing" holds only if the run is ALREADY closed (finished_at set). If all
+    # rounds are recorded but finished_at is empty — this is an episode aborted on the LAST round
+    # (the aborted pairing is written to the DB before EpisodeAborted, so the last round's
+    # round-row exists). There are no new rounds, but the run still needs to be closed — we go
+    # through the common path below: run_episode plays 0 rounds, st.finish sets finished_at.
+    # Otherwise such a run would never finish (resume would keep returning "nothing to do").
     if state.last_round >= cfg.rounds and st.is_finished(run_id):
         if not quiet:
-            print(f"run {run_id}: уже сыграно {state.last_round} раундов (>= {cfg.rounds}) — nothing to do")
+            print(f"run {run_id}: already played {state.last_round} rounds (>= {cfg.rounds}) — nothing to do")
         st.close()
         return run_id
 
@@ -176,15 +178,15 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
     _apply_run_state(pop, state)
     start = state.last_round + 1
     if not quiet:
-        if start > cfg.rounds:                          # все раунды есть — только закрываем оборванный прогон
-            print(f"Finalizing run {run_id} into {db_path}: все {cfg.rounds} раундов записаны, "
-                  f"проставляю finished_at ({len(pop)} agents)")
+        if start > cfg.rounds:                          # all rounds exist — just closing the aborted run
+            print(f"Finalizing run {run_id} into {db_path}: all {cfg.rounds} rounds recorded, "
+                  f"setting finished_at ({len(pop)} agents)")
         else:
             print(f"Resuming run {run_id} into {db_path}: rounds {start}..{cfg.rounds}, "
                   f"{len(pop)} agents, seed={cfg.seed}")
     try:
-        st.resume(run_id, cfg)                          # _run_id, снять finished_at, обновить config
-        def observer(r, plan, recs):                    # persist AND (если не quiet) narrate each new round
+        st.resume(run_id, cfg)                          # _run_id, clear finished_at, update config
+        def observer(r, plan, recs):                    # persist AND (if not quiet) narrate each new round
             st.observe(r, plan, recs)
             if not quiet:
                 narrate_round(r, plan, recs)
@@ -201,8 +203,8 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
             print(f"\n{bar}\n  FINAL SCOREBOARD\n{bar}")
             for a in sorted(pop, key=lambda a: a.score, reverse=True):
                 print(f"  {a.id}: {a.score:g}")
-            if cfg.judge is not None:                    # судья — отдельная аналитика по полному эпизоду
-                print("\n(LLM-судья не запускается при resume/extend — оцените прогон отдельно)")
+            if cfg.judge is not None:                    # the judge is separate analysis over the full episode
+                print("\n(the LLM judge does not run on resume/extend — evaluate the run separately)")
     finally:
         st.close()
         await pop.aclose()
@@ -215,8 +217,8 @@ async def run(cfg: EpisodeCfg, db_path: str, name: str | None = None,
               quiet: bool = False) -> int:
     """Top-level entry: print a header, run the experiment, print the replay hint.
 
-    `quiet=True` (для свипов, см. research.py) подавляет заголовок, narration и подсказку —
-    наружу не идёт ничего, кроме сообщений об обрыве; БД пишется полностью."""
+    `quiet=True` (for sweeps, see research.py) suppresses the header, narration and hint —
+    nothing goes out except abort messages; the DB is written in full."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     if not quiet:
         n_agents = sum(a.count for a in cfg.population.agents)

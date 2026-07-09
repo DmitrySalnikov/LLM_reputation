@@ -1,7 +1,8 @@
-"""Собрать статистику emergence rate по дизайнам из оценённых судьёй прогонов.
+"""Collect emergence rate statistics by design from judged runs.
 
-Берёт прогоны с вердиктом судьи, группирует по config_hash, считает долю «институт
-репутации возник» с 95% интервалом Вилсона, печатает таблицу и пишет stats.json (+ stats.csv).
+Takes runs with a judge verdict, groups them by config_hash, computes the share of
+"reputation institution emerged" with a 95% Wilson interval, prints a table, and
+writes stats.json (+ stats.csv).
 
     uv run python collect_stats.py [--design HASH ...] [--exclude-design HASH ...] \
                                    [--name LABEL ...] [--exclude-name LABEL ...] \
@@ -23,7 +24,7 @@ DB = "experiment.db"
 
 
 def collect(db_path: str, flt: RunFilter) -> list[DesignStat]:
-    """Прочитать БД и посчитать статистику по дизайнам (чистое чтение)."""
+    """Read the DB and compute statistics by design (pure read)."""
     conn = sqlite3.connect(db_path)
     try:
         run_ids = selected_run_ids(conn, flt)
@@ -34,9 +35,9 @@ def collect(db_path: str, flt: RunFilter) -> list[DesignStat]:
 
 
 def stats_to_json(stats: list[DesignStat], flt: RunFilter) -> dict:
-    """Сериализуемый объект артефакта: применённые фильтры + список дизайнов.
+    """Serializable artifact object: applied filters + list of designs.
 
-    Кортежи RunFilter превращаются в списки, чтобы JSON был привычной формы."""
+    RunFilter tuples are converted to lists so the JSON has the usual shape."""
     filters = {k: (list(v) if isinstance(v, tuple) else v)
                for k, v in asdict(flt).items()}
     return {
@@ -46,13 +47,13 @@ def stats_to_json(stats: list[DesignStat], flt: RunFilter) -> dict:
 
 
 def write_json(path: str, obj: dict) -> None:
-    """Записать объект статистики в JSON-файл."""
+    """Write the statistics object to a JSON file."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
 
 def write_csv(path: str, stats: list[DesignStat]) -> None:
-    """Записать статистику в CSV-файл (без run_ids)."""
+    """Write statistics to a CSV file (without run_ids)."""
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["config_hash", "name", "n", "n_emerged", "rate", "ci_lo", "ci_hi"])
@@ -62,9 +63,9 @@ def write_csv(path: str, stats: list[DesignStat]) -> None:
 
 
 def print_table(stats: list[DesignStat]) -> None:
-    """Человекочитаемая таблица в консоль."""
+    """Human-readable table printed to the console."""
     if not stats:
-        print("Нет оценённых прогонов под фильтр — статистики нет.")
+        print("No evaluated runs match the filter — no statistics.")
         return
     print(f"{'design':16} {'name':12} {'n':>4} {'emrg':>5} {'rate':>6}  95% CI")
     for s in stats:
@@ -73,12 +74,12 @@ def print_table(stats: list[DesignStat]) -> None:
 
 
 def _flag(args: list[str], name: str, default: str) -> str:
-    """Найти значение одиночного флага в argv."""
+    """Find the value of a single flag in argv."""
     return args[args.index(name) + 1] if name in args else default
 
 
 def main() -> None:
-    """Точка входа CLI: собрать статистику и записать артефакты."""
+    """CLI entry point: collect statistics and write artifacts."""
     args = sys.argv[1:]
     flt = filter_from_argv(args)
     out = _flag(args, "--out", "stats.json")
@@ -89,7 +90,7 @@ def main() -> None:
         sys.exit(1)
     write_json(out, stats_to_json(stats, flt))
     write_csv(csv_path, stats)
-    print(f"\nЗаписано: {out}, {csv_path}")
+    print(f"\nWritten: {out}, {csv_path}")
 
 
 if __name__ == "__main__":

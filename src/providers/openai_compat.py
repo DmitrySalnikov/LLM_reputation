@@ -69,22 +69,24 @@ class OpenAICompatibleProvider:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        # Управление рассуждениями reasoning-моделей: выключаем — явным флагом {"enabled": false}
-        # (Non-think); включённость по дефолту не шлём (провайдер решает сам, не-reasoning модели
-        # поле игнорируют). reasoning_effort шлём, только если задан (задел на будущее: high/max).
+        # Controlling reasoning for reasoning models: turn it off — an explicit {"enabled": false}
+        # flag (Non-think); we don't send it enabled by default (the provider decides on its own,
+        # non-reasoning models ignore the field). reasoning_effort is sent only if set (groundwork
+        # for the future: high/max).
         if not self._reasoning:
             payload["reasoning"] = {"enabled": False}
         if self._reasoning_effort:
             payload["reasoning_effort"] = self._reasoning_effort
-        # extra_body — provider-специфичные поля (напр. vLLM chat_template_kwargs); мёржим
-        # последним, чтобы конфиг мог переопределить базовые поля при необходимости.
+        # extra_body — provider-specific fields (e.g. vLLM chat_template_kwargs); merged
+        # last so the config can override the base fields when needed.
         payload.update(self._extra_body)
-        # _post_with_retries гарантирует resp с извлекаемым ответом (битый конверт и кривую
-        # форму он ретраит, как 5xx). Здесь парсим ещё раз — уже для извлечения контента.
-        resp, attempts = await self._post_with_retries(payload)   # raises уже несут request+attempts
+        # _post_with_retries guarantees a resp with an extractable response (a broken envelope
+        # and a malformed shape are retried the same as 5xx). Here we parse again — this time
+        # to extract the content.
+        resp, attempts = await self._post_with_retries(payload)   # raises already carry request+attempts
         raw_text = resp.text
         data = resp.json()
-        content = data["choices"][0]["message"].get("content")    # извлекаемость гарантирована гейтом
+        content = data["choices"][0]["message"].get("content")    # extractability guaranteed by the gate
         usage = data.get("usage") or {}
         pt = int(usage.get("prompt_tokens", 0))
         ct = int(usage.get("completion_tokens", 0))
@@ -103,12 +105,13 @@ class OpenAICompatibleProvider:
             await self._client.aclose()
 
     async def _post_with_retries(self, payload: dict) -> tuple[httpx.Response, tuple[HttpAttempt, ...]]:
-        """Сделать запрос с ретраями. Вернуть (resp с валидным JSON-телом, попытки-ретраи).
+        """Make the request with retries. Return (resp with a valid JSON body, retry attempts).
 
-        Накапливает КАЖДУЮ HTTP-попытку (для L2-лога). Ретраит как транзиентное: сеть,
-        429/5xx и **битый JSON-конверт** (`resp.json()` не распарсился — обычно прокси/обрыв).
-        Терминально (raise с `request`+`attempts`): 4xx и исчерпание ретраев. Возвращает
-        сырой `resp` (тело уже проверено как JSON); извлечение контента — в `complete`.
+        Accumulates EVERY HTTP attempt (for the L2 log). Retries as transient: network,
+        429/5xx, and a **broken JSON envelope** (`resp.json()` failed to parse — usually a
+        proxy/connection drop). Terminal (raise with `request`+`attempts`): 4xx and retry
+        exhaustion. Returns the raw `resp` (body already verified as JSON); content
+        extraction happens in `complete`.
         """
         attempts: list[HttpAttempt] = []
         last_exc: Exception | None = None
@@ -127,23 +130,23 @@ class OpenAICompatibleProvider:
                 code = resp.status_code
                 if code < 400:
                     try:
-                        data = resp.json()                       # гейт: тело извлекаемо?
+                        data = resp.json()                       # gate: is the body extractable?
                         data["choices"][0]["message"].get("content")
                     except ValueError:
                         last_exc = ProviderParseError("response was not valid JSON")
-                        attempts.append(HttpAttempt(   # битый конверт — ретраим, как 5xx
+                        attempts.append(HttpAttempt(   # broken envelope — retry it like a 5xx
                             status="bad_json", status_code=code, request=payload,
                             response=None, response_raw=resp.text, error="not valid JSON"))
                     except (KeyError, IndexError, TypeError, AttributeError):
                         last_exc = ProviderParseError(f"unexpected response shape: {data!r}")
-                        attempts.append(HttpAttempt(   # валидный JSON, но не извлекается — тоже ретраим
+                        attempts.append(HttpAttempt(   # valid JSON but not extractable — also retry it
                             status="bad_shape", status_code=code, request=payload,
                             response=None, response_raw=resp.text, error="unexpected shape"))
                     else:
                         return resp, tuple(attempts)
                 elif code == 429 or 500 <= code < 600:
                     last_exc = ProviderUnavailable(f"HTTP {code} from {self._url}")
-                    attempts.append(HttpAttempt(           # тело 5xx/429 тоже пишем
+                    attempts.append(HttpAttempt(           # also record the 5xx/429 body
                         status="server_error", status_code=code, request=payload,
                         response=None, response_raw=resp.text, error=f"HTTP {code}"))
                     retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
@@ -160,7 +163,7 @@ class OpenAICompatibleProvider:
             delay = retry_after if retry_after is not None else _backoff_delay(attempt)
             await asyncio.sleep(delay)
 
-        # исчерпали ретраи: каждая попытка уже в attempts (с телом 5xx / network)
+        # retries exhausted: each attempt is already in attempts (with the 5xx / network body)
         err = ProviderUnavailable(f"exhausted {_MAX_ATTEMPTS} attempts to {self._url}")
         err.request = payload
         err.attempts = tuple(attempts)

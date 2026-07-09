@@ -27,7 +27,7 @@ def test_should_save_keyword_count_row():
 
 
 def test_should_upsert_keyword_count_on_repeat_term():
-    # повторный (run_id, term) заменяет строку, не дублирует
+    # repeated (run_id, term) replaces the row, doesn't duplicate
     st = Storage(":memory:")
     try:
         _insert_run(st, 1)

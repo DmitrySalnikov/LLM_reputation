@@ -1,19 +1,19 @@
-"""Найти «сплетни» — упоминания третьих игроков в репликах cheap-talk.
+"""Find "gossip" — mentions of third-party players in cheap-talk messages.
 
-Сплетня = реплика, в которой говорящий называет ИГРОКА, не входящего в его текущую
-пару (т.е. id реального агента этого прогона, отличный и от самого говорящего, и от
-партнёра по раунду). Адресные обращения к партнёру и упоминания самого себя сюда не
-попадают — это диадная память, а не разговор о третьем лице.
+Gossip = a message in which the speaker names a PLAYER outside their current pair
+(i.e. a real agent id from this run, different from both the speaker and the
+round partner). Direct address to the partner and self-mentions are excluded —
+that's dyadic memory, not talk about a third party.
 
     uv run python find_gossip.py [--db research.db] [--model SUBSTR] \
                                  [--bare] [--context N] [--summary]
 
-  --db       путь к базе (по умолчанию research.db)
-  --model    оставить только прогоны, в имени которых есть подстрока (напр. deepseek)
-  --bare     также ловить «голые» числовые id (без слова Player); рискует ложными
-             срабатываниями на арифметике, поэтому по умолчанию выключено
-  --context  длина показываемого фрагмента реплики (по умолчанию 160)
-  --summary  печатать только сводку по моделям, без отдельных реплик
+  --db       path to the database (default research.db)
+  --model    keep only runs whose name contains the substring (e.g. deepseek)
+  --bare     also catch "bare" numeric ids (without the word Player); risks false
+             positives on arithmetic, so it's off by default
+  --context  length of the displayed message snippet (default 160)
+  --summary  print only the per-model summary, without individual messages
 """
 
 from __future__ import annotations
@@ -29,17 +29,17 @@ _BARE_RE = re.compile(r"\b(\d{2,4})\b")
 
 
 def _norm(agent_id: str) -> str:
-    """Привести id агента к чистому числу: 'Player 167' -> '167'."""
+    """Normalize an agent id to a plain number: 'Player 167' -> '167'."""
     return agent_id.replace("Player", "").replace("player", "").strip()
 
 
 def _model_of(name: str) -> str:
-    """Имя модели = всё имя прогона до первого пробела ('deepseek-v4-pro 43')."""
+    """Model name = the full run name up to the first space ('deepseek-v4-pro 43')."""
     return name.split(" ", 1)[0] if name else name
 
 
 def _agent_ids_by_run(conn: sqlite3.Connection) -> dict[int, set[str]]:
-    """Множество реальных id агентов в каждом прогоне (для отсева не-игроков)."""
+    """Set of real agent ids in each run (to filter out non-players)."""
     out: dict[int, set[str]] = {}
     for run_id, aid in conn.execute("SELECT run_id, agent_id FROM agents"):
         out.setdefault(run_id, set()).add(_norm(aid))
@@ -47,7 +47,7 @@ def _agent_ids_by_run(conn: sqlite3.Connection) -> dict[int, set[str]]:
 
 
 def _pair_members(conn: sqlite3.Connection) -> dict[tuple[int, int, int], set[str]]:
-    """Двое участников каждой пары по (run, round, pair) из таблицы pairings."""
+    """The two members of each pair by (run, round, pair) from the pairings table."""
     out: dict[tuple[int, int, int], set[str]] = {}
     for run_id, rnd, pair, a_id, b_id in conn.execute(
         "SELECT run_id, round_idx, pair_idx, a_id, b_id FROM pairings"
@@ -58,7 +58,7 @@ def _pair_members(conn: sqlite3.Connection) -> dict[tuple[int, int, int], set[st
 
 
 def _mentioned(text: str, valid: set[str], bare: bool) -> set[str]:
-    """Id реальных игроков, упомянутых в тексте (через 'Player N', опц. голые числа)."""
+    """Ids of real players mentioned in the text (via 'Player N', optionally bare numbers)."""
     ids = {m for m in _PLAYER_RE.findall(text)}
     if bare:
         ids |= {m for m in _BARE_RE.findall(text)}
@@ -68,11 +68,11 @@ def _mentioned(text: str, valid: set[str], bare: bool) -> set[str]:
 def find_gossip(
     conn: sqlite3.Connection, *, model: str | None, bare: bool, context: int
 ) -> list[tuple]:
-    """Собрать все реплики со ссылкой на третьего игрока (чистое чтение).
+    """Collect all messages referencing a third player (pure read).
 
     Returns:
-        Список кортежей (run_id, model, round, pair, turn, speaker, third_ids, snippet),
-        упорядоченный по (run_id, round, pair, turn).
+        List of tuples (run_id, model, round, pair, turn, speaker, third_ids, snippet),
+        ordered by (run_id, round, pair, turn).
     """
     run_name = dict(conn.execute("SELECT run_id, name FROM runs"))
     ids_by_run = _agent_ids_by_run(conn)
@@ -87,7 +87,7 @@ def find_gossip(
         if model and model not in name:
             continue
         valid = ids_by_run.get(run_id, set())
-        # участники пары: из pairings, иначе fallback — оба говоривших в этой паре
+        # pair members: from pairings, otherwise fallback — both speakers in this pair
         pair_ids = members.get((run_id, rnd, pair)) or {_norm(speaker)}
         third = sorted(m for m in _mentioned(text, valid, bare) if m not in pair_ids)
         if third:
@@ -97,14 +97,14 @@ def find_gossip(
 
 
 def print_hits(hits: list[tuple]) -> None:
-    """Печать найденных сплетен по одной на строку."""
+    """Print found gossip lines, one per line."""
     for run_id, model, rnd, pair, turn, speaker, third, snippet in hits:
         print(f"run {run_id} [{model}] r{rnd} p{pair} t{turn}  {speaker} -> "
               f"{','.join(third)}: {snippet}")
 
 
 def print_summary(hits: list[tuple]) -> None:
-    """Сводка: сколько сплетен и в скольких прогонах у каждой модели."""
+    """Summary: how much gossip and in how many runs, per model."""
     from collections import defaultdict
     lines: dict[str, int] = defaultdict(int)
     runs: dict[str, set[int]] = defaultdict(set)
@@ -114,22 +114,22 @@ def print_summary(hits: list[tuple]) -> None:
     print(f"\n{'model':18} {'gossip-lines':>12} {'runs':>6}")
     for model in sorted(lines, key=lambda m: -lines[m]):
         print(f"{model:18} {lines[model]:>12} {len(runs[model]):>6}")
-    print(f"{'ИТОГО':18} {sum(lines.values()):>12} "
+    print(f"{'TOTAL':18} {sum(lines.values()):>12} "
           f"{len({h[0] for h in hits}):>6}")
 
 
 def _has_flag(args: list[str], name: str) -> bool:
-    """Есть ли булев флаг в argv."""
+    """Whether a boolean flag is present in argv."""
     return name in args
 
 
 def _flag(args: list[str], name: str, default: str) -> str:
-    """Значение одиночного флага в argv."""
+    """Value of a single flag in argv."""
     return args[args.index(name) + 1] if name in args else default
 
 
 def main() -> None:
-    """Точка входа CLI: найти сплетни и напечатать их (+ сводку)."""
+    """CLI entry point: find gossip and print it (+ summary)."""
     args = sys.argv[1:]
     db_path = _flag(args, "--db", DB)
     model = _flag(args, "--model", "") or None
@@ -147,7 +147,7 @@ def main() -> None:
         if hits:
             print_hits(hits)
         else:
-            print("Сплетни не найдены под текущий фильтр.")
+            print("No gossip found for the current filter.")
     print_summary(hits)
 
 

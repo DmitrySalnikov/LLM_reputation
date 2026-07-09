@@ -35,13 +35,13 @@ def test_reconstructs_finished_pairings_with_true_pair_idx(conn):
     recs = reconstruct_records(conn, 1)
     assert [(r.round, r.pair) for r in recs] == [(0, 0), (0, 1)]
     second = recs[1]
-    assert second.pair == 1                        # истинный pair_idx сохранён
+    assert second.pair == 1                        # true pair_idx preserved
     assert [m["text"] for m in second.transcript] == ["hi", "pick 7"]
     assert second.transcript[1]["ready"] is True
 
 
 def test_skips_aborted_pairings(conn):
     insert_run_row(conn, 1)
-    _add_pairing(conn, 1, 0, 0, finished=0)        # сорвана — без результата
+    _add_pairing(conn, 1, 0, 0, finished=0)        # aborted — no result
     conn.commit()
     assert reconstruct_records(conn, 1) == []

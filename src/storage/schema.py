@@ -5,10 +5,11 @@ import sqlite3
 # Normalized L1 schema (one DB, many runs). Configs are JSON (runs.config,
 # agents.provider); everything operational is normalized. See agent-games-logger-plan §4.
 #
-# run_id — целочисленный автоинкремент (человекочитаемые 1, 2, 3 …), а НЕ хеш конфига.
-# Идентичность прогона — это его номер; «дизайн» же хешируется в runs.config_hash (хеш
-# конфига без `judge` и без `rounds`) — для группировки прогонов одного дизайна в семью
-# (повторы и продолжения разной длины делят config_hash). replay принимает и число, и хеш.
+# run_id — an integer autoincrement (human-readable 1, 2, 3 …), NOT a config hash.
+# A run's identity is its number; the "design" instead is hashed into runs.config_hash (a hash
+# of the config without `judge` and without `rounds`) — to group runs of the same design into
+# a family (repeats and continuations of different length share config_hash). replay accepts
+# both a number and a hash.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,8 +53,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     pair_idx    INTEGER NOT NULL,
     a_id        TEXT NOT NULL,
     b_id        TEXT NOT NULL,
-    finished    INTEGER NOT NULL DEFAULT 1,  -- 1 = доиграна; 0 = сорвана LLM-сбоем (результатов нет)
-    a_number    INTEGER,                     -- результаты NULL, если finished=0 (см. CHECK)
+    finished    INTEGER NOT NULL DEFAULT 1,  -- 1 = played to completion; 0 = aborted by an LLM failure (no results)
+    a_number    INTEGER,                     -- results are NULL if finished=0 (see CHECK)
     b_number    INTEGER,
     a_rationale TEXT,
     b_rationale TEXT,
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS pairings (
     b_predicted INTEGER,
     a_reflection TEXT,                      -- post-game reflection (NULL when game.reflection=false)
     b_reflection TEXT,
-    a_notes     TEXT,                       -- memory notes после раунда (NULL, если не свёртывали)
+    a_notes     TEXT,                       -- memory notes after the round (NULL if not consolidated)
     b_notes     TEXT,
     usage_prompt_tokens     INTEGER,
     usage_completion_tokens INTEGER,
@@ -73,8 +74,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     FOREIGN KEY (run_id, round_idx) REFERENCES rounds(run_id, round_idx) ON DELETE CASCADE,
     FOREIGN KEY (run_id, a_id) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE,
     FOREIGN KEY (run_id, b_id) REFERENCES agents(run_id, agent_id) ON DELETE CASCADE,
-    CHECK (finished = 0 OR a_number IS NOT NULL),   -- доиграна ⇒ результат есть
-    CHECK (finished = 1 OR a_number IS NULL)        -- сорвана  ⇒ результат пуст
+    CHECK (finished = 0 OR a_number IS NOT NULL),   -- played to completion ⇒ result exists
+    CHECK (finished = 1 OR a_number IS NULL)        -- aborted               ⇒ result is empty
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -94,18 +95,18 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     run_id        INTEGER NOT NULL,
     round_idx     INTEGER NOT NULL,
     pair_idx      INTEGER NOT NULL,
-    call_idx      INTEGER NOT NULL,   -- порядок вызова внутри пары (порядок исполнения)
-    agent_id      TEXT    NOT NULL,   -- кто вызывал
+    call_idx      INTEGER NOT NULL,   -- call order within the pair (execution order)
+    agent_id      TEXT    NOT NULL,   -- who made the call
     phase         TEXT    NOT NULL,   -- talk | decide | predict | reflect | note
-    turn_idx      INTEGER,            -- NULL кроме TALK; FK на конкретную реплику messages
-    attempt       INTEGER NOT NULL,   -- парс-попытка Agent.act (1..3)
-    http_attempt  INTEGER NOT NULL,   -- сетевой ретрай внутри complete() (1..5)
+    turn_idx      INTEGER,            -- NULL except for TALK; FK to the specific messages turn
+    attempt       INTEGER NOT NULL,   -- Agent.act parse attempt (1..3)
+    http_attempt  INTEGER NOT NULL,   -- network retry within complete() (1..5)
     status        TEXT    NOT NULL,   -- ok | parse_error | bad_json | bad_shape | http_error | server_error | network
-    status_code   INTEGER,            -- HTTP-код попытки (NULL при сетевой ошибке)
-    request       TEXT    NOT NULL,   -- ДОСЛОВНЫЙ payload (JSON)
-    response      TEXT,               -- извлечённый текст (только на финальной ok-попытке)
-    response_raw  TEXT,               -- ДОСЛОВНОЕ тело resp.text (вкл. тело 5xx); NULL при сетевой ошибке
-    error         TEXT,               -- сообщение сбоя
+    status_code   INTEGER,            -- HTTP status code of the attempt (NULL on a network error)
+    request       TEXT    NOT NULL,   -- VERBATIM payload (JSON)
+    response      TEXT,               -- extracted text (only on the final ok attempt)
+    response_raw  TEXT,               -- VERBATIM resp.text body (incl. a 5xx body); NULL on a network error
+    error         TEXT,               -- failure message
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, round_idx, pair_idx, call_idx),
@@ -120,7 +121,7 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
     emerged     INTEGER NOT NULL,
     explanation TEXT NOT NULL,
     evidence    TEXT NOT NULL,      -- JSON: [{"round":0,"pair":1,"turn":2}, ...]
-    model       TEXT NOT NULL,      -- модель судьи, для истории
+    model       TEXT NOT NULL,      -- judge model, for the record
     created_at  TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
@@ -128,8 +129,8 @@ CREATE TABLE IF NOT EXISTS judge_verdicts (
 CREATE TABLE IF NOT EXISTS keyword_counts (
     run_id     INTEGER NOT NULL,
     term       TEXT NOT NULL,
-    count      INTEGER NOT NULL,   -- число разных говорящих, упомянувших термин
-    speakers   TEXT NOT NULL,      -- JSON-список id говорящих
+    count      INTEGER NOT NULL,   -- number of distinct speakers who mentioned the term
+    speakers   TEXT NOT NULL,      -- JSON list of speaker ids
     created_at TEXT NOT NULL,
     PRIMARY KEY (run_id, term),
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE

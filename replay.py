@@ -34,13 +34,13 @@ from datetime import datetime
 
 DB_DEFAULT = "experiment.db"
 
-# Все настраиваемые промпты живут в cfg["game"]; в --config их печатаем отдельной
-# секцией после шапки, а из дампа конфига убираем, чтобы не дублировать простыни текста.
+# All configurable prompts live in cfg["game"]; in --config we print them in a separate
+# section after the header, and strip them from the config dump to avoid duplicating walls of text.
 _PROMPT_KEYS = ("rules", "talk_prompt", "talk_open_prompt", "decide_prompt", "predict_prompt",
                 "reflect_prompt", "notes_prompt")
-# Из дампа конфига выкидываем эти ключи population — ростер (агенты), пулы имён и
-# identity-промпт печатаются отдельными секциями выше. provider оставляем: его сводка
-# идёт строкой под шапкой, а полный блок (base_url, timeout_s, …) виден в дампе.
+# We drop these population keys from the config dump — the roster (agents), name pools and
+# the identity prompt are printed in separate sections above. We keep provider: its summary
+# goes in a line under the header, and the full block (base_url, timeout_s, …) is visible in the dump.
 _POP_DROP = ("agents", "first_name_pool", "last_name_pool", "identity_prompt")
 
 
@@ -53,9 +53,9 @@ def _trim_ms(ts):
 
 
 def _roster_line(spec):
-    """Одна строка ростера 'Nx <system_prompt…>'; промпт длинный -> усекаем в одну строку.
+    """One roster line 'Nx <system_prompt…>'; a long prompt is truncated to a single line.
 
-    Старые прогоны (до объединения system) хранили persona — показываем её, если она есть."""
+    Old runs (before the system prompt was unified) stored a persona — shown if present."""
     sp = (spec.get("system_prompt") or spec.get("persona") or "(default system prompt)").replace("\n", " ")
     if len(sp) > 80:
         sp = sp[:79] + "…"
@@ -63,11 +63,11 @@ def _roster_line(spec):
 
 
 def _roster_names(specs, ids):
-    """Имена, присвоенные каждому спеку: нарезка `ids` по их `count`.
+    """Names assigned to each spec: slice `ids` by their `count`.
 
-    `ids` — agent_id'ы прогона в порядке сборки (SELECT ... ORDER BY rowid); специ идут тем же
-    порядком (begin вставляет агентов в порядке сборки популяции — спек за спеком), поэтому
-    каждый спек забирает следующие `count` имён. Возвращает по списку имён на спек."""
+    `ids` are the run's agent_ids in build order (SELECT ... ORDER BY rowid); specs go in the
+    same order (begin inserts agents in population-build order — spec by spec), so each spec
+    takes the next `count` names. Returns a list of names per spec."""
     out, i = [], 0
     for spec in specs:
         cnt = spec.get("count", 1)
@@ -77,7 +77,7 @@ def _roster_names(specs, ids):
 
 
 def _provider_line(prov):
-    """Сводка провайдера одной строкой; model — последней."""
+    """One-line provider summary; model comes last."""
     return (f"provider: temp={prov['temperature']} "
             f"max_tokens={prov['max_tokens']} model={prov['model']}")
 
@@ -96,7 +96,7 @@ def _duration(created, finished):
 
 
 def _preview(text, n=60):
-    """Короткое превью текста в одну строку: схлопнуть пробелы/переводы строк, обрезать до n."""
+    """Short one-line preview of the text: collapse whitespace/newlines, truncate to n."""
     if not text:
         return ""
     s = " ".join(text.split())
@@ -104,48 +104,48 @@ def _preview(text, n=60):
 
 
 def _expand_newlines(s):
-    r"""Раскрыть экранированные \n (два символа) в реальные переводы строк — для читаемого дампа."""
+    r"""Expand escaped \n (two characters) into real line breaks — for a readable dump."""
     return s.replace("\\n", "\n") if s else s
 
 
 def _readable(s):
-    r"""JSON-пейлоад для читаемого дампа: тело сообщения ("content") с новой строки,
-    раскрытые \n и \" (экранированные кавычки -> обычные)."""
+    r"""JSON payload for a readable dump: the message body ("content") on its own line,
+    with \n and \" expanded (escaped quotes -> regular ones)."""
     if not s:
         return s
-    s = s.replace('"content": "', '"content": "\\n')   # тело сообщения с новой строки
-    return _expand_newlines(s).replace('\\"', '"')      # раскрыть \n и \"
+    s = s.replace('"content": "', '"content": "\\n')   # message body starts on a new line
+    return _expand_newlines(s).replace('\\"', '"')      # expand \n and \"
 
 
 _YELLOW, _RESET = "\033[93m", "\033[0m"
 
 
 def highlight(line, *, on):
-    """Обернуть строку в жёлтый ANSI-цвет (подсветка сообщений, процитированных судьёй)."""
+    """Wrap a line in yellow ANSI color (highlighting messages cited by the judge)."""
     return f"{_YELLOW}{line}{_RESET}" if on else line
 
 
 def cited_set(evidence_json):
-    """Распаковать JSON-доказательства вердикта в множество (round, pair, turn)."""
+    """Unpack the verdict's JSON evidence into a set of (round, pair, turn)."""
     return {(e["round"], e["pair"], e["turn"]) for e in json.loads(evidence_json)}
 
 
 def load_verdict(conn, run_id):
-    """Прочитать вердикт судьи; None, если его нет или БД старая (нет таблицы)."""
+    """Read the judge's verdict; None if there isn't one or the DB is old (no table)."""
     try:
         return conn.execute(
             "SELECT emerged, explanation, evidence FROM judge_verdicts WHERE run_id=?",
             (run_id,),
         ).fetchone()
-    except sqlite3.OperationalError:                  # БД создана до появления судьи
+    except sqlite3.OperationalError:                  # DB created before the judge existed
         return None
 
 
 def _resolve_run_id(conn, token):
-    """Принять и целочисленный run_id, и config_hash (хеш дизайна без rounds/judge).
+    """Accept either an integer run_id or a config_hash (design hash without rounds/judge).
 
-    Возвращает int run_id или None. По config_hash берём самый ранний прогон семьи
-    (один дизайн может иметь несколько прогонов/продолжений)."""
+    Returns an int run_id or None. For a config_hash, take the earliest run of the family
+    (one design can have several runs/continuations)."""
     if token.isdigit():
         row = conn.execute("SELECT run_id FROM runs WHERE run_id=?", (int(token),)).fetchone()
         if row:
@@ -195,7 +195,7 @@ def _render_calls(conn, run_id, r, pi, color):
     table = [header]
     statuses = []
     for (cid, agent, phase, turn, att, hatt, status, code, pt, ct, response, error) in rows:
-        # превью: ответ модели для ok, иначе текст ошибки
+        # preview: the model's response for ok, otherwise the error text
         preview = _preview(error if status != "ok" else response)
         table.append((
             f"#{cid}", agent, phase, f"{att}/{hatt}",
@@ -237,7 +237,7 @@ def dump_call(conn, run_id, spec, raw=False):
         return
     (r, p, ci, agent, phase, turn, att, hatt, status, code,
      request, response, raw_body, err, pt, ct) = row
-    expand = (lambda s: s) if raw else _readable   # по умолчанию: тело с новой строки + раскрытые \n
+    expand = (lambda s: s) if raw else _readable   # by default: body on a new line + expanded \n
     bar = "=" * 64
     print(f"{bar}\n  CALL #{cid}  (r{r}.p{p}.c{ci})   run={run_id}\n{bar}")
     print(f"agent={agent}  phase={phase}  turn_idx={turn}  attempt={att}  http_attempt={hatt}")
@@ -266,17 +266,17 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
     cfg = json.loads(config)
     verdict = load_verdict(conn, run_id)
     cited = cited_set(verdict[2]) if verdict else set()
-    color = sys.stdout.isatty()                       # ANSI только в терминале
+    color = sys.stdout.isatty()                       # ANSI only in a terminal
 
     pop = cfg["population"]
     n_agents = sum(a.get("count", 1) for a in pop["agents"])  # derived from counts
-    # Провайдер общий на популяцию; в старых прогонах он лежал на каждом агенте — фолбэк.
+    # The provider is shared across the population; in old runs it lived on each agent — fallback.
     prov = pop.get("provider") or (pop["agents"][0].get("provider") if pop["agents"] else None)
     game_cfg = cfg.get("game", {})
     show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
     show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
-    # memory notes печатаем только по флагу --notes (по умолчанию прячем); строки всё равно
-    # появятся лишь там, где заметки реально свёрнуты (a_notes/b_notes != None).
+    # memory notes are printed only with the --notes flag (hidden by default); the lines will
+    # still only appear where notes were actually consolidated (a_notes/b_notes != None).
     show_predictions = cfg.get("play_strategy", "direct") == "prediction"
 
     bar = "=" * 64
@@ -285,8 +285,8 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
     print(f"{n_agents} agents, {cfg['rounds']} rounds, "
           f"max_talk_turns={cfg['game']['max_talk_turns']}")
     if prov:
-        print(_provider_line(prov))                  # сводка провайдера сразу под шапкой
-    if show_config:                                  # таймстемпы — только в подробном выводе (--config)
+        print(_provider_line(prov))                  # provider summary right under the header
+    if show_config:                                  # timestamps — only in the verbose output (--config)
         print(f"created={_trim_ms(created)}  finished={_trim_ms(finished) or '(unfinished)'}")
     pt, ct = conn.execute(
         """SELECT COALESCE(SUM(usage_prompt_tokens), 0), COALESCE(SUM(usage_completion_tokens), 0)
@@ -297,7 +297,7 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
 
     if show_config:
         game = cfg.get("game", {})
-        identity = pop.get("identity_prompt")   # общий на популяцию (старые прогоны: нет)
+        identity = pop.get("identity_prompt")   # shared across the population (old runs: absent)
         present = [k for k in _PROMPT_KEYS if k in game]
         print("\nprompts:")
         if not present and not identity:
@@ -310,8 +310,8 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
             print(f"  [{key}]")
             print("    " + (text.replace("\n", "\n    ") if text else "(empty)"))
 
-        # ростер — только в подробном выводе, без провайдера (он уже строкой выше и в config-дампе).
-        # Под каждым спеком — присвоенные имена (agent_id'ы прогона в порядке сборки = rowid).
+        # roster — only in the verbose output, without the provider (it's already a line above and in the config dump).
+        # Under each spec — the assigned names (the run's agent_ids in build order = rowid).
         print(f"\nroster ({n_agents} agents):")
         roster_ids = [a for (a,) in conn.execute(
             "SELECT agent_id FROM agents WHERE run_id=? ORDER BY rowid", (run_id,)
@@ -363,7 +363,7 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
             ).fetchall()
             if msgs:
                 for ti, (speaker, text, ready) in enumerate(msgs):
-                    mark = "   [finish=true]" if ready else ""   # finish=false не показываем
+                    mark = "   [finish=true]" if ready else ""   # finish=false is not shown
                     line = f"    {ti + 1}. {speaker}: {text}{mark}"
                     print(highlight(line, on=color) if (r, pi, ti) in cited else line)
             else:
@@ -384,7 +384,7 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
                     print(f"      {a_id} reflects: {a_refl}")
                     print(f"      {b_id} reflects: {b_refl}")
                 if show_notes and (a_notes is not None or b_notes is not None):
-                    print(f"      {a_id} notes: {a_notes}")   # заметки пишутся только на раундах свёртки
+                    print(f"      {a_id} notes: {a_notes}")   # notes are written only on consolidation rounds
                     print(f"      {b_id} notes: {b_notes}")
             if show_calls:                                  # raw L2 log (--calls)
                 _render_calls(conn, run_id, r, pi, color)
@@ -436,8 +436,8 @@ def main():
     args = sys.argv[1:]
     show_config = "--config" in args or "-c" in args
     show_calls = "--calls" in args
-    show_notes = "--notes" in args                 # memory notes по умолчанию спрятаны
-    raw = "--raw" in args                          # --call: не раскрывать \n
+    show_notes = "--notes" in args                 # memory notes are hidden by default
+    raw = "--raw" in args                          # --call: don't expand \n
     call_spec = None
     db_path = DB_DEFAULT
     pos = []
@@ -462,10 +462,10 @@ def main():
     try:
         if not pos:
             print(f"usage: replay.py <run_id> [--db PATH] [--config] [--calls] [--notes] [--call ID [--raw]]   "
-                  f"(run_id — число или config_hash; db: {db_path})\n")
+                  f"(run_id — a number or config_hash; db: {db_path})\n")
             list_runs(conn)
         else:
-            target = _resolve_run_id(conn, pos[0])         # число или легаси-хеш -> int run_id
+            target = _resolve_run_id(conn, pos[0])         # a number or a legacy hash -> int run_id
             if target is None:
                 print(f"run {pos[0]!r} not found in this DB.\n")
                 list_runs(conn)

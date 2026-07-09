@@ -29,32 +29,32 @@ def test_make_talk_rule_unknown_raises():
         make_talk_rule("bogus")
 
 
-# ---- next_ready: липкий (latch/committed) vs отзываемый (revocable) флаг ----
+# ---- next_ready: sticky (latch/committed) vs revocable flag ----
 
 def test_latch_next_ready_is_sticky():
     rule = BothReadyLatch()
-    assert rule.next_ready(False, True) is True     # выставил finish
-    assert rule.next_ready(True, False) is True     # липкий: не сбрасывается
+    assert rule.next_ready(False, True) is True     # set finish
+    assert rule.next_ready(True, False) is True     # sticky: does not reset
 
 
 def test_revocable_next_ready_overwrites():
     rule = BothReadyRevocable()
     assert rule.next_ready(False, True) is True
-    assert rule.next_ready(True, False) is False    # отзываемый: сигнал перезаписывает
+    assert rule.next_ready(True, False) is False    # revocable: the new signal overwrites
 
 
 def test_committed_next_ready_is_sticky():
     rule = BothReadyCommitted()
     assert rule.next_ready(False, True) is True
-    assert rule.next_ready(True, False) is True     # липкий: finish нельзя отозвать
+    assert rule.next_ready(True, False) is True     # sticky: finish cannot be revoked
 
 
-# ---- latch: готовый агент молчит; стоп — когда оба готовы ----
+# ---- latch: a ready agent falls silent; stop — once both are ready ----
 
 def test_latch_ready_speaker_skips_turn():
     rule = BothReadyLatch()
-    assert rule.skip_turn("A", {"A": True, "B": False}) is True    # A защёлкнулся -> молчит
-    assert rule.skip_turn("A", {"A": False, "B": True}) is False   # A ещё не готов -> говорит
+    assert rule.skip_turn("A", {"A": True, "B": False}) is True    # A latched -> falls silent
+    assert rule.skip_turn("A", {"A": False, "B": True}) is False   # A not ready yet -> speaks
 
 
 def test_latch_is_over_only_when_both_ready():
@@ -63,11 +63,11 @@ def test_latch_is_over_only_when_both_ready():
     assert rule.is_over({"A": True, "B": False}) is False
 
 
-# ---- revocable: агент всегда говорит (finish отзываемый); стоп — когда оба готовы ----
+# ---- revocable: the agent always speaks (finish is revocable); stop — once both are ready ----
 
 def test_revocable_never_skips_turn():
     rule = BothReadyRevocable()
-    assert rule.skip_turn("A", {"A": True, "B": False}) is False   # даже выставив finish — говорит
+    assert rule.skip_turn("A", {"A": True, "B": False}) is False   # speaks even after setting finish
     assert rule.skip_turn("A", {"A": False, "B": True}) is False
 
 
@@ -77,7 +77,7 @@ def test_revocable_is_over_only_when_both_ready():
     assert rule.is_over({"A": False, "B": True}) is False
 
 
-# ---- committed: говорит дальше (как revocable), но finish липкий (как latch) ----
+# ---- committed: keeps speaking (like revocable), but finish is sticky (like latch) ----
 
 def test_committed_never_skips_turn():
     rule = BothReadyCommitted()

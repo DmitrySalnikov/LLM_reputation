@@ -73,7 +73,7 @@ async def test_request_shape():
 
 
 async def test_reasoning_disabled_sends_enabled_false():
-    # reasoning=False -> Non-think: payload несёт {"reasoning": {"enabled": false}}.
+    # reasoning=False -> Non-think: the payload carries {"reasoning": {"enabled": false}}.
     captured = {}
 
     def handler(req):
@@ -87,14 +87,14 @@ async def test_reasoning_disabled_sends_enabled_false():
 
 
 async def test_reasoning_enabled_by_default_sends_nothing():
-    # Дефолт reasoning=True ничего не шлёт — не-reasoning модели не должны получать поле.
+    # Default reasoning=True sends nothing — non-reasoning models shouldn't receive the field.
     captured = {}
 
     def handler(req):
         captured["body"] = json.loads(req.content)
         return _ok_response()
 
-    p = _provider_with(handler)            # reasoning по умолчанию True
+    p = _provider_with(handler)            # reasoning defaults to True
     await _call(p)
     assert "reasoning" not in captured["body"]
     assert "reasoning_effort" not in captured["body"]
@@ -113,7 +113,7 @@ async def test_reasoning_effort_sent_when_set():
 
 
 async def test_make_provider_threads_reasoning_from_cfg():
-    # make_provider должен прокинуть reasoning из ProviderCfg в payload.
+    # make_provider must thread reasoning from ProviderCfg into the payload.
     captured = {}
 
     def handler(req):
@@ -127,7 +127,7 @@ async def test_make_provider_threads_reasoning_from_cfg():
 
 
 async def test_extra_body_merged_into_payload():
-    # extra_body уходит в payload как есть (vLLM: chat_template_kwargs для Qwen3 no-think).
+    # extra_body goes into the payload as-is (vLLM: chat_template_kwargs for Qwen3 no-think).
     captured = {}
 
     def handler(req):
@@ -162,7 +162,7 @@ async def test_completion_carries_sent_request():
 
     p = _provider_with(handler)
     c = await _call(p, system="SYS", temperature=0.3, max_tokens=64)
-    # request на Completion — это ДОСЛОВНО отправленный payload
+    # the Completion's request is EXACTLY the payload that was sent
     assert c.request == captured["body"]
     assert c.request["model"] == "m"
     assert c.request["messages"][0] == {"role": "system", "content": "SYS"}
@@ -178,14 +178,14 @@ async def test_non_json_body_retried_then_exhausts(monkeypatch):
         return httpx.Response(200, text=raw)
 
     p = _provider_with(handler)
-    with pytest.raises(ProviderUnavailable) as ei:        # битый JSON-конверт ретраится, не падает сразу
+    with pytest.raises(ProviderUnavailable) as ei:        # a broken JSON envelope is retried, not failed immediately
         await _call(p, system="SYS")
     assert calls["n"] == _MAX_ATTEMPTS
     e = ei.value
     assert len(e.attempts) == _MAX_ATTEMPTS and all(a.status == "bad_json" for a in e.attempts)
-    assert e.attempts[-1].response_raw == raw             # сырое тело сохранено, даже не-JSON
+    assert e.attempts[-1].response_raw == raw             # the raw body is preserved, even non-JSON
     assert e.attempts[-1].status_code == 200
-    assert e.request["messages"][0]["content"] == "SYS"   # что отправили — тоже на руках
+    assert e.request["messages"][0]["content"] == "SYS"   # what was sent is also on hand
 
 
 async def test_non_json_then_valid_recovers(monkeypatch):
@@ -201,7 +201,7 @@ async def test_non_json_then_valid_recovers(monkeypatch):
     p = _provider_with(handler)
     c = await _call(p)
     assert c.text == "ok"
-    assert [a.status for a in c.attempts] == ["bad_json", "ok"]   # одна кривая ответка пережита
+    assert [a.status for a in c.attempts] == ["bad_json", "ok"]   # one bad reply survived
 
 
 async def test_http_error_enriches_error():
@@ -221,16 +221,16 @@ async def test_bad_shape_retried_then_exhausts(monkeypatch):
 
     def handler(req):
         calls["n"] += 1
-        return httpx.Response(200, json={"usage": {}})    # валидный JSON, но нет choices
+        return httpx.Response(200, json={"usage": {}})    # valid JSON, but no choices
 
     p = _provider_with(handler)
-    with pytest.raises(ProviderUnavailable) as ei:        # кривая форма тоже ретраится
+    with pytest.raises(ProviderUnavailable) as ei:        # a bad shape is also retried
         await _call(p)
     assert calls["n"] == _MAX_ATTEMPTS
     e = ei.value
     assert len(e.attempts) == _MAX_ATTEMPTS and all(a.status == "bad_shape" for a in e.attempts)
     assert e.request is not None
-    assert "usage" in e.attempts[-1].response_raw         # дословное тело (resp.text)
+    assert "usage" in e.attempts[-1].response_raw         # verbatim body (resp.text)
 
 
 async def test_every_retry_is_an_attempt(monkeypatch):
@@ -263,9 +263,9 @@ async def test_exhausted_network_records_all_attempts(monkeypatch):
     with pytest.raises(ProviderUnavailable) as ei:
         await _call(p)
     e = ei.value
-    assert len(e.attempts) == _MAX_ATTEMPTS           # все попытки записаны
+    assert len(e.attempts) == _MAX_ATTEMPTS           # all attempts recorded
     assert all(a.status == "network" for a in e.attempts)
-    assert e.attempts[0].status_code is None          # ответа не было
+    assert e.attempts[0].status_code is None          # there was no response
     assert e.request is not None
 
 
@@ -378,7 +378,7 @@ async def test_exhausts_retries(monkeypatch):
 async def test_missing_choices_retried_then_exhausts(monkeypatch):
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     p = _provider_with(lambda req: httpx.Response(200, json={"usage": {}}))
-    with pytest.raises(ProviderUnavailable):    # bad_shape ретраится, затем исчерпание
+    with pytest.raises(ProviderUnavailable):    # bad_shape is retried, then exhausted
         await _call(p)
 
 

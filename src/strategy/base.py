@@ -1,4 +1,4 @@
-"""Протокол стратегии игры и результат решения."""
+"""Play strategy protocol and the decision result."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from src.core.agent import Agent
 
 @dataclass(frozen=True)
 class Decision:
-    """Результат решения агента в одной игре.
+    """Result of an agent's decision in a single game.
 
     Attributes:
-        number: Итоговый выбор 0..9, который идёт в подсчёт очков.
-        rationale: Обоснование, сохраняемое в память и запись.
-        predicted: Предсказанное число партнёра (None для стратегии direct).
-        predicted_rationale: Обоснование предсказания (None для direct).
-        usage: (prompt_tokens, completion_tokens) для агрегирования в игре.
-        calls: Сырые LLMCall'ы фаз стратегии (decide/predict) для L2-лога.
+        number: Final choice 0..9 that goes into the payoff calculation.
+        rationale: Rationale saved to memory and the record.
+        predicted: Predicted partner number (None for the direct strategy).
+        predicted_rationale: Rationale for the prediction (None for direct).
+        usage: (prompt_tokens, completion_tokens) for aggregation in the game.
+        calls: Raw LLMCalls of the strategy phases (decide/predict) for the L2 log.
     """
 
     number: int
@@ -30,25 +30,25 @@ class Decision:
 
 
 class PlayStrategy(Protocol):
-    """Протокол стратегии игры: превращает состояние раунда в решение агента."""
+    """Play strategy protocol: turns the round state into an agent decision."""
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, reason: str = "") -> Decision: ...
 
 
 def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg) -> PlayStrategy:
-    """Собрать стратегию по её имени (стратегия живёт на агенте, см. AgentSpec).
+    """Build a strategy from its name (the strategy lives on the agent, see AgentSpec).
 
     Args:
         play_strategy: "direct" | "prediction".
-        prediction_mapping: имя отображения predict->выбор (нужно только для prediction).
-        game_cfg: GameCfg — шаблоны промптов фаз decide/predict.
+        prediction_mapping: name of the predict->choice mapping (needed only for prediction).
+        game_cfg: GameCfg — prompt templates for the decide/predict phases.
 
     Returns:
-        Экземпляр стратегии игры, соответствующий имени.
+        Strategy instance matching the given name.
 
     Raises:
-        ValueError: Если имя стратегии не распознано.
+        ValueError: If the strategy name is not recognized.
     """
     from src.strategy.direct import DirectStrategy
     from src.strategy.mappings import get_mapping
@@ -58,4 +58,4 @@ def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg) -> Play
         return DirectStrategy(game_cfg)
     if play_strategy == "prediction":
         return PredictionStrategy(get_mapping(prediction_mapping), game_cfg)
-    raise ValueError(f"неизвестная стратегия игры: {play_strategy!r}")
+    raise ValueError(f"unknown play strategy: {play_strategy!r}")

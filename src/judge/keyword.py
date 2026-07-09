@@ -1,9 +1,10 @@
-"""Детерминированный судья: подсчёт упоминаний термина в публичном cheap-talk.
+"""Deterministic judge: count mentions of a term in the public cheap-talk.
 
-Альтернатива LLM-судье. Никакого LLM — ищем подстроку (с учётом регистра) в ТЕКСТЕ
-реплик. Имена говорящих (player names) НЕ учитываются: поле speaker используется лишь
-как ключ множества, но никогда не сопоставляется с термином. Результат эпизода —
-число РАЗНЫХ говорящих, чьи реплики содержат термин хотя бы раз.
+An alternative to the LLM judge. No LLM — we search for a substring (case-sensitive)
+in the message TEXT. Speaker names (player names) are NOT taken into account: the
+speaker field is used only as a set key and is never compared against the term. The
+episode result is the number of DISTINCT speakers whose messages contain the term at
+least once.
 """
 
 from __future__ import annotations
@@ -15,12 +16,12 @@ from src.games.base import PairingRecord
 
 @dataclass(frozen=True)
 class KeywordCount:
-    """Результат поиска термина в публичном cheap-talk одного эпизода.
+    """Result of searching for a term in the public cheap-talk of a single episode.
 
     Attributes:
-        term: Искомая подстрока (число или слово).
-        count: Число разных говорящих, чьи реплики содержат термин.
-        speakers: Их id, отсортированные (для трассировки).
+        term: The substring to search for (a number or a word).
+        count: Number of distinct speakers whose messages contain the term.
+        speakers: Their ids, sorted (for tracing).
     """
 
     term: str
@@ -29,18 +30,19 @@ class KeywordCount:
 
 
 def count_mentions(records: list[PairingRecord], term: str) -> KeywordCount:
-    """Подсчитать разных говорящих, упомянувших термин в своих репликах.
+    """Count distinct speakers who mentioned the term in their messages.
 
-    Поиск подстроки с учётом регистра (`term in text`). Проверяется только text
-    реплики; speaker не сопоставляется с термином (имена не учитываются).
+    Case-sensitive substring search (`term in text`). Only the message text is
+    checked; speaker is never compared against the term (names are not taken into
+    account).
 
     Args:
-        records: Записи пар эпизода; берётся только публичный transcript каждой
-            ({speaker, text, ready}). Подходят и PairingRecord, и ReplayRecord.
-        term: Искомая подстрока.
+        records: Pairing records of the episode; only the public transcript of each
+            ({speaker, text, ready}) is used. Both PairingRecord and ReplayRecord work.
+        term: The substring to search for.
 
     Returns:
-        KeywordCount с числом разных говорящих и их отсортированными id.
+        KeywordCount with the number of distinct speakers and their sorted ids.
     """
     speakers: set[str] = set()
     for rec in records:

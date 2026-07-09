@@ -6,7 +6,7 @@ from src.providers.base import Completion, HttpAttempt
 
 
 class ScriptedProvider:
-    """Тестовый дубль LLMProvider без сети: отдаёт ответы из очереди по порядку."""
+    """Test double for LLMProvider without network: returns replies from a queue in order."""
 
     def __init__(self, replies: list[str], *, prompt_tokens: int = 2, completion_tokens: int = 3):
         self._queue = list(replies)

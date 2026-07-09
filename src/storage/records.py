@@ -6,10 +6,11 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ReplayRecord:
-    """Минимальная запись завершённой пары, восстановленная из БД для LLM-судьи.
+    """Minimal record of a finished pair, reconstructed from the DB for the LLM judge.
 
-    Несёт истинный pair_idx (поле pair), чтобы evidence-ссылки судьи совпадали с поиском
-    по таблице messages в replay.py. transcript — публичный cheap-talk пары."""
+    Carries the true pair_idx (the pair field) so the judge's evidence references match
+    lookups against the messages table in replay.py. transcript is the pair's public
+    cheap-talk."""
 
     round: int
     pair: int
@@ -20,10 +21,10 @@ class ReplayRecord:
 
 
 def reconstruct_records(conn: sqlite3.Connection, run_id: int) -> list[ReplayRecord]:
-    """Восстановить завершённые пары прогона (round, истинный pair_idx, сообщения).
+    """Reconstruct a run's finished pairs (round, true pair_idx, messages).
 
-    Только finished=1 (судья видит лишь доигранные пары). Порядок — round_idx, pair_idx;
-    сообщения — по turn_idx. Сорванные пары пропускаются."""
+    Only finished=1 (the judge sees only pairs that were played to completion). Order —
+    round_idx, pair_idx; messages — by turn_idx. Aborted pairs are skipped."""
     pairings = conn.execute(
         "SELECT round_idx, pair_idx, a_id, b_id FROM pairings "
         "WHERE run_id=? AND finished=1 ORDER BY round_idx, pair_idx",

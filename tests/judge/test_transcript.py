@@ -48,7 +48,7 @@ def test_valid_refs_lists_every_message():
 
 
 def _rec_with_pair(round, pair):
-    """Запись с явным pair_idx (как восстановленная из БД ReplayRecord)."""
+    """Record with an explicit pair_idx (as restored from a DB ReplayRecord)."""
     return SimpleNamespace(
         round=round, pair=pair, a_id="A1", b_id="A2",
         transcript=[{"speaker": "A1", "text": "hi there", "ready": False}],
@@ -56,7 +56,7 @@ def _rec_with_pair(round, pair):
 
 
 def test_explicit_pair_overrides_enumeration():
-    out = render_transcript([_rec_with_pair(0, 5)])   # истинный pair_idx=5, не позиция 0
+    out = render_transcript([_rec_with_pair(0, 5)])   # true pair_idx=5, not position 0
     assert "[r0.p5.t0] A1: hi there" in out
     assert "Pairing r0.p5:" in out
 

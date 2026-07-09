@@ -10,13 +10,13 @@ from src.providers.base import HttpAttempt, ProviderUnavailable
 
 def _agent(id, replies):
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    # правила теперь часть system_prompt (склейки нет) — кладём их сюда, чтобы фаза DECIDE
-    # по-прежнему получала текст правил в системном промпте
+    # the rules are now part of system_prompt (no more concatenation) — we put them here so
+    # that the DECIDE phase still gets the rules text in the system prompt
     return Agent(id, AgentSetup(f"You are {id}.\n\n" + DEFAULT_RULES, cfg), ScriptedProvider(replies))
 
 
 class RaisingProvider:
-    """Дубль провайдера, который бросает ProviderUnavailable с заданными HttpAttempt'ами."""
+    """Provider double that raises ProviderUnavailable with the given HttpAttempts."""
 
     def __init__(self, attempts):
         self._attempts = tuple(attempts)
@@ -41,7 +41,7 @@ def _decide(n, rationale="r"):
 
 
 def _talk(msg, ready):
-    # Агент-facing ключ закрытия чата теперь "finish" (внутри по-прежнему хранится как ready).
+    # The agent-facing key for closing the chat is now "finish" (internally still stored as ready).
     return '{"message": "%s", "finish": %s}' % (msg, "true" if ready else "false")
 
 
@@ -121,38 +121,38 @@ async def test_latched_agent_stays_silent():
 
 
 async def test_revocable_finisher_keeps_talking():
-    # both_ready_revocable: первый выставивший finish НЕ замолкает — он продолжает брать
-    # ходы; диалог рвётся, только когда finish стоит у ОБОИХ (тут — на t4).
+    # both_ready_revocable: the first one to set finish does NOT fall silent — it keeps
+    # taking turns; the dialogue only breaks off once finish is set for BOTH (here — at t4).
     g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_revocable"))
     a = _agent("A1", [_talk("done", True), _talk("still here", True), _decide(0)])
     b = _agent("A2", [_talk("hmm", False), _talk("ok", True), _decide(0)])
     rec = await g.play_pairing(a, b, 1)
-    assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]  # A1 спикает дважды
+    assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]  # A1 speaks twice
     assert rec.transcript[-1]["ready"] is True
     assert rec.outcome == "CC"
 
 
 async def test_revocable_stops_only_on_mutual_finish():
-    # Один finish не останавливает: A финиширует на t1, B — нет; продолжаем, пока B не финиширует.
+    # A single finish does not stop it: A finishes at t1, B does not; we keep going until B finishes.
     g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_revocable"))
     a = _agent("A1", [_talk("a1", True), _talk("a2", True), _decide(2)])
     b = _agent("A2", [_talk("b1", False), _talk("b2", True), _decide(2)])
     rec = await g.play_pairing(a, b, 1)
-    assert len(rec.transcript) == 4                       # не оборвалось на первом finish
+    assert len(rec.transcript) == 4                       # didn't break off on the first finish
     assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]
 
 
 async def test_committed_finish_is_sticky_but_keeps_talking():
-    # both_ready_committed: агент продолжает говорить (как revocable), но finish ЛИПКИЙ —
-    # A выставляет finish на t1, на t3 пытается отозвать (finish=false), но ready[A] остаётся
-    # true, поэтому второй finish от B на t4 завершает чат.
+    # both_ready_committed: the agent keeps talking (like revocable), but finish is STICKY —
+    # A sets finish at t1, tries to revoke it at t3 (finish=false), but ready[A] stays
+    # true, so the second finish from B at t4 ends the chat.
     g = ReputationPD(GameCfg(max_talk_turns=6, talk_stop_rule="both_ready_committed"))
     a = _agent("A1", [_talk("done", True), _talk("nvm", False), _decide(0)])
     b = _agent("A2", [_talk("hmm", False), _talk("ok", True), _decide(0)])
     rec = await g.play_pairing(a, b, 1)
     assert [t["speaker"] for t in rec.transcript] == ["A1", "A2", "A1", "A2"]
-    assert rec.transcript[2]["ready"] is False   # A публично сказал finish=false на своём 2-м ходу…
-    assert rec.outcome == "CC"                   # …но чат всё равно закрылся (finish был липким)
+    assert rec.transcript[2]["ready"] is False   # A publicly said finish=false on their 2nd turn…
+    assert rec.outcome == "CC"                   # …but the chat closed anyway (finish was sticky)
 
 
 async def test_first_speaker_is_first_arg():
@@ -187,15 +187,15 @@ async def test_decide_context_contains_feed_and_ids():
     system, messages = a.provider.calls[-1]  # a's DECIDE call
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx and "take 4 plz" in ctx
-    assert "<you>take 4 plz</you>" in ctx   # feed эгоцентричен: свои реплики — <you>
-    assert "<A2>ok</A2>" in ctx             # реплика оппонента — тегом с его именем
+    assert "<you>take 4 plz</you>" in ctx   # the feed is egocentric: your own messages are <you>
+    assert "<A2>ok</A2>" in ctx             # the opponent's message is tagged with their name
     assert "0 to 9" in system  # rules went into the system prompt
 
 
 # ---- Rationale switched off in config ----
 
 async def test_rationale_off_asks_bare_number():
-    # rationale=false -> бэйрный статичный шаблон: только число, обоснование не хранится
+    # rationale=false -> bare static template: only the number, no rationale is stored
     g = ReputationPD(GameCfg(max_talk_turns=0, rationale=False))
     a = _agent("A1", ['{"number": 4}'])
     b = _agent("A2", ['{"number": 4, "rationale": "volunteered"}'])
@@ -244,7 +244,7 @@ async def test_reflection_context_reveals_round_result():
     ctx = messages[-1].content
     assert "A2" in ctx and "Round 7" in ctx
     assert "5" in ctx and "4" in ctx     # both revealed numbers
-    assert "A1 (you) picked 5" in ctx    # сам агент — "<имя> (you)", оппонент — по имени
+    assert "A1 (you) picked 5" in ctx    # the agent itself — "<name> (you)", the opponent — by name
 
 
 async def test_reflection_privacy():
@@ -256,7 +256,7 @@ async def test_reflection_privacy():
     assert "secret-ref-b" not in str(a.memory.entries[0])
 
 
-# ---- Memory notes: периодическая консолидация памяти ----
+# ---- Memory notes: periodic memory consolidation ----
 
 def _note(text):
     return '{"notes": "%s"}' % text
@@ -264,7 +264,7 @@ def _note(text):
 
 async def test_memory_notes_off_by_default():
     g = ReputationPD(GameCfg(max_talk_turns=0))   # memory_notes_every=0
-    a = _agent("A1", [_decide(4)])                # лишний note-вызов не очередён -> упал бы
+    a = _agent("A1", [_decide(4)])                # no extra note call is queued -> would crash
     b = _agent("A2", [_decide(4)])
     rec = await g.play_pairing(a, b, 3)
     assert rec.a_notes is None and rec.b_notes is None
@@ -273,8 +273,8 @@ async def test_memory_notes_off_by_default():
 
 
 async def test_memory_notes_keyed_on_played_rounds_not_round_number():
-    # Свёртка считается по СЫГРАННЫМ агентом партиям, не по номеру раунда: агент сыграл
-    # всего 1 партию (хотя round=5), 1 % 2 != 0 -> не свёртка.
+    # Consolidation is counted by pairings PLAYED by the agent, not by round number: the agent
+    # has played only 1 pairing (even though round=5), 1 % 2 != 0 -> no consolidation.
     g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
     a = _agent("A1", [_decide(4)])
     b = _agent("A2", [_decide(4)])
@@ -287,25 +287,25 @@ async def test_memory_notes_taken_after_n_played_rounds():
     g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=2))
     a = _agent("A1", [_decide(4), _decide(4), _note("A2 cooperates")])
     b = _agent("A2", [_decide(4), _decide(4), _note("A1 cooperates")])
-    rec1 = await g.play_pairing(a, b, 1)          # по 1 сыгранной партии -> не свёртка
+    rec1 = await g.play_pairing(a, b, 1)          # 1 pairing played -> no consolidation
     assert rec1.a_notes is None and a.memory.notes is None
-    rec2 = await g.play_pairing(a, b, 2)          # по 2 -> свёртка у обоих
+    rec2 = await g.play_pairing(a, b, 2)          # 2 played -> consolidation for both
     assert rec2.a_notes == "A2 cooperates" and rec2.b_notes == "A1 cooperates"
     assert a.memory.notes == "A2 cooperates" and b.memory.notes == "A1 cooperates"
-    assert a.memory.noted_upto == 2 and b.memory.noted_upto == 2  # обе партии свёрнуты
+    assert a.memory.noted_upto == 2 and b.memory.noted_upto == 2  # both pairings consolidated
     note_calls = [c for c in rec2.llm_calls if c.phase == "note"]
     assert len(note_calls) == 2 and all(c.turn_idx is None for c in note_calls)
 
 
 async def test_note_failure_aborts_pairing_as_unfinished():
-    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1))   # свёртка каждую партию
-    a = _agent("A1", [_decide(4), _note("ok")])   # decide ок, note ок
-    b = _agent("A2", [_decide(4), "nope", "nope", "nope"])  # note: невалидный JSON -> ActParseError
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1))   # consolidation every pairing
+    a = _agent("A1", [_decide(4), _note("ok")])   # decide ok, note ok
+    b = _agent("A2", [_decide(4), "nope", "nope", "nope"])  # note: invalid JSON -> ActParseError
     rec = await g.play_pairing(a, b, 1)
     assert rec.finished is False
     statuses = [c.status for c in rec.llm_calls]
-    assert statuses.count("parse_error") == 3     # три сорванные note-попытки b
-    assert any(c.phase == "note" and c.status == "ok" for c in rec.llm_calls)  # успевший note(a)
+    assert statuses.count("parse_error") == 3     # b's three failed note attempts
+    assert any(c.phase == "note" and c.status == "ok" for c in rec.llm_calls)  # a's note succeeded
 
 
 # ---- Task 6: strategy delegation + prediction persistence ----
@@ -338,7 +338,7 @@ async def test_prediction_strategy_records_and_remembers_predictions():
     assert "pb" not in str(a.memory.entries[0])
 
 
-# ---- L2: флаг finished + захват llm_calls ----
+# ---- L2: finished flag + llm_calls capture ----
 
 async def test_finished_pairing_collects_talk_and_decide_calls():
     g = ReputationPD(GameCfg(max_talk_turns=2))
@@ -347,8 +347,8 @@ async def test_finished_pairing_collects_talk_and_decide_calls():
     rec = await g.play_pairing(a, b, 1)
     assert rec.finished is True
     phases = [(c.phase, c.turn_idx) for c in rec.llm_calls]
-    assert ("talk", 0) in phases and ("talk", 1) in phases   # talk-каллы помечены turn_idx
-    assert ("decide", None) in phases                        # decide — без turn_idx
+    assert ("talk", 0) in phases and ("talk", 1) in phases   # talk calls are tagged with turn_idx
+    assert ("decide", None) in phases                        # decide — no turn_idx
     assert all(c.status == "ok" for c in rec.llm_calls)
 
 
@@ -358,11 +358,11 @@ async def test_provider_error_aborts_pairing_as_unfinished():
     b = _raising_agent("A2", [HttpAttempt("network", None, {"m": 1}, None, None, "boom")])
     rec = await g.play_pairing(a, b, 1)
     assert rec.finished is False
-    assert rec.a_number is None and rec.outcome is None      # результата нет
-    assert a.score == 0.0 and b.score == 0.0                 # очки не начислены
+    assert rec.a_number is None and rec.outcome is None      # no result
+    assert a.score == 0.0 and b.score == 0.0                 # nothing scored
     statuses = [c.status for c in rec.llm_calls]
-    assert "ok" in statuses          # успевший decide(a)
-    assert "network" in statuses     # сбойный decide(b)
+    assert "ok" in statuses          # a's decide succeeded
+    assert "network" in statuses     # b's decide failed
 
 
 async def test_parse_exhaustion_aborts_pairing_as_unfinished():

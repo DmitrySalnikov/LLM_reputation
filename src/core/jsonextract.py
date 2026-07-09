@@ -1,7 +1,7 @@
-"""Толерантное извлечение JSON-объекта из текста ответа LLM.
+"""Tolerant extraction of a JSON object from the LLM response text.
 
-Используется агентом (фазы TALK/DECIDE/PREDICT/REFLECT) и LLM-судьёй: модели часто
-оборачивают JSON в прозу или код-ограждения, поэтому пробуем несколько кандидатов.
+Used by the agent (TALK/DECIDE/PREDICT/REFLECT phases) and the LLM judge: models
+often wrap JSON in prose or code fences, so we try several candidates.
 """
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ import re
 
 
 def extract_json_obj(text: str) -> dict | None:
-    """Извлечь первый JSON-объект из текста: сырой / в ```-ограждении / по скобкам.
+    """Extract the first JSON object from the text: raw / in a ```-fence / by braces.
 
     Args:
-        text: Полный текст ответа модели.
+        text: Full text of the model's response.
 
     Returns:
-        Словарь, если какой-то кандидат разобрался в JSON-объект, иначе None.
+        A dict if some candidate parsed as a JSON object, otherwise None.
     """
     candidates = [text.strip()]
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)

@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RunFilter:
-    """Фильтр выбора прогонов из реплей-БД (общий для backfill и сборщика).
+    """Filter for selecting runs from the replay DB (shared by the backfill and the collector).
 
-    include_* (если непусты) работают как белый список; exclude_* — чёрный список поверх;
-    finished_only отбрасывает прогоны без finished_at (оборванные/в процессе)."""
+    include_* (if non-empty) act as a whitelist; exclude_* is a blacklist on top;
+    finished_only drops runs without finished_at (aborted/in progress)."""
 
     include_designs: tuple[str, ...] = ()
     exclude_designs: tuple[str, ...] = ()
@@ -19,7 +19,7 @@ class RunFilter:
 
 
 def selected_run_ids(conn: sqlite3.Connection, flt: RunFilter) -> list[int]:
-    """Номера прогонов, прошедших фильтр, в порядке created_at."""
+    """Run ids that passed the filter, in created_at order."""
     rows = conn.execute(
         "SELECT run_id, config_hash, name, finished_at FROM runs ORDER BY created_at"
     ).fetchall()
@@ -40,13 +40,13 @@ def selected_run_ids(conn: sqlite3.Connection, flt: RunFilter) -> list[int]:
 
 
 def _collect_flag(argv: list[str], name: str) -> tuple[str, ...]:
-    """Все значения повторяемого флага `--name V` в порядке появления."""
+    """All values of a repeatable `--name V` flag, in order of appearance."""
     return tuple(argv[i + 1] for i, a in enumerate(argv)
                  if a == name and i + 1 < len(argv))
 
 
 def filter_from_argv(argv: list[str]) -> RunFilter:
-    """Собрать RunFilter из argv: --design / --exclude-design / --name / --exclude-name."""
+    """Build a RunFilter from argv: --design / --exclude-design / --name / --exclude-name."""
     return RunFilter(
         include_designs=_collect_flag(argv, "--design"),
         exclude_designs=_collect_flag(argv, "--exclude-design"),

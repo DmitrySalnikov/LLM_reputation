@@ -1,13 +1,14 @@
-"""Backfill: оценить сохранённые прогоны LLM-судьёй и записать вердикты.
+"""Backfill: evaluate stored runs with the LLM judge and record verdicts.
 
-Судья (judge_episode) сейчас работает только вживую в конце эпизода. Этот скрипт оценивает
-уже лежащие в БД прогоны: восстанавливает публичный cheap-talk, зовёт судью, сохраняет
-вердикт. Уже оценённые прогоны пропускаются (если не задан --force).
+The judge (judge_episode) currently only runs live at the end of an episode. This script
+evaluates runs already sitting in the DB: it reconstructs the public cheap-talk, calls the
+judge, and saves the verdict. Runs that are already judged are skipped (unless --force is
+given).
 
-Один общий судья на все прогоны — для сопоставимости вердиктов в рамках исследования. Его
-модель берётся из judge-блока YAML-конфига (по умолчанию config/experiment.yaml), а не из
-кода: правь модель там (judge.provider или якорь *provider = модель агентов). Модель судьи
-пишется в judge_verdicts.model.
+One shared judge for all runs — for verdict comparability within the study. Its model is
+taken from the judge block of the YAML config (default config/experiment.yaml), not from
+the code: change the model there (judge.provider, or the *provider anchor = the agents'
+model). The judge's model is written to judge_verdicts.model.
 
     uv run python judge_runs.py [--db experiment.db] [--config config/experiment.yaml] \\
                                 [--design HASH ...] [--exclude-design HASH ...] \\
@@ -28,13 +29,13 @@ from src.stats.selection import filter_from_argv, selected_run_ids
 from src.storage import Storage
 from src.storage.records import reconstruct_records
 
-load_dotenv()                       # подхватить TOGETHER_API_KEY из .env
+load_dotenv()                       # pick up TOGETHER_API_KEY from .env
 
-DB = "experiment.db"                        # БД по умолчанию; переопределяется флагом --db
-JUDGE_CONFIG = "config/experiment.yaml"     # откуда брать судью (judge-блок этого конфига)
+DB = "experiment.db"                        # default DB; overridden by the --db flag
+JUDGE_CONFIG = "config/experiment.yaml"     # where to take the judge from (this config's judge block)
 
-# Запасной судья, если в конфиге нет judge-блока. Модель совпадает с main model дефолтного
-# конфига и доступна serverless на Together; обычно не используется — судья едет из конфига.
+# Fallback judge, used if the config has no judge block. The model matches the main model
+# of the default config and is available serverless on Together; usually unused — the judge comes from the config.
 JUDGE_DEFAULT = JudgeCfg(provider=ProviderCfg(
     base_url="https://api.together.xyz/v1",
     api_key_env="TOGETHER_API_KEY",
@@ -43,7 +44,7 @@ JUDGE_DEFAULT = JudgeCfg(provider=ProviderCfg(
 
 
 def db_path_from_argv(argv: list[str], default: str = DB) -> str:
-    """Путь к БД из флага `--db PATH`; если флага нет — `default`."""
+    """DB path from the `--db PATH` flag; `default` if the flag is absent."""
     if "--db" in argv:
         i = argv.index("--db")
         if i + 1 < len(argv):
@@ -52,17 +53,17 @@ def db_path_from_argv(argv: list[str], default: str = DB) -> str:
 
 
 def load_judge_cfg(path: str = JUDGE_CONFIG) -> JudgeCfg:
-    """Судья для backfill — из judge-блока YAML-конфига (та же модель, что у агентов, если
-    judge.provider задан якорем *provider). Нет блока judge → запасной JUDGE_DEFAULT."""
+    """Judge for backfill — from the judge block of the YAML config (same model as the agents'
+    if judge.provider is set via the *provider anchor). No judge block -> fallback JUDGE_DEFAULT."""
     cfg = load_episode(path)
     return cfg.judge if cfg.judge is not None else JUDGE_DEFAULT
 
 
 async def judge_run(st: Storage, run_id: int, judge_cfg: JudgeCfg, *, force: bool) -> str:
-    """Оценить один сохранённый прогон. Возвращает статус-строку.
+    """Evaluate one stored run. Returns a status string.
 
-    Статусы: skipped (уже есть вердикт), no-records (нет завершённых пар),
-    failed (судья не справился), judged (вердикт записан)."""
+    Statuses: skipped (a verdict already exists), no-records (no finished pairs),
+    failed (the judge failed), judged (verdict recorded)."""
     if not force and st.has_verdict(run_id):
         return "skipped"
     records = reconstruct_records(st.conn, run_id)
@@ -71,7 +72,7 @@ async def judge_run(st: Storage, run_id: int, judge_cfg: JudgeCfg, *, force: boo
     try:
         verdict = await judge_episode(judge_cfg, records)
     except (JudgeError, ProviderError) as e:
-        print(f"  прогон {run_id}: судья не справился: {e}")
+        print(f"  run {run_id}: judge failed: {e}")
         return "failed"
     if force and st.has_verdict(run_id):
         with st.conn:
@@ -81,18 +82,18 @@ async def judge_run(st: Storage, run_id: int, judge_cfg: JudgeCfg, *, force: boo
 
 
 async def backfill(db_path: str, argv: list[str], judge_cfg: JudgeCfg) -> dict[str, int]:
-    """Выбрать прогоны по фильтру из argv и оценить каждый; вернуть счётчик статусов."""
+    """Select runs by the argv filter and evaluate each; return a status counter."""
     force = "--force" in argv
     flt = filter_from_argv(argv)
     st = Storage(db_path)
     counts: dict[str, int] = {}
     try:
         run_ids = selected_run_ids(st.conn, flt)
-        print(f"Под фильтр попало прогонов: {len(run_ids)}")
+        print(f"Runs matching the filter: {len(run_ids)}")
         for rid in run_ids:
             status = await judge_run(st, rid, judge_cfg, force=force)
             counts[status] = counts.get(status, 0) + 1
-            print(f"  прогон {rid}: {status}")
+            print(f"  run {rid}: {status}")
     finally:
         st.close()
     return counts
@@ -103,10 +104,10 @@ def main() -> None:
     config_path = args[args.index("--config") + 1] if "--config" in args else JUDGE_CONFIG
     db_path = db_path_from_argv(args)
     judge_cfg = load_judge_cfg(config_path)
-    print(f"Судья: {judge_cfg.provider.model} ({config_path})")
-    print(f"БД: {db_path}")
+    print(f"Judge: {judge_cfg.provider.model} ({config_path})")
+    print(f"DB: {db_path}")
     counts = asyncio.run(backfill(db_path, args, judge_cfg))
-    print(f"\nИтог: {counts}")
+    print(f"\nSummary: {counts}")
 
 
 if __name__ == "__main__":

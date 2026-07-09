@@ -1,9 +1,10 @@
-"""Детерминированный судья: подсчёт упоминаний термина в сохранённых прогонах.
+"""Deterministic judge: count term mentions in stored runs.
 
-Альтернатива LLM-судье (judge_runs.py): без LLM. Для каждого выбранного прогона ищем
-ТЕРМИН (число или слово) в тексте публичных реплик и считаем число РАЗНЫХ говорящих,
-упомянувших его. Имена говорящих не учитываются — сопоставляется только текст реплики.
-Результат пишется в БД (таблица keyword_counts), в CSV и на экран.
+Alternative to the LLM judge (judge_runs.py): no LLM involved. For each selected run,
+search for the TERM (a number or word) in the text of public messages and count the
+number of DISTINCT speakers who mentioned it. Speaker names are not considered — only
+the message text is matched. The result is written to the DB (keyword_counts table),
+to a CSV, and to the screen.
 
     uv run python keyword_judge.py TERM [--db experiment.db] [--csv keyword_counts.csv] \\
                                    [--design HASH ...] [--exclude-design HASH ...] \\
@@ -28,7 +29,7 @@ _FLAGS_WITH_VALUE = {"--db", "--csv", "--design", "--exclude-design",
 
 
 def _positional_term(argv: list[str]) -> str | None:
-    """Первый аргумент, не являющийся флагом и не значением флага, — это ТЕРМИН."""
+    """The first argument that is neither a flag nor a flag's value — that's the TERM."""
     skip = False
     for a in argv:
         if skip:
@@ -37,23 +38,23 @@ def _positional_term(argv: list[str]) -> str | None:
         if a in _FLAGS_WITH_VALUE:
             skip = True
             continue
-        if a.startswith("--"):       # неизвестный флаг без значения
+        if a.startswith("--"):       # unknown flag without a value
             continue
         return a
     return None
 
 
 def _opt(argv: list[str], name: str, default: str) -> str:
-    """Значение одиночного `--name V` или default."""
+    """Value of a single `--name V`, or default."""
     return argv[argv.index(name) + 1] if name in argv else default
 
 
 def run(argv: list[str]) -> int:
-    """Посчитать упоминания термина по выбранным прогонам; вернуть код возврата."""
+    """Count term mentions across selected runs; return the exit code."""
     term = _positional_term(argv)
     if term is None:
-        print("Ошибка: не задан ТЕРМИН для поиска.")
-        print("Использование: uv run python keyword_judge.py TERM [--db ...] [--csv ...] "
+        print("Error: no TERM given to search for.")
+        print("Usage: uv run python keyword_judge.py TERM [--db ...] [--csv ...] "
               "[--design H] [--name L] ...")
         return 2
 
@@ -65,7 +66,7 @@ def run(argv: list[str]) -> int:
     rows: list[tuple[int, str, int]] = []   # (run_id, name, count)
     try:
         run_ids = selected_run_ids(st.conn, flt)
-        print(f"Термин: {term!r}; под фильтр попало прогонов: {len(run_ids)}")
+        print(f"Term: {term!r}; runs matching filter: {len(run_ids)}")
         for rid in run_ids:
             name_row = st.conn.execute(
                 "SELECT name FROM runs WHERE run_id=?", (rid,)
@@ -75,7 +76,7 @@ def run(argv: list[str]) -> int:
             kc = count_mentions(records, term)
             st.save_keyword_count(kc, run_id=rid)
             rows.append((rid, name, kc.count))
-            print(f"  прогон {rid} ({name}): {kc.count}")
+            print(f"  run {rid} ({name}): {kc.count}")
     finally:
         st.close()
 
@@ -86,7 +87,7 @@ def run(argv: list[str]) -> int:
             w.writerow([rid, name, term, count])
 
     total = sum(c for _, _, c in rows)
-    print(f"\nИтог: суммарно говорящих с упоминанием — {total}; CSV: {csv_path}")
+    print(f"\nTotal: speakers with a mention — {total}; CSV: {csv_path}")
     return 0
 
 

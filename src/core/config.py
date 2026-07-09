@@ -14,15 +14,15 @@ class ProviderCfg:
     temperature: float = 0.7
     max_tokens: int = 512
     timeout_s: float = 120.0
-    # Управление рассуждениями для reasoning-моделей (например, DeepSeek-V4-Pro на Together).
-    # reasoning=False -> в payload уходит {"reasoning": {"enabled": false}} (Non-think); True (дефолт)
-    # ничего не шлёт — провайдер сам решает (для не-reasoning моделей поле игнорируется).
-    # reasoning_effort (если непусто) -> {"reasoning_effort": "<val>"} ("high"/"max"; задел на будущее).
+    # Reasoning control for reasoning models (e.g. DeepSeek-V4-Pro on Together).
+    # reasoning=False -> {"reasoning": {"enabled": false}} is sent in the payload (Non-think); True (default)
+    # sends nothing — the provider decides on its own (the field is ignored for non-reasoning models).
+    # reasoning_effort (if non-empty) -> {"reasoning_effort": "<val>"} ("high"/"max"; groundwork for the future).
     reasoning: bool = True
     reasoning_effort: str = ""
-    # Произвольные доп. поля payload, отправляемые как есть (provider-специфичные). Напр.,
-    # vLLM-выключение thinking у Qwen3: {"chat_template_kwargs": {"enable_thinking": false}}.
-    # Мёржится в payload последним и может переопределить базовые поля.
+    # Arbitrary extra payload fields, sent as-is (provider-specific). E.g.,
+    # disabling thinking for Qwen3 on vLLM: {"chat_template_kwargs": {"enable_thinking": false}}.
+    # Merged into the payload last and can override the base fields.
     extra_body: dict = field(default_factory=dict)
 
 
@@ -68,11 +68,12 @@ DEFAULT_RULES = (
     "respond only with the exact JSON requested in that message."
 )
 
-# Полный системный промпт агента — ОДНА строка-шаблон. Прежней склейки identity+persona+rules
-# больше нет: весь system задаётся одним полем AgentSpec.system_prompt. Движок подставляет в нём
-# только параметры {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns} (Agent.system_prompt); всё
-# остальное берётся дословно. Дефолт воспроизводит прежний текст (преамбула + правила); удобно
-# задавать общий промпт YAML-якорем (&system_default) и подключать ссылкой (*system_default).
+# The agent's full system prompt — ONE template string. There is no longer the old
+# identity+persona+rules assembly: the whole system prompt is given by one AgentSpec.system_prompt
+# field. The engine substitutes into it only the {id} parameter and the payoffs
+# {R}/{T}/{P}/{S}/{max_talk_turns} (Agent.system_prompt); everything else is taken verbatim.
+# The default reproduces the old text (preamble + rules); it's convenient to set a shared
+# prompt via a YAML anchor (&system_default) and reference it (*system_default).
 DEFAULT_SYSTEM_PROMPT = DEFAULT_IDENTITY_PROMPT + "\n\n" + DEFAULT_RULES
 
 DEFAULT_TALK_PROMPT = (
@@ -84,7 +85,7 @@ DEFAULT_TALK_PROMPT = (
     'Respond ONLY as JSON: {"message": "<your message>", "finish": <true|false>}</game>'
 )
 
-# Первый ход раунда: фид пуст, отвечать не на что -> агент открывает разговор (без блока Talk).
+# The first turn of the round: the feed is empty, there is nothing to reply to -> the agent opens the conversation (no Talk block).
 DEFAULT_TALK_OPEN_PROMPT = (
     "<game>Round {round} · opponent {partner}\n"
     "The chat has been opened. You speak first this round — send a short message to your opponent. "
@@ -132,9 +133,10 @@ DEFAULT_HISTORY_ROUND_PROMPT = (
 DEFAULT_MSG_SELF = "<you>{text}</you>"
 DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
 DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
-# rationale-вариант close-строки истории: зеркалит живой decide_prompt (без JSON-хвоста), когда
-# rationale включён. Выбор bare/rationale в _render_entry — по флагу cfg.rationale, как в decide.
-# Аддитивно: history_close_prompt (без суффикса) остаётся bare-вариантом, старый ключ не трогаем.
+# The rationale variant of the history close line: mirrors the live decide_prompt (without the
+# JSON tail) when rationale is enabled. The bare/rationale choice in _render_entry follows the
+# cfg.rationale flag, same as in decide. Additive: history_close_prompt (no suffix) remains the
+# bare variant, the old key is left untouched.
 DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE = (
     "<game>The chat has been closed as {reason}. Give your rationale first, then choose the number.</game>"
 )
@@ -152,11 +154,11 @@ DEFAULT_HISTORY_RESULT_PROMPT = (
 # Placeholders: {partner} {my_predicted} (predicted), {my_rationale} {my_number} (rationale),
 # {my_reflection}.
 DEFAULT_HISTORY_PREDICTED_PROMPT = "<you>(I predicted {partner} would pick {my_predicted})</you>"
-# history_rationale_prompt при включённом rationale (show_rationale) — это блок ответа агента:
-# один <you>-блок, повторяющий JSON-ответ {rationale, number} — обоснование и число вместе, как
-# одна реплика (обоснование раньше числа, тот же порядок, что в decide_prompt), на месте выбора,
-# перед вскрывающим результатом. Если rationale выключен — число рендерится отдельной msg_self-
-# строкой, а этот шаблон не используется. Плейсхолдеры: {my_rationale} {my_number}.
+# history_rationale_prompt with rationale enabled (show_rationale) is the agent's response block:
+# a single <you> block repeating the JSON response {rationale, number} — rationale and number
+# together, as one message (rationale before the number, the same order as in decide_prompt), in
+# place of the choice, before the revealing result. If rationale is off, the number is rendered
+# as a separate msg_self line and this template is not used. Placeholders: {my_rationale} {my_number}.
 DEFAULT_HISTORY_RATIONALE_PROMPT = "<you>rationale: {my_rationale}\nnumber: {my_number}</you>"
 DEFAULT_HISTORY_REFLECTION_PROMPT = "<you>(my takeaway: {my_reflection})</you>"
 
@@ -212,12 +214,12 @@ DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
 DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
 
 
-# Поправка на ретрае парсинга: дописывается к user-сообщению, КОГДА ответ фазы не разобрался
-# (Agent.act, max 2 ретрая). Раньше текст был зашит в src/core/agent.py одним dict'ом и для
-# DECIDE/PREDICT всегда требовал схему с rationale — даже в bare-режиме (rationale=false), из-за
-# чего противоречил самому промпту. Теперь это поля конфига, по одному на фазу + bare-вариант, и
-# движок выбирает bare/rationale так же, как для самого промпта (по флагу rationale). Плейсхолдеров
-# нет — текст уходит дословно.
+# Correction on a parse retry: appended to the user message WHEN a phase response fails to
+# parse (Agent.act, max 2 retries). The text used to be hardcoded in src/core/agent.py as a
+# single dict and for DECIDE/PREDICT always required the rationale schema — even in bare mode
+# (rationale=false), which contradicted the prompt itself. Now these are config fields, one per
+# phase plus a bare variant, and the engine picks bare/rationale the same way as for the prompt
+# itself (by the rationale flag). No placeholders — the text goes out verbatim.
 DEFAULT_TALK_CORRECTION = (
     "Respond with ONLY valid JSON, nothing else: "
     '{"message": "<your message>", "finish": <true|false>}'
@@ -261,7 +263,7 @@ DEFAULT_JUDGE_PROMPT = (
     '"explanation": "<short explanation>", "evidence": ["<message id>", ...]}'
 )
 
-# Поправка судьи на ретрае (раньше зашита в src/judge/judge.py). Без плейсхолдеров.
+# The judge's correction on retry (used to be hardcoded in src/judge/judge.py). No placeholders.
 DEFAULT_JUDGE_CORRECTION = (
     "Respond with ONLY valid JSON, nothing else: "
     '{"emerged": <true|false>, "explanation": "<short explanation>", '
@@ -275,42 +277,42 @@ class GameCfg:
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
-    talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # первый ход (пустой фид): агент открывает разговор
-    # rationale=True -> используется *_prompt (просит рассуждать перед числом),
-    # rationale=False -> *_prompt_bare (только число). Это выбор ЦЕЛОГО статичного шаблона,
-    # а не склейка текста по условию. Пусто -> соответствующий DEFAULT_*.
-    rationale: bool = True           # просить обоснование перед числом в DECIDE/PREDICT
-    decide_prompt: str = ""          # пусто -> DEFAULT_DECIDE_PROMPT (rationale-вариант, {round}/{partner}/{feed}/{reason})
-    decide_prompt_bare: str = ""     # пусто -> DEFAULT_DECIDE_PROMPT_BARE (только число)
-    predict_prompt: str = ""         # пусто -> DEFAULT_PREDICT_PROMPT (rationale-вариант)
-    predict_prompt_bare: str = ""    # пусто -> DEFAULT_PREDICT_PROMPT_BARE (только число)
+    talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # first turn (empty feed): the agent opens the conversation
+    # rationale=True -> *_prompt is used (asks to reason before the number),
+    # rationale=False -> *_prompt_bare (number only). This is a choice of a WHOLE static template,
+    # not a conditional text assembly. Empty -> the corresponding DEFAULT_*.
+    rationale: bool = True           # ask for a rationale before the number in DECIDE/PREDICT
+    decide_prompt: str = ""          # empty -> DEFAULT_DECIDE_PROMPT (rationale variant, {round}/{partner}/{feed}/{reason})
+    decide_prompt_bare: str = ""     # empty -> DEFAULT_DECIDE_PROMPT_BARE (number only)
+    predict_prompt: str = ""         # empty -> DEFAULT_PREDICT_PROMPT (rationale variant)
+    predict_prompt_bare: str = ""    # empty -> DEFAULT_PREDICT_PROMPT_BARE (number only)
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
-    reflection: bool = False         # пост-игровая рефлексия: доп. LLM-вызов после исхода
-    memory_notes_every: int = 0      # 0 = off; каждые N СЫГРАННЫХ агентом раундов он сворачивает память в заметки
-    notes_prompt: str = DEFAULT_NOTES_PROMPT  # шаблон note-вызова ({round}/{score})
-    notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # обёртка заметок в истории ({notes})
-    notes_header: str = DEFAULT_NOTES_HEADER    # метка-заголовок над свёрнутыми заметками
-    buffer_header: str = DEFAULT_BUFFER_HEADER  # метка-заголовок над буфером раундов после консолидации
-    # История прошлого раунда отрисовывается агенту как игровой транскрипт (теги <game>/<you>/<имя>);
-    # эти шаблоны живут в конфиге, чтобы текст промпта не был зашит в коде (см. src/core/memory.py).
+    reflection: bool = False         # post-game reflection: an extra LLM call after the outcome
+    memory_notes_every: int = 0      # 0 = off; every N rounds PLAYED by the agent, it folds memory into notes
+    notes_prompt: str = DEFAULT_NOTES_PROMPT  # note-call template ({round}/{score})
+    notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # notes wrapper in history ({notes})
+    notes_header: str = DEFAULT_NOTES_HEADER    # header label above the consolidated notes
+    buffer_header: str = DEFAULT_BUFFER_HEADER  # header label above the round buffer after consolidation
+    # A past round's history is rendered to the agent as a game transcript (tags <game>/<you>/<name>);
+    # these templates live in the config so the prompt text is not hardcoded in the code (see src/core/memory.py).
     history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner}
-    msg_self: str = DEFAULT_MSG_SELF                           # строка реплики самого агента ({text})
-    msg_partner: str = DEFAULT_MSG_PARTNER                     # строка реплики партнёра ({partner}/{text})
+    msg_self: str = DEFAULT_MSG_SELF                           # the agent's own message line ({text})
+    msg_partner: str = DEFAULT_MSG_PARTNER                     # the partner's message line ({partner}/{text})
     history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason} (bare / rationale=false)
-    history_close_prompt_rationale: str = DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE  # {reason} (rationale=true, зеркалит decide)
-    reason_limit: str = DEFAULT_REASON_LIMIT                   # фраза {reason}: чат закрылся по лимиту реплик
-    reason_agreed: str = DEFAULT_REASON_AGREED                 # фраза {reason}: оба согласились закрыть чат
+    history_close_prompt_rationale: str = DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE  # {reason} (rationale=true, mirrors decide)
+    reason_limit: str = DEFAULT_REASON_LIMIT                   # the {reason} phrase: chat closed due to the message limit
+    reason_agreed: str = DEFAULT_REASON_AGREED                 # the {reason} phrase: both agreed to close the chat
     history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
-    # Приватные следы в истории прошлого раунда (личный скрэтчпад агента) — каждый под СВОИМ
-    # флагом; строка добавляется, только если флаг включён И её поле непусто.
-    show_predicted: bool = True                                  # добавлять ли строку предсказания
-    show_rationale: bool = True                                  # добавлять ли строку обоснования
-    show_reflection: bool = True                                 # добавлять ли строку рефлексии
+    # Private traces in a past round's history (the agent's personal scratchpad) — each under ITS
+    # OWN flag; the line is added only if the flag is on AND its field is non-empty.
+    show_predicted: bool = True                                  # whether to add the prediction line
+    show_rationale: bool = True                                  # whether to add the rationale line
+    show_reflection: bool = True                                 # whether to add the reflection line
     history_predicted_prompt: str = DEFAULT_HISTORY_PREDICTED_PROMPT    # {partner} {my_predicted}
-    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale} {my_number} (rationale + число одним блоком)
+    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale} {my_number} (rationale + number as one block)
     history_reflection_prompt: str = DEFAULT_HISTORY_REFLECTION_PROMPT  # {my_reflection}
-    # Поправки на ретрае парсинга (по фазе; DECIDE/PREDICT — bare/rationale как у самого промпта).
-    # Без плейсхолдеров — дописываются дословно к user-сообщению при неразобравшемся ответе.
+    # Corrections on parse retry (per phase; DECIDE/PREDICT — bare/rationale same as the prompt itself).
+    # No placeholders — appended verbatim to the user message when the response fails to parse.
     talk_correction: str = DEFAULT_TALK_CORRECTION
     decide_correction: str = DEFAULT_DECIDE_CORRECTION
     decide_correction_bare: str = DEFAULT_DECIDE_CORRECTION_BARE
@@ -320,11 +322,12 @@ class GameCfg:
     note_correction: str = DEFAULT_NOTE_CORRECTION
 
     def __post_init__(self) -> None:
-        """Заполнить пустые шаблоны DECIDE/PREDICT (оба варианта) дефолтами.
+        """Fill empty DECIDE/PREDICT templates (both variants) with defaults.
 
-        Каждый шаблон статичен: пустая строка означает «взять стандартный», иначе берётся
-        ровно заданный текст. Какой из двух вариантов попадёт агенту, решает флаг rationale
-        в decide_context/predict_context — это выбор целого шаблона, не склейка текста.
+        Each template is static: an empty string means "use the standard one", otherwise
+        the exact given text is used. Which of the two variants reaches the agent is decided
+        by the rationale flag in decide_context/predict_context — this is a choice of a whole
+        template, not text assembly.
         """
         for name, default in (
             ("decide_prompt", DEFAULT_DECIDE_PROMPT),
@@ -338,24 +341,24 @@ class GameCfg:
 
 @dataclass(frozen=True)
 class JudgeCfg:
-    """Конфигурация LLM-судьи: отдельная модель, оценивающая эпизод после игры.
+    """LLM judge configuration: a separate model that evaluates the episode after the game.
 
-    Судья видит только публичный cheap-talk; модель настраивается независимо от
-    моделей агентов. Отсутствие блока judge в конфиге = судья выключен.
+    The judge sees only the public cheap-talk; its model is configured independently of
+    the agents' models. Absence of a judge block in the config = the judge is disabled.
     """
 
     provider: ProviderCfg
-    prompt: str = DEFAULT_JUDGE_PROMPT   # английский шаблон с плейсхолдером {transcript}
-    correction: str = DEFAULT_JUDGE_CORRECTION  # поправка на ретрае при неразобравшемся ответе
+    prompt: str = DEFAULT_JUDGE_PROMPT   # English template with the {transcript} placeholder
+    correction: str = DEFAULT_JUDGE_CORRECTION  # correction on retry when the response fails to parse
 
 
 @dataclass(frozen=True)
 class AgentSpec:
     count: int = 1                   # how many agents of this type to build
-    play_strategy: str = "direct"        # "direct" | "prediction" — стратегия игры этого спека
-    prediction_mapping: str = "match"    # отображение predict->выбор (только при play_strategy="prediction")
-    # Полный system агента (ОДНА строка). Прежних persona/identity_prompt/rules нет — всё тут.
-    # Подставляются {id} и payoff'ы {R}/{T}/{P}/{S}/{max_talk_turns}; задаётся обычно YAML-якорем.
+    play_strategy: str = "direct"        # "direct" | "prediction" — this spec's play strategy
+    prediction_mapping: str = "match"    # predict->choice mapping (only when play_strategy="prediction")
+    # The agent's full system prompt (ONE string). There's no longer a separate persona/identity_prompt/rules — it's all here.
+    # {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns} are substituted; usually set via a YAML anchor.
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
@@ -363,8 +366,8 @@ class AgentSpec:
 class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
-    # Провайдер LLM, общий на всю популяцию (вариативность модели между агентами не нужна —
-    # это фиксированная рамка эпизода). Обязателен, дефолта нет.
+    # The LLM provider, shared across the whole population (variation of the model between agents
+    # is not needed — it's a fixed frame for the episode). Required, no default.
     provider: ProviderCfg
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
@@ -374,17 +377,17 @@ class PopulationCfg:
 
 @dataclass(frozen=True)
 class ChangePoint:
-    """Одна точка изменения расписания эпизода (вступает в силу с раунда `from_round`).
+    """One episode schedule change point (takes effect from round `from_round` onward).
 
-    Виды правок (могут сочетаться в одной точке):
-      patch   — частичный override скалярного конфига (game/payoffs/промпты/стратегия и т.п.),
-                **липкий**: действует с from_round и далее (сворачивается deep-merge'ем).
-      roster  — {"join": [...], "leave": [...]} — мутация состава, событие (Фаза 2).
-      pairing — явная разбивка на пары для ЭТОГО раунда, **разовая** (Фаза 3).
-      inject  — {agent_id: number} — навязать число агенту в ЭТОМ раунде, разовая (Фаза 4).
+    Kinds of edits (can be combined in one point):
+      patch   — partial override of a scalar config (game/payoffs/prompts/strategy etc.),
+                **sticky**: applies from from_round onward (folded in via deep-merge).
+      roster  — {"join": [...], "leave": [...]} — a roster mutation, an event (Phase 2).
+      pairing — an explicit pairing split for THIS round, **one-off** (Phase 3).
+      inject  — {agent_id: number} — force a number onto an agent for THIS round, one-off (Phase 4).
 
-    Хранится разреженно. Полный конфиг раунда собирает cfg_for_round (только patch);
-    императивные директивы (roster/pairing/inject) обрабатывает контроллер (Фазы 2–4)."""
+    Stored sparsely. The full round config is assembled by cfg_for_round (patch only);
+    imperative directives (roster/pairing/inject) are handled by the controller (Phases 2-4)."""
 
     from_round: int
     patch: dict | None = None
@@ -403,10 +406,10 @@ class EpisodeCfg:
     context_window: int | None = None
     idle_payoff: float = 1.0         # C3: idle pays P by default
     max_concurrency: int = 4
-    judge: JudgeCfg | None = None          # None = LLM-судья выключен
-    schedule: tuple[ChangePoint, ...] = ()  # пораундовое расписание правок (см. cfg_for_round); пусто = один конфиг на весь прогон
-    # NB: стратегия (play_strategy/prediction_mapping) теперь живёт на агенте (AgentSpec),
-    # а не на эпизоде — популяция может быть гетерогенной (direct + prediction в одном эпизоде).
+    judge: JudgeCfg | None = None          # None = the LLM judge is disabled
+    schedule: tuple[ChangePoint, ...] = ()  # per-round schedule of edits (see cfg_for_round); empty = one config for the whole run
+    # NB: the strategy (play_strategy/prediction_mapping) now lives on the agent (AgentSpec),
+    # not on the episode — the population can be heterogeneous (direct + prediction in one episode).
     # NB: no db_path here — persistence lives in the separate Logger layer, not the orchestrator.
 
 
@@ -416,7 +419,7 @@ def _provider_cfg(d: dict) -> ProviderCfg:
 
 def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
-    d.pop("rules", None)             # legacy: правила больше не отдельное поле — едут внутри system_prompt
+    d.pop("rules", None)             # legacy: rules are no longer a separate field — they travel inside system_prompt
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
     return GameCfg(payoffs=payoffs, **d)
 
@@ -431,8 +434,8 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
-    # legacy-ключи persona/identity_prompt просто игнорируются (a.get их не читает) — старые
-    # сохранённые конфиги по-прежнему грузятся, лишившись лишь удалённых полей.
+    # legacy persona/identity_prompt keys are simply ignored (a.get doesn't read them) — old
+    # stored configs still load, just without the removed fields.
     agents = [
         AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
@@ -470,7 +473,7 @@ def _validate(d: dict) -> None:
 
     judge = d.get("judge")
     if judge is not None and "provider" not in judge:
-        raise ValueError("блок judge требует provider: модель судьи настраивается отдельно")
+        raise ValueError("judge block requires provider: the judge's model is configured separately")
 
     from src.games.talk_rules import make_talk_rule
 
@@ -478,7 +481,7 @@ def _validate(d: dict) -> None:
 
     notes_every = d.get("game", {}).get("memory_notes_every", 0)
     if not isinstance(notes_every, int) or isinstance(notes_every, bool) or notes_every < 0:
-        raise ValueError(f"memory_notes_every должен быть целым ≥ 0, получено: {notes_every!r}")
+        raise ValueError(f"memory_notes_every must be an integer >= 0, got: {notes_every!r}")
 
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])
@@ -491,10 +494,10 @@ def _validate(d: dict) -> None:
         if len(pool) < total:
             raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
 
-    # Раннее (fail-fast) подтверждение каждой фазы расписания: липкие patch-точки
-    # сворачиваются по порядку, и КАЖДЫЙ свёрнутый конфиг тоже должен быть валиден —
-    # иначе ошибка вылезет лишь в момент раунда. folded не содержит ключа "schedule",
-    # поэтому _validate на нём делает только проверки полей (без повторного цикла).
+    # Early (fail-fast) validation of every schedule phase: sticky patch points are folded in
+    # order, and EACH folded config must also be valid — otherwise the error would only surface
+    # at the moment of the round. folded has no "schedule" key, so _validate on it only runs
+    # the field checks (no repeated loop).
     schedule = d.get("schedule")
     if schedule:
         folded = {k: v for k, v in d.items() if k != "schedule"}
@@ -505,7 +508,7 @@ def _validate(d: dict) -> None:
 
 
 def _change_point(c: dict) -> ChangePoint:
-    """Собрать ChangePoint из словаря (YAML или asdict). pairing — список → кортеж пар."""
+    """Build a ChangePoint from a dict (YAML or asdict). pairing — a list → a tuple of pairs."""
     pairing = c.get("pairing")
     return ChangePoint(
         from_round=c["from_round"],
@@ -517,25 +520,26 @@ def _change_point(c: dict) -> ChangePoint:
 
 
 def _resolve_seed(seed):
-    """Преобразовать поле `seed` конфига в конкретный int.
+    """Convert the config's `seed` field into a concrete int.
 
-    `random` (строка, регистр не важен) означает «выбери случайный сид при загрузке»: каждая
-    загрузка конфига рождает новый сид. Это ЕДИНСТВЕННАЯ намеренная точка недетерминизма в
-    сборке конфига — системный источник энтропии (`SystemRandom`), не симуляционный rng
-    (тот по-прежнему строится из готового сида в runner). Выбранный int дословно сохраняется
-    в прогон (runs.seed/config), поэтому сам прогон остаётся воспроизводимым по этому числу;
-    при resume/extend сохранённый int возвращается как есть (строки `random` там уже нет)."""
+    `random` (a string, case-insensitive) means "pick a random seed at load time": every
+    config load then produces a new seed. This is the ONLY intentional point of
+    non-determinism in config assembly — a system entropy source (`SystemRandom`), not the
+    simulation rng (that is still built from the already-resolved seed in runner). The
+    chosen int is stored verbatim into the run (runs.seed/config), so the run itself stays
+    reproducible by that number; on resume/extend the stored int is returned as-is (the
+    `random` string is no longer there)."""
     if isinstance(seed, str) and seed.strip().lower() == "random":
         return random.SystemRandom().randrange(2 ** 31)
     return seed
 
 
 def episode_from_dict(d: dict) -> EpisodeCfg:
-    """Собрать EpisodeCfg из словаря — общий путь для YAML и для сохранённого runs.config.
+    """Build an EpisodeCfg from a dict — the common path for YAML and for stored runs.config.
 
-    Принимает как YAML-словарь (load_episode), так и asdict(cfg) из БД (runner.resume_run
-    при возобновлении/доращивании прогона): обе формы структурно совпадают (game.payoffs —
-    вложенный dict, population.agents — список спеков). Валидация одна на оба пути."""
+    Accepts both a YAML dict (load_episode) and asdict(cfg) from the DB (runner.resume_run
+    when resuming/extending a run): both forms are structurally identical (game.payoffs is
+    a nested dict, population.agents is a list of specs). Validation is one path for both."""
     _validate(d)
     return EpisodeCfg(
         seed=_resolve_seed(d["seed"]),
@@ -552,11 +556,11 @@ def episode_from_dict(d: dict) -> EpisodeCfg:
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:
-    """Рекурсивно наложить patch на base (новый словарь).
+    """Recursively apply patch onto base (a new dict).
 
-    dict → вглубь; всё прочее (скаляры, списки) — замена целиком. Списки НЕ сливаются:
-    это осознанно — листовые поля заменяются, а состав (списочное поле population.agents)
-    меняют roster-директивы, не patch (Фаза 2)."""
+    dict → recurse; everything else (scalars, lists) — replaced wholesale. Lists are NOT
+    merged: this is deliberate — leaf fields are replaced, while composition (the list field
+    population.agents) is changed by roster directives, not patch (Phase 2)."""
     out = dict(base)
     for k, v in patch.items():
         out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
@@ -564,15 +568,15 @@ def _deep_merge(base: dict, patch: dict) -> dict:
 
 
 def cfg_for_round(cfg: EpisodeCfg, r: int) -> EpisodeCfg:
-    """Материализовать полный EpisodeCfg для раунда r, свернув липкие patch-точки.
+    """Materialize the full EpisodeCfg for round r, folding in sticky patch points.
 
-    Чистая функция: одинаковый (cfg, r) → одинаковый результат. Императивные директивы
-    (roster/pairing/inject) здесь НЕ применяются — их обрабатывает контроллер (Фазы 2–4).
-    Без расписания возвращается тот же объект (никакой пересборки)."""
+    A pure function: the same (cfg, r) → the same result. Imperative directives
+    (roster/pairing/inject) are NOT applied here — they are handled by the controller
+    (Phases 2-4). Without a schedule, the same object is returned (no rebuilding)."""
     if not cfg.schedule:
         return cfg
     d = asdict(cfg)
-    d.pop("schedule", None)                              # расписание не входит в конфиг одного раунда
+    d.pop("schedule", None)                              # the schedule is not part of a single round's config
     for cp in sorted(cfg.schedule, key=lambda c: c.from_round):
         if cp.from_round <= r and cp.patch:
             d = _deep_merge(d, cp.patch)

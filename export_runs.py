@@ -1,16 +1,16 @@
-"""Разбить БД с прогонами на отдельные файлы — по одному прогону на файл.
+"""Split a DB of runs into separate files — one run per file.
 
-Каждый файл — самостоятельная SQLite-база с полной схемой исходной БД, но строками
-ровно одного прогона. Имя файла берётся из числа в конце имени прогона ('qwen3-FP8 16'
--> 16.db); если числа нет — из run_id. Уже существующие файлы по умолчанию не трогаем,
-поэтому функцию можно дёргать после каждого прогона (см. research.py) — она докладывает
-только новое.
+Each file is a standalone SQLite database with the full schema of the source DB, but
+rows for exactly one run. The filename is taken from the number at the end of the run
+name ('qwen3-FP8 16' -> 16.db); if there is no number — from run_id. Existing files are
+not touched by default, so the function can be called after every run (see research.py)
+— it reports only what's new.
 
     uv run python export_runs.py [--db qwen3.db] [--out DIR] [--overwrite]
 
-  --db         исходная БД (по умолчанию qwen3.db)
-  --out        папка для файлов (по умолчанию имя БД без расширения, напр. qwen3)
-  --overwrite  пересоздавать уже существующие файлы
+  --db         source DB (default qwen3.db)
+  --out        folder for the files (default: DB name without extension, e.g. qwen3)
+  --overwrite  recreate files that already exist
 """
 
 from __future__ import annotations
@@ -26,20 +26,20 @@ _NUM_RE = re.compile(r"(\d+)\s*$")
 
 
 def _out_dir_for(db_path: str) -> str:
-    """Папка по умолчанию: имя БД без расширения ('qwen3.db' -> 'qwen3')."""
+    """Default folder: DB name without extension ('qwen3.db' -> 'qwen3')."""
     return os.path.splitext(os.path.basename(db_path))[0]
 
 
 def _run_filename(name: str | None, run_id: int) -> str:
-    """Имя файла прогона: число в конце имени ('… 16' -> '16'), иначе run_id."""
+    """Run filename: number at the end of the name ('… 16' -> '16'), otherwise run_id."""
     m = _NUM_RE.search(name or "")
     return f"{m.group(1) if m else run_id}.db"
 
 
 def _schema_ddl(conn: sqlite3.Connection) -> list[str]:
-    """CREATE-операторы исходной схемы: сначала таблицы, потом индексы.
+    """CREATE statements of the source schema: tables first, then indexes.
 
-    Пропускаем sqlite_sequence и авто-индексы (sql IS NULL)."""
+    Skip sqlite_sequence and auto-indexes (sql IS NULL)."""
     return [sql for (sql,) in conn.execute(
         "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name<>'sqlite_sequence' "
         "ORDER BY (type='index')"
@@ -47,7 +47,7 @@ def _schema_ddl(conn: sqlite3.Connection) -> list[str]:
 
 
 def _keyed_tables(conn: sqlite3.Connection) -> tuple[list[str], set[str]]:
-    """Все пользовательские таблицы и подмножество тех, где есть колонка run_id."""
+    """All user tables and the subset of those that have a run_id column."""
     tables = [t for (t,) in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name<>'sqlite_sequence'"
     )]
@@ -58,14 +58,14 @@ def _keyed_tables(conn: sqlite3.Connection) -> tuple[list[str], set[str]]:
 
 def export_run(conn: sqlite3.Connection, run_id: int, out_dir: str,
                *, overwrite: bool = False) -> str | None:
-    """Выгрузить один прогон в отдельный файл out_dir/<имя>.db (чистое чтение исходника).
+    """Export one run into a separate file out_dir/<name>.db (a clean read of the source).
 
     Returns:
-        Путь к созданному файлу, либо None, если файл уже был и overwrite=False.
+        Path to the created file, or None if the file already existed and overwrite=False.
     """
     row = conn.execute("SELECT name FROM runs WHERE run_id=?", (run_id,)).fetchone()
     if row is None:
-        raise ValueError(f"прогон run_id={run_id} не найден в БД")
+        raise ValueError(f"run run_id={run_id} not found in the DB")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, _run_filename(row[0], run_id))
     if os.path.exists(path):
@@ -96,7 +96,7 @@ def export_run(conn: sqlite3.Connection, run_id: int, out_dir: str,
 
 
 def export_all(db_path: str, out_dir: str, *, overwrite: bool = False) -> list[str]:
-    """Выгрузить каждый прогон БД в свой файл; вернуть пути реально созданных файлов."""
+    """Export every run of the DB into its own file; return paths of the files actually created."""
     conn = sqlite3.connect(db_path)
     try:
         run_ids = [r for (r,) in conn.execute("SELECT run_id FROM runs ORDER BY run_id")]
@@ -108,23 +108,23 @@ def export_all(db_path: str, out_dir: str, *, overwrite: bool = False) -> list[s
 
 
 def _has_flag(args: list[str], name: str) -> bool:
-    """Есть ли булев флаг в argv."""
+    """Whether a boolean flag is present in argv."""
     return name in args
 
 
 def _flag(args: list[str], name: str, default: str) -> str:
-    """Значение одиночного флага в argv."""
+    """Value of a single flag in argv."""
     return args[args.index(name) + 1] if name in args else default
 
 
 def main() -> None:
-    """Точка входа CLI: разбить БД на файлы по прогонам (идемпотентно)."""
+    """CLI entry point: split the DB into per-run files (idempotent)."""
     args = sys.argv[1:]
     db_path = _flag(args, "--db", DB)
     out_dir = _flag(args, "--out", _out_dir_for(db_path))
     overwrite = _has_flag(args, "--overwrite")
     made = export_all(db_path, out_dir, overwrite=overwrite)
-    print(f"{db_path} -> {out_dir}/: создано файлов {len(made)}")
+    print(f"{db_path} -> {out_dir}/: created files: {len(made)}")
     for p in made:
         print(f"  {p}")
 

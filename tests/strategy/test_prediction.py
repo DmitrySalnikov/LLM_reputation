@@ -33,7 +33,7 @@ async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
     d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=False)).decide(
         agent, "A2", 1, "")
     assert d.predicted == 4 and d.number == 5
-    assert d.rationale == "" and d.predicted_rationale is None   # bare-шаблон -> обоснование не хранится
+    assert d.rationale == "" and d.predicted_rationale is None   # bare template -> rationale not stored
     _, messages = agent.provider.calls[0]
     assert "rationale" not in messages[-1].content.lower()
 

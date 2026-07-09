@@ -5,56 +5,56 @@ from dataclasses import dataclass
 from src.core.config import GameCfg
 from src.providers.base import Message
 
-# Запасной набор шаблонов транскрипта, если рендеру не передали GameCfg (прямые вызовы
-# render() в тестах, фазы без игрового конфига). Совпадает с дефолтами GameCfg.
+# Fallback set of transcript templates if render() wasn't given a GameCfg (direct render()
+# calls in tests, phases without a game config). Matches the GameCfg defaults.
 _DEFAULT_GAME = GameCfg()
 
 
 @dataclass
 class MemoryEntry:
     round: int
-    my_id: str              # id самого агента (для метки "<my_id> (you)" в дневнике)
+    my_id: str              # the agent's own id (for the "<my_id> (you)" label in the diary)
     partner_id: str
     transcript: list[dict]  # [{speaker, text, ready}]
     my_number: int
     my_rationale: str
     partner_number: int
     outcome: str
-    payoff: float            # выигрыш самого агента в этом раунде
-    partner_payoff: float    # выигрыш партнёра (для симметричной строки "Payoffs: ...")
-    score: float = 0.0       # накопленный счёт агента ДО этого раунда (как в фазовом хедере)
-    my_predicted: int | None = None  # стратегия prediction; None для direct
-    my_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
+    payoff: float            # the agent's own payoff this round
+    partner_payoff: float    # the partner's payoff (for the symmetric "Payoffs: ..." line)
+    score: float = 0.0       # the agent's accumulated score BEFORE this round (same as in the phase header)
+    my_predicted: int | None = None  # prediction strategy; None for direct
+    my_reflection: str | None = None  # post-game reflection; None if disabled
 
 
 class Memory:
     def __init__(self) -> None:
         self.entries: list[MemoryEntry] = []
-        self.notes: str | None = None   # сжатая память (memory notes); None = заметок ещё нет
-        self.noted_upto: int = 0         # сколько записей уже свёрнуто в notes (граница буфера)
+        self.notes: str | None = None   # compressed memory (memory notes); None = no notes yet
+        self.noted_upto: int = 0         # how many entries are already folded into notes (buffer boundary)
 
     def add(self, entry: MemoryEntry) -> None:
         self.entries.append(entry)
 
     def set_notes(self, notes: str) -> None:
-        """Запомнить свежие заметки и сдвинуть границу: всё сыгранное на сейчас — свёрнуто."""
+        """Remember the fresh notes and shift the boundary: everything played so far is folded in."""
         self.notes = notes
         self.noted_upto = len(self.entries)
 
     def render(self, window: int | None, cfg: GameCfg | None = None) -> list[Message]:
-        # Прошлые раунды отрисовываются как один игровой транскрипт (теги <game>/<you>/<имя>);
-        # шаблоны берутся из cfg (или дефолтных, если конфиг не передали).
+        # Past rounds are rendered as one game transcript (tags <game>/<you>/<name>);
+        # templates come from cfg (or the defaults if no config was given).
         cfg = cfg or _DEFAULT_GAME
-        # Без заметок — обычный транскрипт прошлых раундов (с учётом окна).
+        # Without notes — the plain transcript of past rounds (respecting the window).
         if self.notes is None:
             entries = _window(self.entries, window)
             if not entries:
                 return []
             body = "\n".join(_render_entry(e, cfg) for e in entries)
             return [Message("user", body)]
-        # С заметками: под меткой-заголовком сжатые заметки (обёрнутые в <game>), затем под
-        # своей меткой сырой буфер раундов, сыгранных после последней консолидации (вместо
-        # полной истории) — обычным игровым транскриптом. Окно ограничивает только буфер.
+        # With notes: under a header label, the compressed notes (wrapped in <game>), then under
+        # its own label the raw buffer of rounds played since the last consolidation (instead
+        # of the full history) — as a normal game transcript. The window only limits the buffer.
         parts = [f"{cfg.notes_header}\n" + cfg.notes_block_prompt.replace("{notes}", self.notes)]
         buffer = _window(self.entries[self.noted_upto:], window)
         if buffer:
@@ -63,16 +63,16 @@ class Memory:
 
 
 def render_turns(transcript: list[dict], me_id: str, msg_self: str, msg_partner: str) -> str:
-    """Отрисовать реплики cheap-talk тегами <you>/<имя> — общий код для истории и живого фида.
+    """Render cheap-talk turns with <you>/<name> tags — shared code for history and the live feed.
 
     Args:
-        transcript: Реплики раунда (каждая со `speaker` и `text`).
-        me_id: Идентификатор зрителя (его реплики идут как <you>).
-        msg_self: Шаблон собственной реплики ({text}).
-        msg_partner: Шаблон реплики партнёра ({partner}/{text}).
+        transcript: The round's turns (each with `speaker` and `text`).
+        me_id: Identifier of the viewer (their turns are rendered as <you>).
+        msg_self: Template for one's own turn ({text}).
+        msg_partner: Template for the partner's turn ({partner}/{text}).
 
     Returns:
-        Реплики, склеенные через перевод строки (пустая строка, если их нет).
+        Turns joined by newlines (empty string if there are none).
     """
     lines = []
     for t in transcript:
@@ -94,10 +94,10 @@ def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]
 
 
 def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
-    # Один прошлый раунд как кусок транскрипта: открытие чата, реплики, закрытие, ответ агента
-    # (при включённом rationale — обоснование и число одним <you>-блоком, иначе только число),
-    # вскрывающая строка результата. Партнёр назван по имени, свои реплики — <you>; кто открыл
-    # раунд видно по первому говорящему в transcript.
+    # One past round as a transcript chunk: chat opening, turns, close, the agent's response
+    # (with rationale enabled — rationale and number as one <you> block, otherwise just the
+    # number), the revealing result line. The partner is named, own turns are <you>; who
+    # opened the round is visible from the first speaker in the transcript.
     lines = [
         cfg.history_round_prompt
         .replace("{round}", str(e.round))
@@ -106,12 +106,12 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
     if e.transcript:
         lines.append(render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner))
     reason = cfg.reason_agreed if _both_agreed(e) else cfg.reason_limit
-    # close-строка зеркалит выбранный decide_prompt: rationale-вариант просит обоснование перед
-    # числом, bare — только число (выбор по cfg.rationale, как в decide).
+    # The close line mirrors the chosen decide_prompt: the rationale variant asks for a rationale
+    # before the number, bare — number only (chosen by cfg.rationale, same as in decide).
     close_tmpl = cfg.history_close_prompt_rationale if cfg.rationale else cfg.history_close_prompt
     lines.append(close_tmpl.replace("{reason}", reason))
-    # Ответ агента: при включённом rationale — обоснование и число одним <you>-блоком
-    # (как в JSON-ответе, обоснование раньше числа); иначе только секретное число.
+    # The agent's response: with rationale enabled — rationale and number as one <you> block
+    # (same as in the JSON response, rationale before the number); otherwise just the secret number.
     if cfg.show_rationale and e.my_rationale:
         lines.append(cfg.history_rationale_prompt
                      .replace("{my_rationale}", e.my_rationale)
@@ -128,24 +128,24 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
         .replace("{partner_payoff}", f"{e.partner_payoff:g}")
         .replace("{total}", f"{e.score + e.payoff:g}")
     )
-    # Приватные следы после результата (prediction/reflection) — каждый под своим флагом; строка
-    # добавляется, только если флаг включён И её поле непусто. Шаблоны живут в конфиге.
-    # (rationale — не здесь: он в блоке ответа перед числом, см. history_rationale_prompt выше.)
+    # Private traces after the result (prediction/reflection) — each under its own flag; the line
+    # is added only if the flag is on AND its field is non-empty. Templates live in the config.
+    # (rationale is not here: it's in the response block before the number, see history_rationale_prompt above.)
     if cfg.show_predicted and e.my_predicted is not None:
         lines.append(cfg.history_predicted_prompt
                      .replace("{partner}", e.partner_id)
                      .replace("{my_predicted}", str(e.my_predicted)))
-    # rationale больше не в хвосте — он в блоке ответа выше (history_rationale_prompt).
+    # rationale is no longer in the tail — it's in the response block above (history_rationale_prompt).
     if cfg.show_reflection and e.my_reflection:
         lines.append(cfg.history_reflection_prompt.replace("{my_reflection}", e.my_reflection))
     return "\n".join(lines)
 
 
 def both_agreed(transcript: list[dict], a_id: str, b_id: str) -> bool:
-    """Закрылся ли чат по согласию: оба участника хоть раз выставили finish/ready=true.
+    """Whether the chat closed by agreement: both participants set finish/ready=true at least once.
 
-    Иначе чат упёрся в лимит реплик. Единый источник истины для строки закрытия — и в
-    истории прошлых раундов (memory), и в живой фазе DECIDE (reputation_pd)."""
+    Otherwise the chat hit the turn limit. Single source of truth for the close line — both
+    in the history of past rounds (memory) and in the live DECIDE phase (reputation_pd)."""
     ready_speakers = {t.get("speaker") for t in transcript if t.get("ready")}
     return {a_id, b_id} <= ready_speakers
 

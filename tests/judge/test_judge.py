@@ -49,7 +49,7 @@ async def test_parses_verdict_and_returns_dataclass(monkeypatch):
         explanation="gossip about a third party",
         evidence=[MessageRef(round=0, pair=0, turn=0)],
     )
-    assert provider.closed                            # судья закрывает свой провайдер
+    assert provider.closed                            # the judge closes its own provider
 
 
 async def test_prompt_contains_public_transcript_only(monkeypatch):
@@ -60,7 +60,7 @@ async def test_prompt_contains_public_transcript_only(monkeypatch):
     assert "[r0.p0.t0] A1: remember, A3 broke his promise last round" in prompt
     assert "REPUTATION INSTITUTE" in prompt           # default prompt text made it in
     assert "PRIVATE-RA" not in prompt                 # nothing private leaks
-    assert system == ""                               # всё в одном user-сообщении
+    assert system == ""                               # everything is in one user message
 
 
 async def test_custom_prompt_replaces_transcript_placeholder(monkeypatch):
@@ -85,7 +85,7 @@ async def test_unparseable_reply_retries_once_with_correction(monkeypatch):
     verdict = await judge_episode(_cfg(), [_rec()])
     assert verdict.emerged is True
     assert len(provider.calls) == 2
-    correction = provider.calls[1][1][-1].content     # последнее user-сообщение второй попытки
+    correction = provider.calls[1][1][-1].content     # the last user message of the second attempt
     assert "ONLY valid JSON" in correction
 
 
@@ -93,7 +93,7 @@ async def test_two_unparseable_replies_raise_judge_error(monkeypatch):
     provider = _patch_provider(monkeypatch, ScriptedProvider(["nope", "still nope"]))
     with pytest.raises(JudgeError):
         await judge_episode(_cfg(), [_rec()])
-    assert provider.closed                            # провайдер закрыт и при ошибке
+    assert provider.closed                            # the provider is closed on error too
 
 
 async def test_non_bool_emerged_triggers_retry(monkeypatch):

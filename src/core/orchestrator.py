@@ -43,19 +43,19 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
     inspects (scores / memory) and closes (`aclose`). `pop` must come from
     `cfg.population`, e.g. make_population(cfg.population, ...).build(Random(cfg.seed)).
 
-    `start_round` (>=1) — с какого раунда играть: 1 для нового эпизода, last+1 для
-    возобновления. Матчмейкер засевается ПО РАУНДУ (Random(f"{seed}:matchmaker:{r}")),
-    поэтому пара раунда r одинакова независимо от того, играем мы с начала или
-    возобновляемся — перематывать rng-поток не нужно (см. resume в runner).
+    `start_round` (>=1) — which round to start playing from: 1 for a new episode, last+1
+    for resuming. The matchmaker is seeded PER ROUND (Random(f"{seed}:matchmaker:{r}")),
+    so round r's pairing is the same regardless of whether we play from the start or
+    resume — there is no need to rewind the rng stream (see resume in runner).
     """
     mm = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), cfg)
-    # seed / max_concurrency / matchmaker — рамка всего прогона (не патчатся по раундам).
+    # seed / max_concurrency / matchmaker — the frame for the whole run (not patched per round).
     sem = asyncio.Semaphore(cfg.max_concurrency)
-    for r in range(start_round, cfg.rounds + 1):                       # раунды нумеруются с 1
-        cfg_r = cfg_for_round(cfg, r)            # пораундовый конфиг: payoffs/talk/промпты/idle
-        game = ReputationPD(cfg_r.game)          # пересобираем — игра без состояния между парами; стратегия per-agent (agent.setup)
-        rng = random.Random(f"{cfg.seed}:matchmaker:{r}")             # M1: rng отдельный на раунд
+    for r in range(start_round, cfg.rounds + 1):                       # rounds are numbered from 1
+        cfg_r = cfg_for_round(cfg, r)            # per-round config: payoffs/talk/prompts/idle
+        game = ReputationPD(cfg_r.game)          # rebuilt each time — the game is stateless between pairs; strategy is per-agent (agent.setup)
+        rng = random.Random(f"{cfg.seed}:matchmaker:{r}")             # M1: a separate rng per round
         plan = await mm.plan_round(pop.ids(), r, rng, actor=None)
         recs = await asyncio.gather(*[                                  # fail-fast (C2)
             _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)

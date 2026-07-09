@@ -9,7 +9,7 @@ from src.storage.schema import init_schema
 
 @pytest.fixture
 def conn():
-    """Чистая in-memory БД с реальной схемой L1."""
+    """Clean in-memory DB with the real L1 schema."""
     c = sqlite3.connect(":memory:")
     init_schema(c)
     yield c
@@ -18,9 +18,9 @@ def conn():
 
 def add_run(conn, run_id, *, config_hash="d1", name=None, finished=True,
             seed=0, emerged=None):
-    """Вставить прогон (+ опционально вердикт судьи) в тестовую БД.
+    """Insert a run (+ optionally a judge verdict) into the test DB.
 
-    created_at делается уникальным по run_id, чтобы порядок выборки был детерминирован."""
+    created_at is made unique per run_id so that the sample order is deterministic."""
     conn.execute(
         "INSERT INTO runs(run_id, name, config, config_hash, seed, created_at, finished_at) "
         "VALUES (?,?,?,?,?,?,?)",

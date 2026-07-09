@@ -6,8 +6,8 @@ import pytest
 
 from src.core.config import EpisodeCfg, GameCfg, load_episode
 
-# Канонический пример-конфиг для тестов загрузки — пишется в tmp фикстурой `example`
-# (раньше тут грузился config/example.yaml; файл удалён, тесты больше от него не зависят).
+# Canonical example config for load tests — written to tmp by the `example` fixture
+# (previously config/example.yaml was loaded here; the file was removed, tests no longer depend on it).
 _EXAMPLE_YAML = textwrap.dedent(
     """
     seed: 42
@@ -79,7 +79,7 @@ def test_reflection_and_rationale_defaults(tmp_path):
     ))
     cfg = load_episode(str(f))
     assert cfg.game.reflection is False
-    assert cfg.game.rationale is True            # думать перед числом — по умолчанию да
+    assert cfg.game.rationale is True            # thinking before the number — yes by default
 
 
 def test_rationale_loaded_from_game_block(tmp_path):
@@ -104,7 +104,7 @@ def test_rationale_loaded_from_game_block(tmp_path):
 
 def test_reflection_loaded_from_game_block(example):
     cfg = load_episode(example)
-    assert cfg.game.reflection is True   # включено в примере конфигурации
+    assert cfg.game.reflection is True   # enabled in the example config
 
 
 def test_reasoning_loaded_from_provider_block(tmp_path):
@@ -164,7 +164,7 @@ def test_corrections_loaded_from_game_block(tmp_path):
 
 def test_population_provider_loaded(example):
     cfg = load_episode(example)
-    p = cfg.population.provider                       # один провайдер на популяцию (&default / *default)
+    p = cfg.population.provider                       # one provider for the population (&default / *default)
     assert p.model == "Qwen/Qwen2.5-7B-Instruct-Turbo"
     assert p.base_url.endswith("/v1")
     assert p.api_key_env == "TOGETHER_API_KEY"
@@ -226,7 +226,7 @@ def test_provider_required_at_population_level(tmp_path):
             - {persona: "p"}
         """
     ))
-    with pytest.raises(KeyError):                     # provider обязателен на уровне population, дефолта нет
+    with pytest.raises(KeyError):                     # provider is required at the population level, no default
         load_episode(str(f))
 
 
@@ -245,7 +245,7 @@ def test_system_prompt_defaults_when_omitted(tmp_path):
         """
     ))
     from src.core.config import DEFAULT_SYSTEM_PROMPT
-    cfg = load_episode(str(f))                        # system_prompt опущен -> дефолт (преамбула + правила)
+    cfg = load_episode(str(f))                        # system_prompt omitted -> default (preamble + rules)
     assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT
 
 
@@ -268,8 +268,8 @@ def test_system_prompt_loaded_per_agent(tmp_path):
 
 
 def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
-    # старые сохранённые конфиги (persona/identity_prompt/game.rules) должны грузиться,
-    # просто теряя удалённые поля — а не падать
+    # old saved configs (persona/identity_prompt/game.rules) must still load,
+    # simply losing the removed fields — not fail
     f = tmp_path / "legacy.yaml"
     f.write_text(textwrap.dedent(
         """
@@ -289,7 +289,7 @@ def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
     cfg = load_episode(str(f))
     assert not hasattr(cfg.population, "identity_prompt")
     assert not hasattr(cfg.game, "rules")
-    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT   # persona отброшена -> дефолт
+    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT   # persona discarded -> default
 
 
 def _seed_yaml(tmp_path, seed):
@@ -315,7 +315,7 @@ def test_seed_random_resolves_to_concrete_int(tmp_path):
 
 
 def test_seed_random_regenerates_each_load(tmp_path):
-    # каждая загрузка `seed: random` рождает НОВЫЙ сид -> среди нескольких загрузок есть разные
+    # each `seed: random` load produces a NEW seed -> across several loads there are different ones
     path = _seed_yaml(tmp_path, "random")
     seeds = {load_episode(path).seed for _ in range(8)}
     assert len(seeds) > 1
@@ -327,7 +327,7 @@ def test_seed_random_is_case_insensitive(tmp_path):
 
 
 def test_concrete_int_seed_is_preserved(tmp_path):
-    # обычный числовой сид остаётся дословно (воспроизводимость resume/extend)
+    # a plain numeric seed is preserved verbatim (resume/extend reproducibility)
     assert load_episode(_seed_yaml(tmp_path, 11)).seed == 11
 
 
@@ -383,7 +383,7 @@ def test_load_example_has_name_pools(example):
 
 
 def test_default_play_strategy_is_direct(example):
-    cfg = load_episode(example)                       # стратегия теперь на агенте (per-spec)
+    cfg = load_episode(example)                       # strategy now lives on the agent (per-spec)
     assert all(a.play_strategy == "direct" for a in cfg.population.agents)
     assert all(a.prediction_mapping == "match" for a in cfg.population.agents)
 
@@ -590,8 +590,8 @@ def test_schedule_loads_change_points(tmp_path):
 
 
 def test_invalid_patch_fails_fast_at_load(tmp_path):
-    # patch, дающий невалидный конфиг (memory_notes_every < 0), должен падать при загрузке,
-    # а не в момент раунда
+    # a patch that produces an invalid config (memory_notes_every < 0) must fail at load time,
+    # not at round time
     path = _schedule_yaml(tmp_path, textwrap.dedent(
         """
         schedule:

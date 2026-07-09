@@ -14,21 +14,21 @@ class Message:
 
 @dataclass(frozen=True)
 class HttpAttempt:
-    """Один HTTP-запрос к провайдеру (для L2-лога: пишем КАЖДЫЙ, включая сетевые ретраи).
+    """A single HTTP request to the provider (for the L2 log: we record EVERY one, including network retries).
 
-    Финальная удачная попытка несёт `response` (извлечённый текст) и токены; у
-    промежуточных ретраев `response=None`, токены 0. `response_raw` — дословное тело
-    (`resp.text`), включая тело 5xx; None при сетевой ошибке (ответа нет).
+    The final successful attempt carries `response` (the extracted text) and token counts;
+    intermediate retries have `response=None` and 0 tokens. `response_raw` is the verbatim
+    body (`resp.text`), including a 5xx body; None on a network error (no response).
 
     Attributes:
         status: ok | parse_error | bad_json | bad_shape | http_error | server_error | network.
-        status_code: HTTP-код попытки (None при сетевой ошибке).
-        request: Дословный отправленный payload.
-        response: Извлечённый текст (только на финальной ok-попытке).
-        response_raw: Дословное тело ответа строкой (resp.text).
-        error: Сообщение сбоя (None при успехе).
-        prompt_tokens: Токены промпта (на финальной ok-попытке).
-        completion_tokens: Токены ответа (на финальной ok-попытке).
+        status_code: HTTP code of the attempt (None on a network error).
+        request: The verbatim payload that was sent.
+        response: The extracted text (only on the final ok attempt).
+        response_raw: The verbatim response body as a string (resp.text).
+        error: Failure message (None on success).
+        prompt_tokens: Prompt tokens (on the final ok attempt).
+        completion_tokens: Completion tokens (on the final ok attempt).
     """
 
     status: str
@@ -47,8 +47,8 @@ class Completion:
     prompt_tokens: int
     completion_tokens: int
     raw: dict
-    request: dict | None = None     # дословный payload, отправленный провайдеру (для L2-лога)
-    attempts: tuple[HttpAttempt, ...] = ()   # все HTTP-попытки этого complete() (вкл. ретраи)
+    request: dict | None = None     # the exact payload sent to the provider (for the L2 log)
+    attempts: tuple[HttpAttempt, ...] = ()   # all HTTP attempts of this complete() (incl. retries)
 
 
 @runtime_checkable
@@ -68,19 +68,20 @@ class LLMProvider(Protocol):
 class ProviderError(Exception):
     """Base for all provider-layer failures.
 
-    Несёт сырьё сбойного вызова для L2-лога: что отправили (`request`) и все HTTP-попытки
-    (`attempts`, включая ретраи и терминальную). Заполняется на месте `raise` в провайдере;
-    верхние слои дополняют контекст (`agent_id`/`phase`/`attempt`) и разворачивают попытки
-    в `calls` (LLMCall). Атрибуты-дефолты, чтобы их всегда можно было прочитать.
+    Carries the raw material of the failed call for the L2 log: what was sent (`request`) and
+    all HTTP attempts (`attempts`, including retries and the terminal one). Populated in place
+    at the `raise` site in the provider; upper layers add context (`agent_id`/`phase`/`attempt`)
+    and unpack the attempts into `calls` (LLMCall). Attributes have defaults so they can always
+    be read.
     """
 
     request: dict | None = None
-    attempts: tuple = ()            # HttpAttempt'ы (ретраи + терминальная)
-    # дополняются верхними слоями (Agent.act / игра) перед повторным raise:
+    attempts: tuple = ()            # HttpAttempts (retries + the terminal one)
+    # filled in by the upper layers (Agent.act / the game) before re-raising:
     agent_id: str | None = None
     phase: str | None = None
     attempt: int | None = None
-    calls: tuple = ()               # LLMCall'ы этого act() (для L2-лога)
+    calls: tuple = ()               # LLMCalls of this act() (for the L2 log)
 
 
 class ProviderHTTPError(ProviderError):

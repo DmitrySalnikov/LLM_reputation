@@ -8,7 +8,7 @@ from src.stats.wilson import wilson_interval
 
 @dataclass(frozen=True)
 class RunRow:
-    """Один оценённый судьёй прогон: исход emerged + к какому дизайну относится."""
+    """A single judge-scored run: emerged outcome + which design it belongs to."""
 
     run_id: int
     config_hash: str
@@ -18,7 +18,7 @@ class RunRow:
 
 @dataclass(frozen=True)
 class DesignStat:
-    """Статистика по одному дизайну (config_hash): доля + интервал Вилсона."""
+    """Statistics for a single design (config_hash): rate + Wilson interval."""
 
     config_hash: str
     name: str | None
@@ -31,9 +31,9 @@ class DesignStat:
 
 
 def load_judged_runs(conn: sqlite3.Connection, run_ids: list[int]) -> list[RunRow]:
-    """Прочитать (config_hash, name, emerged) для прогонов, у которых есть вердикт.
+    """Read (config_hash, name, emerged) for runs that have a verdict.
 
-    Прогоны без вердикта молча выпадают (INNER JOIN). Порядок результата — как в run_ids."""
+    Runs without a verdict are silently dropped (INNER JOIN). Result order matches run_ids."""
     if not run_ids:
         return []
     found = {
@@ -49,10 +49,10 @@ def load_judged_runs(conn: sqlite3.Connection, run_ids: list[int]) -> list[RunRo
 
 
 def aggregate_by_design(rows: list[RunRow]) -> list[DesignStat]:
-    """Сгруппировать прогоны по config_hash; доля + 95% интервал Вилсона на группу.
+    """Group runs by config_hash; rate + 95% Wilson interval per group.
 
-    Порядок групп — по первому появлению config_hash в rows. name группы — name первого
-    прогона в ней (подпись для графика)."""
+    Group order follows the first occurrence of config_hash in rows. The group's name is
+    the name of its first run (used as the chart label)."""
     order: list[str] = []
     groups: dict[str, list[RunRow]] = {}
     for r in rows:

@@ -5,12 +5,12 @@ from src.judge.keyword import KeywordCount, count_mentions
 
 
 def _rec(round=0, a="A1", b="A2", transcript=None):
-    """Запись пары только с публичным transcript (остальное не важно для подсчёта)."""
+    """Pairing record with only a public transcript (the rest doesn't matter for counting)."""
     return PairingRecord(round=round, a_id=a, b_id=b, transcript=transcript or [])
 
 
 def test_should_count_distinct_speakers_not_occurrences():
-    # один говорящий повторяет термин дважды в одной реплике -> 1
+    # one speaker repeats the term twice in a single message -> 1
     rec = _rec(transcript=[{"speaker": "A1", "text": "123 and again 123", "ready": False}])
     result = count_mentions([rec], "123")
     assert result.count == 1
@@ -18,7 +18,7 @@ def test_should_count_distinct_speakers_not_occurrences():
 
 
 def test_should_ignore_speaker_name_and_match_only_reply_text():
-    # говорящий назван термином, но в его тексте термина нет -> 0 (имена не учитываются)
+    # the speaker is named after the term, but the term isn't in their text -> 0 (names aren't counted)
     rec = _rec(transcript=[{"speaker": "123", "text": "hello there", "ready": False}])
     result = count_mentions([rec], "123")
     assert result.count == 0
@@ -51,4 +51,4 @@ def test_should_count_each_distinct_speaker_once_across_records():
     ]
     result = count_mentions(recs, "trust")
     assert result.count == 2
-    assert result.speakers == ("A1", "A3")   # отсортированы, A1 не задвоен
+    assert result.speakers == ("A1", "A3")   # sorted, A1 not duplicated

@@ -64,7 +64,7 @@ def test_begin_writes_runs_and_agents(tmp_path):
     st = _store(tmp_path)
     try:
         run_id = st.begin(cfg, _pop(cfg))
-        assert run_id == 1           # первый прогон в свежей БД -> инкрементный id = 1
+        assert run_id == 1           # first run in a fresh DB -> incremental id = 1
         c = st._conn
         assert c.execute("SELECT run_id, seed FROM runs").fetchall() == [(1, 0)]
         agents = c.execute("SELECT agent_id, system_prompt FROM agents ORDER BY agent_id").fetchall()
@@ -76,22 +76,22 @@ def test_begin_writes_runs_and_agents(tmp_path):
 
 
 def test_run_id_is_incremental_and_config_hash_groups_runs(tmp_path):
-    # run_id — счётчик (1, 2, 3 …), а группирует прогоны одного конфига колонка config_hash
+    # run_id is a counter (1, 2, 3 …); runs of the same config are grouped by the config_hash column
     st = _store(tmp_path)
     try:
         id1 = st.begin(_cfg(seed=1), _pop(_cfg(seed=1)))
-        id2 = st.begin(_cfg(seed=1), _pop(_cfg(seed=1)))   # тот же конфиг -> НОВЫЙ номер
+        id2 = st.begin(_cfg(seed=1), _pop(_cfg(seed=1)))   # same config -> NEW number
         id3 = st.begin(_cfg(seed=2), _pop(_cfg(seed=2)))
         assert [id1, id2, id3] == [1, 2, 3]
         hashes = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
-        assert hashes[id1] == hashes[id2]      # одинаковый конфиг -> одинаковый config_hash
-        assert hashes[id1] != hashes[id3]      # иной seed -> иной config_hash
+        assert hashes[id1] == hashes[id2]      # same config -> same config_hash
+        assert hashes[id1] != hashes[id3]      # different seed -> different config_hash
     finally:
         st.close()
 
 
 def test_config_hash_ignores_rounds(tmp_path):
-    # rounds — «докуда досимулировали», не часть дизайна: прогон и его продолжение делят config_hash
+    # rounds is "how far the simulation got to", not part of the design: a run and its continuation share config_hash
     st = _store(tmp_path)
     try:
         short = _cfg(seed=1, rounds=2)
@@ -99,7 +99,7 @@ def test_config_hash_ignores_rounds(tmp_path):
         id_s = st.begin(short, _pop(short))
         id_l = st.begin(long, _pop(long))
         h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
-        assert h[id_s] == h[id_l]               # разная длина -> один config_hash (одна семья)
+        assert h[id_s] == h[id_l]               # different length -> one config_hash (same family)
     finally:
         st.close()
 
@@ -109,7 +109,7 @@ def test_begin_twice_creates_two_distinct_runs(tmp_path):
     st = _store(tmp_path)
     try:
         first = st.begin(cfg, _pop(cfg))
-        second = st.begin(cfg, _pop(cfg))            # дедупа больше нет: второй прогон — новый номер
+        second = st.begin(cfg, _pop(cfg))            # no more dedup: the second run gets a new number
         assert first != second
         assert st._conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
     finally:
@@ -121,10 +121,10 @@ def test_is_finished_reflects_finished_at(tmp_path):
     st = _store(tmp_path)
     try:
         rid = st.begin(cfg, _pop(cfg))
-        assert st.is_finished(rid) is False          # ещё не доигран
-        st.finish(_pop(cfg))                          # проставляет finished_at
+        assert st.is_finished(rid) is False          # not finished yet
+        st.finish(_pop(cfg))                          # sets finished_at
         assert st.is_finished(rid) is True
-        assert st.is_finished("nope") is False        # отсутствующий прогон
+        assert st.is_finished("nope") is False        # missing run
     finally:
         st.close()
 
@@ -133,10 +133,10 @@ def test_unfinished_runs_lists_only_open_runs(tmp_path):
     cfg = _cfg()
     st = _store(tmp_path)
     try:
-        r1 = st.begin(cfg, _pop(cfg), name="m 0")     # доиграем
-        r2 = st.begin(cfg, _pop(cfg), name="m 1")     # оставим открытым
+        r1 = st.begin(cfg, _pop(cfg), name="m 0")     # will finish this one
+        r2 = st.begin(cfg, _pop(cfg), name="m 1")     # leave this one open
         st._conn.execute("UPDATE runs SET finished_at=? WHERE run_id=?", ("2026-01-01", r1))
-        assert st.unfinished_runs() == [(r2, "m 1")]   # только незавершённый, с именем
+        assert st.unfinished_runs() == [(r2, "m 1")]   # only the unfinished one, with its name
     finally:
         st.close()
 
@@ -147,7 +147,7 @@ def test_run_id_by_name_finds_run(tmp_path):
     try:
         rid = st.begin(cfg, _pop(cfg), name="llama 7")
         assert st.run_id_by_name("llama 7") == rid
-        assert st.run_id_by_name("nope") is None        # нет такого имени
+        assert st.run_id_by_name("nope") is None        # no such name
     finally:
         st.close()
 
@@ -248,7 +248,7 @@ def test_observe_writes_llm_calls_with_join(tmp_path):
             (0, "A1", "talk", 0, 1, 1, "ok", 200, "hi"),
             (1, "A1", "decide", None, 1, 1, "ok", 200, '{"number":4}'),
         ]
-        # джойн llm_calls -> pairings: сырой вызов рядом со своим исходом
+        # join llm_calls -> pairings: raw call next to its outcome
         joined = c.execute(
             "SELECT lc.phase, p.a_outcome FROM llm_calls lc "
             "JOIN pairings p USING (run_id, round_idx, pair_idx) WHERE lc.phase='decide'"
@@ -278,7 +278,7 @@ def test_observe_persists_memory_notes_and_note_calls(tmp_path):
         st.observe(1, _plan(idle=["A3"]), [rec])
         c = st._conn
         assert c.execute("SELECT a_notes, b_notes FROM pairings").fetchone() == ("A2 cooperates", "A1 cooperates")
-        # note-вызов лёг в llm_calls и джойнится со своей парой
+        # the note call landed in llm_calls and joins with its pair
         joined = c.execute(
             "SELECT lc.phase, p.a_notes FROM llm_calls lc "
             "JOIN pairings p USING (run_id, round_idx, pair_idx) WHERE lc.phase='note'"
@@ -337,11 +337,11 @@ async def test_logs_full_episode(tmp_path):
         assert c.execute("SELECT COUNT(*) FROM pairings").fetchone()[0] == 2     # 1 pair/round
         assert c.execute("SELECT COUNT(*) FROM idle").fetchone()[0] == 2         # 1 idle/round (N=3)
         assert c.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0     # max_talk_turns=0
-        # L2: 2 decide-вызова на пару (a, b) -> 2 пары -> 4 строки llm_calls, все ok decide
+        # L2: 2 decide calls per pair (a, b) -> 2 pairs -> 4 llm_calls rows, all ok decide
         assert c.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0] == 4
         assert all(s == "ok" and p == "decide"
                    for s, p in c.execute("SELECT status, phase FROM llm_calls"))
-        # каждая строка llm_calls джойнится со своей парой (FK + (round,pair))
+        # each llm_calls row joins with its pair (FK + (round,pair))
         assert c.execute(
             "SELECT COUNT(*) FROM llm_calls lc JOIN pairings p USING (run_id, round_idx, pair_idx)"
         ).fetchone()[0] == 4
@@ -354,11 +354,11 @@ async def test_logs_full_episode(tmp_path):
         st.close()
 
 
-# ---- Slice: load_state — реконструкция состояния прогона из БД (resume) ----
+# ---- Slice: load_state — reconstructing a run's state from the DB (resume) ----
 
 async def test_load_state_reconstructs_memory_and_scores(tmp_path):
-    # гоняем реальный эпизод, затем восстанавливаем из БД: дневники должны рендериться
-    # ПОБАЙТОВО как у «живой» популяции, счёт — совпадать, last_round — номер последнего раунда
+    # run a real episode, then restore from the DB: diaries must render
+    # BYTE-FOR-BYTE like the "live" population, score must match, last_round is the last round's number
     cfg = _cfg(n=3, rounds=3)
     pop = _pop(cfg)
     st = _store(tmp_path)
@@ -371,11 +371,11 @@ async def test_load_state_reconstructs_memory_and_scores(tmp_path):
     state = st.load_state(rid, cfg.idle_payoff)
     try:
         assert state.last_round == 3
-        assert state.scores == {a.id: a.score for a in pop}        # счёт восстановлен точно (с idle)
+        assert state.scores == {a.id: a.score for a in pop}        # score restored exactly (including idle)
         for a in pop:
             live = [m.content for m in a.memory.render(cfg.context_window, cfg.game)]
             restored = [m.content for m in state.memories[a.id].render(cfg.context_window, cfg.game)]
-            assert restored == live                                 # память рендерится идентично
+            assert restored == live                                 # memory renders identically
     finally:
         st.close()
 
@@ -385,7 +385,7 @@ def test_load_state_restores_notes_buffer_and_idle_score(tmp_path):
     st = _store(tmp_path)
     rid = st.begin(cfg, _pop(cfg))
     try:
-        # раунд 1: A1 vs A2 (A1 свернул заметки), A3 idle
+        # round 1: A1 vs A2 (A1 folded notes), A3 idle
         rec1 = PairingRecord(
             round=1, a_id="A1", b_id="A2", transcript=[],
             a_number=4, b_number=4, a_rationale="ra", b_rationale="rb",
@@ -393,7 +393,7 @@ def test_load_state_restores_notes_buffer_and_idle_score(tmp_path):
             usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
         )
         st.observe(1, RoundPlan(pairings=[("A1", "A2")], idle=["A3"], events=[]), [rec1])
-        # раунд 2: A1 vs A3 (буфер после заметок), A2 idle; A1 перебил A3
+        # round 2: A1 vs A3 (buffer after notes), A2 idle; A1 outbid A3
         rec2 = PairingRecord(
             round=2, a_id="A1", b_id="A3", transcript=[],
             a_number=5, b_number=4, a_rationale="ra2", b_rationale="rb2",
@@ -406,9 +406,9 @@ def test_load_state_restores_notes_buffer_and_idle_score(tmp_path):
         assert state.last_round == 2
         m = state.memories["A1"]
         assert m.notes == "A2 is honest"
-        assert m.noted_upto == 1                  # один раунд свёрнут в заметки
-        assert len(m.entries) == 2                # свежий буфер (раунд 2) сохранён
-        # счёт: A1 = 3+5 = 8; A2 сыграл r1 (+3) и idle r2 (+1) = 4; A3 idle r1 (+1) + r2 (0) = 1
+        assert m.noted_upto == 1                  # one round folded into notes
+        assert len(m.entries) == 2                # fresh buffer (round 2) kept
+        # score: A1 = 3+5 = 8; A2 played r1 (+3) and was idle r2 (+1) = 4; A3 was idle r1 (+1) + r2 (0) = 1
         assert state.scores == {"A1": 8.0, "A2": 4.0, "A3": 1.0}
     finally:
         st.close()
@@ -428,13 +428,13 @@ def test_config_hash_ignores_judge_block(tmp_path):
         id_base = st.begin(base, _pop(base))
         id_judged = st.begin(judged, _pop(judged))
         h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
-        assert h[id_base] == h[id_judged]      # судья — аналитика, не геймплей: config_hash не меняется
+        assert h[id_base] == h[id_judged]      # judge is analytics, not gameplay: config_hash doesn't change
     finally:
         st.close()
 
 
 def test_config_hash_changes_with_schedule(tmp_path):
-    # расписание — часть дизайна: иной schedule -> иной config_hash; но rounds по-прежнему вне хеша
+    # schedule is part of the design: a different schedule -> a different config_hash; but rounds is still outside the hash
     from src.core.config import ChangePoint
 
     base = _cfg(seed=1)
@@ -446,8 +446,8 @@ def test_config_hash_changes_with_schedule(tmp_path):
         id_sched = st.begin(scheduled, _pop(scheduled))
         id_long = st.begin(longer, _pop(longer))
         h = dict(st._conn.execute("SELECT run_id, config_hash FROM runs").fetchall())
-        assert h[id_base] != h[id_sched]       # расписание меняет дизайн
-        assert h[id_sched] == h[id_long]       # rounds всё ещё вне хеша (та же семья)
+        assert h[id_base] != h[id_sched]       # schedule changes the design
+        assert h[id_sched] == h[id_long]       # rounds is still outside the hash (same family)
     finally:
         st.close()
 
@@ -480,6 +480,6 @@ def test_save_verdict_roundtrip(tmp_path):
         assert row[1] == "gossip observed"
         assert json.loads(row[2]) == [{"round": 0, "pair": 0, "turn": 1}]
         assert row[3] == "judge-m"
-        assert row[4]                                  # created_at заполнен
+        assert row[4]                                  # created_at is filled in
     finally:
         st.close()

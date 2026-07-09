@@ -1,4 +1,4 @@
-"""Прямая стратегия: агент сразу выбирает число через фазу DECIDE."""
+"""Direct strategy: the agent picks a number right away via the DECIDE phase."""
 
 from __future__ import annotations
 
@@ -9,30 +9,30 @@ from src.strategy.base import Decision
 
 
 class DirectStrategy:
-    """Стратегия прямого выбора числа без шага предсказания."""
+    """Strategy of picking a number directly, without a prediction step."""
 
     def __init__(self, game_cfg: GameCfg):
-        """Инициализировать стратегию конфигурацией игры.
+        """Initialize the strategy with the game configuration.
 
         Args:
-            game_cfg: Конфигурация игры (статичные шаблоны decide_prompt/_bare + флаг rationale).
+            game_cfg: Game configuration (static decide_prompt/_bare templates + rationale flag).
         """
         self._game = game_cfg
         self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, reason: str = "") -> Decision:
-        """Запросить у агента финальный выбор числа в фазе DECIDE.
+        """Ask the agent for the final number choice in the DECIDE phase.
 
         Args:
-            agent: Агент, принимающий решение.
-            partner_id: Идентификатор партнёра в текущем раунде.
-            round: Номер раунда.
-            feed: Отрендеренная история переговоров.
-            reason: Почему закрылся чат (для строки закрытия в промпте).
+            agent: The agent making the decision.
+            partner_id: Partner identifier in the current round.
+            round: Round number.
+            feed: Rendered negotiation history.
+            reason: Why the chat closed (for the closing line in the prompt).
 
         Returns:
-            Решение с выбранным числом и обоснованием (без предсказания).
+            Decision with the chosen number and rationale (no prediction).
         """
         res = await agent.act(
             Phase(PhaseKind.DECIDE,
