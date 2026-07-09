@@ -6,8 +6,8 @@ from src.providers.base import Completion, HttpAttempt
 
 
 def _scripted_completion(*, system, messages, temperature, max_tokens, text, pt, ct) -> Completion:
-    """Собрать Completion как реальный провайдер: с request (отправленный payload),
-    raw (распарсенное тело) и одной успешной HttpAttempt — чтобы L2-лог был осмысленным."""
+    """Assemble a Completion like a real provider: with request (the sent payload),
+    raw (the parsed body), and one successful HttpAttempt — so the L2 log is meaningful."""
     request = {
         "model": "scripted",
         "messages": [{"role": "system", "content": system},

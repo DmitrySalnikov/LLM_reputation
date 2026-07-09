@@ -1,8 +1,8 @@
-"""LLM-судья: один вызов модели над публичным cheap-talk законченного эпизода.
+"""LLM judge: a single model call over the public cheap-talk of a finished episode.
 
-Вызывается СНАРУЖИ движка (runner / демо) после run_episode — оркестратор не
-изменяется. Судья владеет своим провайдером (отдельная модель из JudgeCfg) и
-закрывает его сам.
+Called OUTSIDE the engine (runner / demo) after run_episode — the orchestrator is
+not modified. The judge owns its provider (a separate model from JudgeCfg) and
+closes it itself.
 """
 
 from __future__ import annotations
@@ -24,21 +24,21 @@ _REF_RE = re.compile(r"^r(\d+)\.p(\d+)\.t(\d+)$")
 
 
 async def judge_episode(cfg: JudgeCfg, records: list[PairingRecord]) -> JudgeVerdict:
-    """Вынести вердикт о возникновении института репутации в эпизоде.
+    """Produce a verdict on whether an institution of reputation emerged in the episode.
 
-    Один LLM-вызов: промпт = cfg.prompt с подставленным публичным транскриптом.
-    При неразборчивом ответе — одна повторная попытка с поправкой, затем JudgeError.
+    A single LLM call: prompt = cfg.prompt with the public transcript substituted in.
+    On an unparsable response — one retry with a correction, then JudgeError.
 
     Args:
-        cfg: Конфигурация судьи (отдельный провайдер + шаблон промпта).
-        records: Все записи пар эпизода в порядке наблюдения.
+        cfg: Judge configuration (separate provider + prompt template).
+        records: All pairing records of the episode in observation order.
 
     Returns:
-        JudgeVerdict с проверенными ссылками на сообщения-доказательства.
+        JudgeVerdict with validated references to evidence messages.
 
     Raises:
-        JudgeError: Ответ не разобрался в валидный вердикт после повтора.
-        ProviderError: Сетевые/HTTP-ошибки провайдера (пробрасываются как есть).
+        JudgeError: The response did not parse into a valid verdict after a retry.
+        ProviderError: Network/HTTP errors from the provider (propagated as-is).
     """
     prompt = cfg.prompt.replace("{transcript}", render_transcript(records))
     provider = make_provider(cfg.provider)
@@ -65,13 +65,13 @@ async def judge_episode(cfg: JudgeCfg, records: list[PairingRecord]) -> JudgeVer
                 Message("assistant", comp.text),
                 Message("user", cfg.correction),
             ]
-        raise JudgeError("судья вернул неразборчивый ответ после повторной попытки")
+        raise JudgeError("the judge returned an unparsable response after a retry")
     finally:
         await provider.aclose()
 
 
 def _validate_verdict(obj: dict) -> dict | None:
-    """Проверить разобранный JSON вердикта; None -> повтор с поправкой."""
+    """Validate the parsed verdict JSON; None -> retry with a correction."""
     emerged = obj.get("emerged")
     if not isinstance(emerged, bool):
         return None
@@ -86,7 +86,7 @@ def _validate_verdict(obj: dict) -> dict | None:
 
 
 def _validate_evidence(ids: list[str], records: list[PairingRecord]) -> list[MessageRef]:
-    """Отфильтровать цитаты судьи: оставить только существующие сообщения."""
+    """Filter the judge's citations: keep only messages that actually exist."""
     existing = valid_refs(records)
     out: list[MessageRef] = []
     for raw in ids:
@@ -96,5 +96,5 @@ def _validate_evidence(ids: list[str], records: list[PairingRecord]) -> list[Mes
             if (ref.round, ref.pair, ref.turn) in existing:
                 out.append(ref)
                 continue
-        _log.debug("судья сослался на несуществующее сообщение: %r — ссылка отброшена", raw)
+        _log.debug("judge referenced a non-existent message: %r — reference dropped", raw)
     return out

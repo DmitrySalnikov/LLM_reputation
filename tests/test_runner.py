@@ -56,7 +56,7 @@ def _judge():
     return JudgeCfg(provider=ProviderCfg(base_url="http://j/v1", model="judge-m"))
 
 
-# ---- quiet mode (для свипов: research.py гоняет сотни прогонов) ----
+# ---- quiet mode (for sweeps: research.py runs hundreds of runs) ----
 
 async def test_quiet_run_suppresses_narration(tmp_path, capsys):
     db = str(tmp_path / "t.db")
@@ -68,7 +68,7 @@ async def test_quiet_run_suppresses_narration(tmp_path, capsys):
 
 async def test_loud_run_narrates_by_default(tmp_path, capsys):
     db = str(tmp_path / "t.db")
-    await runner.run_experiment(_cfg(rounds=1), db)        # quiet=False по умолчанию
+    await runner.run_experiment(_cfg(rounds=1), db)        # quiet=False by default
     out = capsys.readouterr().out
     assert "ROUND" in out and "FINAL SCOREBOARD" in out
 
@@ -77,7 +77,7 @@ async def test_quiet_resume_suppresses_narration(tmp_path, capsys):
     db = str(tmp_path / "t.db")
     rid = await runner.run_experiment(_cfg(rounds=2), db, quiet=True)
     capsys.readouterr()
-    await runner.resume_run(rid, db, rounds=4, quiet=True)  # extend 2 -> 4 тихо
+    await runner.resume_run(rid, db, rounds=4, quiet=True)  # extend 2 -> 4 quietly
     out = capsys.readouterr().out
     assert "ROUND" not in out and "Resuming run" not in out
 
@@ -85,7 +85,7 @@ async def test_quiet_resume_suppresses_narration(tmp_path, capsys):
 async def test_quiet_run_still_persists(tmp_path):
     db = str(tmp_path / "t.db")
     rid = await runner.run_experiment(_cfg(rounds=1, n=2), db, quiet=True)
-    assert _final_scores(db, rid)                          # данные записаны, несмотря на тишину
+    assert _final_scores(db, rid)                          # data written despite the silence
 
 
 async def test_rerunning_config_creates_new_run_and_leaves_existing(tmp_path):
@@ -97,21 +97,21 @@ async def test_rerunning_config_creates_new_run_and_leaves_existing(tmp_path):
 
     db = str(tmp_path / "t.db")
     cfg = _cfg()
-    # уже есть оборванный прогон того же конфига (begin без finish)
+    # an aborted run of the same config already exists (begin without finish)
     st = Storage(db)
     pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
     rid = st.begin(cfg, pop)
     st.close()
     await pop.aclose()
 
-    run_id = await runner.run_experiment(cfg, db)      # дедупа нет -> новый прогон, старый не трогаем
+    run_id = await runner.run_experiment(cfg, db)      # no dedup -> new run, old one untouched
     assert run_id != rid
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2                            # оба сохранены
-        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is None       # оборванный так и не доигран
-        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (run_id,)).fetchone()[0] is not None  # новый доигран
+        assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2                            # both saved
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is None       # the aborted one was never finished
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (run_id,)).fetchone()[0] is not None  # the new one finished
     finally:
         conn.close()
 
@@ -121,24 +121,24 @@ async def test_rerunning_finished_config_creates_second_run(tmp_path):
 
     db = str(tmp_path / "t.db")
     cfg = _cfg()
-    first = await runner.run_experiment(cfg, db)       # доигран до конца
-    second = await runner.run_experiment(cfg, db)      # тот же конфиг -> новый номер, не «nothing to do»
+    first = await runner.run_experiment(cfg, db)       # finished to completion
+    second = await runner.run_experiment(cfg, db)      # same config -> new number, not "nothing to do"
     assert first != second
 
     conn = sqlite3.connect(db)
     try:
         assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
         hs = [h for (h,) in conn.execute("SELECT config_hash FROM runs")]
-        assert hs[0] == hs[1]                          # одинаковый конфиг -> одинаковый config_hash
+        assert hs[0] == hs[1]                          # same config -> same config_hash
     finally:
         conn.close()
 
 
-# ---- resume / extend (по явному номеру прогона) ----
+# ---- resume / extend (by explicit run number) ----
 
 async def test_resume_unfinished_run_completes_to_configured_rounds(tmp_path):
-    # Эталон — прямой прогон на 4 раунда. Затем строим ОБОРВАННЫЙ прогон того же конфига
-    # (сыграно 2 из 4, без finish) и возобновляем — итог должен совпасть с эталоном.
+    # Reference — a straight 4-round run. Then we build an ABORTED run of the same config
+    # (2 of 4 played, without finish) and resume it — the result must match the reference.
     import random
 
     from src.core.orchestrator import run_episode
@@ -153,18 +153,18 @@ async def test_resume_unfinished_run_completes_to_configured_rounds(tmp_path):
     db = str(tmp_path / "t.db")
     pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
     st = Storage(db)
-    rid = st.begin(cfg, pop)                                  # config хранит rounds=4
-    await run_episode(replace(cfg, rounds=2), pop, observer=st.observe)   # но сыграно лишь 2, без finish
+    rid = st.begin(cfg, pop)                                  # config holds rounds=4
+    await run_episode(replace(cfg, rounds=2), pop, observer=st.observe)   # but only 2 played, without finish
     st.close()
     await pop.aclose()
 
-    done = await runner.resume_run(rid, db)                  # без rounds -> доиграть до сохранённых 4
+    done = await runner.resume_run(rid, db)                  # without rounds -> finish up to the saved 4
     assert done == rid
-    assert _final_scores(db, rid) == ref_scores              # возобновлённый == прямому прогону
+    assert _final_scores(db, rid) == ref_scores              # resumed == straight run
 
 
 async def test_extend_finished_run_matches_straight_run(tmp_path):
-    # Доигранный прогон на 2 раунда, доращённый до 4, должен совпасть с прямым прогоном на 4.
+    # A finished 2-round run, extended to 4, must match a straight 4-round run.
     cfg2 = _cfg(n=3, rounds=2)
     cfg4 = _cfg(n=3, rounds=4)
     ref_db = str(tmp_path / "ref.db")
@@ -172,14 +172,14 @@ async def test_extend_finished_run_matches_straight_run(tmp_path):
     ref_scores = _final_scores(ref_db, ref_id)
 
     db = str(tmp_path / "t.db")
-    rid = await runner.run_experiment(cfg2, db)              # доигран до 2
-    same = await runner.resume_run(rid, db, rounds=4)        # extend до 4
+    rid = await runner.run_experiment(cfg2, db)              # finished to 2
+    same = await runner.resume_run(rid, db, rounds=4)        # extend to 4
     assert same == rid
     assert _final_scores(db, rid) == ref_scores
     import sqlite3
     conn = sqlite3.connect(db)
     try:
-        # rounds в сохранённом config вырос до 4, finished_at снова проставлен
+        # rounds in the saved config grew to 4, finished_at set again
         assert json.loads(conn.execute("SELECT config FROM runs WHERE run_id=?", (rid,)).fetchone()[0])["rounds"] == 4
         assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
         assert conn.execute("SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 4
@@ -188,9 +188,9 @@ async def test_extend_finished_run_matches_straight_run(tmp_path):
 
 
 async def test_extend_honors_schedule_patch_for_new_rounds(tmp_path):
-    # Прогон с patch, вступающим в силу на раунде 3; короткий прогон (2 раунда) до него не доходит,
-    # extend до 4 должен сыграть раунды 3–4 уже по патчу и совпасть с прямым прогоном того же
-    # расписания на 4 раунда.
+    # A run with a patch taking effect at round 3; the short run (2 rounds) doesn't reach it,
+    # extend to 4 must play rounds 3-4 already under the patch and match a straight run of the
+    # same schedule for 4 rounds.
     from src.core.config import ChangePoint
 
     sched = (ChangePoint(from_round=3, patch={"game": {"payoffs": {"R": 7}}}),)
@@ -202,8 +202,8 @@ async def test_extend_honors_schedule_patch_for_new_rounds(tmp_path):
     ref_scores = _final_scores(ref_db, ref_id)
 
     db = str(tmp_path / "t.db")
-    rid = await runner.run_experiment(cfg2, db)         # сыграно 2 (патч ещё не активен)
-    same = await runner.resume_run(rid, db, rounds=4)   # extend до 4 -> раунды 3–4 по патчу
+    rid = await runner.run_experiment(cfg2, db)         # 2 played (patch not yet active)
+    same = await runner.resume_run(rid, db, rounds=4)   # extend to 4 -> rounds 3-4 under the patch
     assert same == rid
     assert _final_scores(db, rid) == ref_scores
 
@@ -212,17 +212,17 @@ async def test_resume_already_complete_is_noop(tmp_path, capsys):
     db = str(tmp_path / "t.db")
     rid = await runner.run_experiment(_cfg(rounds=2), db)
     capsys.readouterr()
-    res = await runner.resume_run(rid, db)                   # уже сыграно 2 из 2
+    res = await runner.resume_run(rid, db)                   # already played 2 of 2
     out = capsys.readouterr().out.lower()
     assert res == rid
     assert "nothing to do" in out
 
 
 async def test_resume_finalizes_run_aborted_on_final_round(tmp_path):
-    # Эпизод, оборванный на ПОСЛЕДНЕМ раунде: все round-строки уже записаны (сорванная пара
-    # пишется в БД до EpisodeAborted), но finished_at не проставлен — last_round == rounds.
-    # Старый guard на этом отдавал «nothing to do», и прогон оставался навечно недоигранным.
-    # resume должен ЗАКРЫТЬ его (проставить finished_at), не доигрывая новых раундов.
+    # An episode aborted on the LAST round: all round rows are already written (the aborted pair
+    # is written to the DB before EpisodeAborted), but finished_at is not set — last_round == rounds.
+    # The old guard used to return "nothing to do" here, and the run stayed forever unfinished.
+    # resume must CLOSE it (set finished_at), without playing any new rounds.
     import random
     import sqlite3
 
@@ -235,25 +235,25 @@ async def test_resume_finalizes_run_aborted_on_final_round(tmp_path):
     pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
     st = Storage(db)
     rid = st.begin(cfg, pop)
-    await run_episode(cfg, pop, observer=st.observe)        # сыграны оба раунда, но БЕЗ finish
+    await run_episode(cfg, pop, observer=st.observe)        # both rounds played, but WITHOUT finish
     assert not st.is_finished(rid)
     st.close()
     await pop.aclose()
 
-    done = await runner.resume_run(rid, db)                 # last_round(2) >= rounds(2), но не finished
+    done = await runner.resume_run(rid, db)                 # last_round(2) >= rounds(2), but not finished
     assert done == rid
     conn = sqlite3.connect(db)
     try:
         assert conn.execute(
             "SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
         assert conn.execute(
-            "SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # без новых раундов
+            "SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # no new rounds
     finally:
         conn.close()
     import sqlite3
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # без новых раундов
+        assert conn.execute("SELECT COUNT(*) FROM rounds WHERE run_id=?", (rid,)).fetchone()[0] == 2  # no new rounds
     finally:
         conn.close()
 
@@ -278,7 +278,7 @@ async def test_judge_verdict_printed_and_persisted(tmp_path, monkeypatch, capsys
 
     run_id = await runner.run_experiment(_cfg(judge=_judge()), str(tmp_path / "t.db"))
 
-    assert seen == {"model": "judge-m", "n_records": 1}   # судья получил собранные записи
+    assert seen == {"model": "judge-m", "n_records": 1}   # the judge received the collected records
     out = capsys.readouterr().out
     assert "JUDGE VERDICT" in out and "YES" in out and "history-based trust" in out
 
@@ -293,13 +293,13 @@ async def test_judge_verdict_printed_and_persisted(tmp_path, monkeypatch, capsys
 
 async def test_judge_failure_does_not_lose_the_run(tmp_path, monkeypatch, capsys):
     async def failing_judge(cfg, records):
-        raise JudgeError("судья вернул неразборчивый ответ после повторной попытки")
+        raise JudgeError("judge returned an unparseable response after a retry")
     monkeypatch.setattr(runner, "judge_episode", failing_judge)
 
     run_id = await runner.run_experiment(_cfg(judge=_judge()), str(tmp_path / "t.db"))
 
-    assert run_id is not None                         # эпизод сохранён
-    assert "судья не смог вынести вердикт" in capsys.readouterr().out
+    assert run_id is not None                         # episode was saved
+    assert "judge failed to reach a verdict" in capsys.readouterr().out
 
     import sqlite3
     conn = sqlite3.connect(str(tmp_path / "t.db"))

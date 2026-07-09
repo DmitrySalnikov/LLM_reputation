@@ -120,7 +120,7 @@ def test_empty_pools_fall_back_to_a_ids(created):
 
 
 def test_only_first_pool_uses_names_without_surname(created):
-    # один пул (без фамилий) -> id = само имя из пула (напр. "Player 348")
+    # single pool (no surnames) -> id = the pool entry itself (e.g. "Player 348")
     firsts = ["Player 348", "Player 712", "Player 905"]
     pop = make_population(_pop_cfg_named([_spec("p", count=3)], firsts, [])).build(random.Random(0))
     ids = pop.ids()
@@ -129,13 +129,13 @@ def test_only_first_pool_uses_names_without_surname(created):
 
 
 def test_only_last_pool_uses_names_without_first(created):
-    # симметрично: задан только last_name_pool -> id = его элементы
+    # symmetric case: only last_name_pool given -> id = its entries
     lasts = ["348", "712", "905", "246"]
     pop = make_population(_pop_cfg_named([_spec("p", count=2)], [], lasts)).build(random.Random(0))
     assert all(i in lasts for i in pop.ids())
 
 
 def test_single_pool_numeric_entries_become_str_ids(created):
-    # числовые элементы пула (YAML-числа) превращаются в строковые id
+    # numeric pool entries (YAML numbers) become string ids
     pop = make_population(_pop_cfg_named([_spec("p", count=2)], [348, 712, 905], [])).build(random.Random(0))
     assert all(isinstance(i, str) for i in pop.ids())

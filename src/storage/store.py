@@ -15,17 +15,17 @@ from src.matchmaking import RoundPlan
 from src.population import Population
 from src.storage.schema import init_schema
 
-# Исход с точки зрения A -> с точки зрения B (как _FLIP в reputation_pd).
+# Outcome from A's perspective -> from B's perspective (same as _FLIP in reputation_pd).
 _FLIP = {"CC": "CC", "DD": "DD", "DC": "CD", "CD": "DC"}
 
 
 @dataclass
 class RunState:
-    """Снимок прогона, восстановленный из БД для возобновления (resume).
+    """A run snapshot reconstructed from the DB for resuming.
 
-    last_round — номер последнего записанного раунда (0, если их нет). scores — накопленный
-    счёт по агенту. memories — восстановленная Memory по агенту (дневник + заметки), готовая
-    к наложению на свежесобранную популяцию (A4)."""
+    last_round — the index of the last recorded round (0 if none). scores — the accumulated
+    score per agent. memories — the reconstructed Memory per agent (diary + notes), ready to
+    be overlaid onto a freshly built population (A4)."""
 
     last_round: int
     scores: dict[str, float]
@@ -33,12 +33,13 @@ class RunState:
 
 
 def _hash_config_dict(d: dict) -> str:
-    """Хеш «дизайна эксперимента»: конфиг без `judge` и без `rounds`.
+    """Hash of the "experiment design": the config without `judge` and without `rounds`.
 
-    `judge` — аналитика, не геймплей. `rounds` исключён намеренно: при per-round rng раунд r
-    одинаков независимо от общей длины, поэтому «20 раундов» — это «10 раундов», доигранные
-    дальше; число раундов — «докуда досимулировали», а не часть идентичности дизайна. Значит
-    прогон, его повторы и его продолжения разной длины делят один config_hash (одна «семья»)."""
+    `judge` is analytics, not gameplay. `rounds` is excluded deliberately: with per-round
+    rng, round r is identical regardless of the total length, so "20 rounds" is just "10
+    rounds" played further; the round count is "how far the simulation got", not part of the
+    design's identity. Hence a run, its repeats, and its extensions of different lengths
+    share one config_hash (one "family")."""
     d = dict(d)
     d.pop("judge", None)
     d.pop("rounds", None)
@@ -47,8 +48,8 @@ def _hash_config_dict(d: dict) -> str:
 
 
 def _config_hash(cfg: EpisodeCfg) -> str:
-    """config_hash прогона — хеш дизайна (см. _hash_config_dict). Не идентичность прогона
-    (она — целочисленный runs.run_id), а метка для группировки прогонов одного дизайна."""
+    """A run's config_hash — the design hash (see _hash_config_dict). Not the run's identity
+    (that's the integer runs.run_id), but a tag for grouping runs of the same design."""
     return _hash_config_dict(asdict(cfg))
 
 
@@ -69,22 +70,22 @@ class Storage:
 
     @property
     def conn(self) -> sqlite3.Connection:
-        """Доступ к соединению на чтение (реконструкция записей, выборка прогонов)."""
+        """Read-only access to the connection (reconstructing records, listing runs)."""
         return self._conn
 
     def has_verdict(self, run_id: int) -> bool:
-        """True, если у прогона уже есть вердикт судьи."""
+        """True if the run already has a judge verdict."""
         row = self._conn.execute(
             "SELECT 1 FROM judge_verdicts WHERE run_id=?", (run_id,)
         ).fetchone()
         return row is not None
 
     def begin(self, cfg: EpisodeCfg, pop: Population, name: str | None = None) -> int:
-        """Step 0: write the run + agents; returns run_id — целочисленный автоинкремент.
+        """Step 0: write the run + agents; returns run_id — an integer autoincrement.
 
-        Каждый вызов создаёт НОВЫЙ прогон (дедупа по конфигу больше нет: повторный запуск
-        того же конфига — это новый номер). Метка конфига едет в config_hash. `name` —
-        опциональный человеческий ярлык (метаданные)."""
+        Every call creates a NEW run (there is no longer config-based dedup: re-running the
+        same config gets a new number). The config's tag goes into config_hash. `name` is an
+        optional human-readable label (metadata)."""
         with self._conn:
             cur = self._conn.execute(
                 "INSERT INTO runs(name, config, config_hash, seed, created_at) VALUES (?,?,?,?,?)",
@@ -102,17 +103,18 @@ class Storage:
         return run_id
 
     def is_finished(self, run_id: int) -> bool:
-        """True, если прогон доигран (проставлен finished_at); False для оборванного/отсутствующего."""
+        """True if the run has been played to completion (finished_at is set); False for an
+        interrupted or missing run."""
         row = self._conn.execute(
             "SELECT finished_at FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
         return bool(row and row[0])
 
     def unfinished_runs(self) -> list[tuple[int, str | None]]:
-        """Все недоигранные прогоны (finished_at IS NULL) как (run_id, name), по возрастанию id.
+        """All unfinished runs (finished_at IS NULL) as (run_id, name), in ascending id order.
 
-        Нужно сводным скриптам (research.py), которые сперва доигрывают оборванное, затем
-        добивают недостающее."""
+        Needed by aggregate scripts (research.py), which first finish off interrupted runs
+        and then fill in what's missing."""
         return [
             (row[0], row[1])
             for row in self._conn.execute(
@@ -121,28 +123,29 @@ class Storage:
         ]
 
     def run_id_by_name(self, name: str) -> int | None:
-        """run_id первого прогона с таким именем (или None). Имя — человеческая метка прогона;
-        сводный скрипт ищет по нему, что уже посчитано/начато (resume по run_id)."""
+        """run_id of the first run with this name (or None). The name is a human-readable run
+        label; the aggregate script uses it to look up what has already been computed or
+        started (resume by run_id)."""
         row = self._conn.execute(
             "SELECT run_id FROM runs WHERE name=? ORDER BY run_id LIMIT 1", (name,)
         ).fetchone()
         return row[0] if row else None
 
     def run_config(self, run_id: int) -> str | None:
-        """Вернуть сохранённый config (JSON-строка) прогона или None, если его нет.
-        Используется при возобновлении: из него восстанавливается EpisodeCfg."""
+        """Return the run's stored config (JSON string), or None if it has none.
+        Used when resuming: EpisodeCfg is reconstructed from it."""
         row = self._conn.execute(
             "SELECT config FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
         return row[0] if row else None
 
     def resume(self, run_id: int, cfg: EpisodeCfg) -> None:
-        """Подготовить Storage к дозаписи в существующий прогон (resume/extend).
+        """Prepare Storage to append to an existing run (resume/extend).
 
-        Запоминает run_id (для observe/finish), снимает finished_at (помечаем «в процессе» —
-        если доращивание оборвётся, прогон корректно останется недоигранным) и обновляет
-        config (при extend выросло число раундов; config_hash НЕ трогаем — rounds в него не
-        входит, семья дизайна сохраняется)."""
+        Remembers run_id (for observe/finish), clears finished_at (marking it "in progress" —
+        if the extension is interrupted, the run correctly stays unfinished), and updates the
+        config (on extend the round count grew; config_hash is NOT touched — rounds isn't
+        part of it, so the design family is preserved)."""
         self._run_id = run_id
         with self._conn:
             self._conn.execute(
@@ -151,22 +154,23 @@ class Storage:
             )
 
     def delete_run(self, run_id: int) -> None:
-        """Удалить прогон и все его строки — дочерние таблицы уходят каскадом
-        (FK с ON DELETE CASCADE; PRAGMA foreign_keys=ON выставлен в __init__)."""
+        """Delete the run and all its rows — child tables cascade
+        (FK with ON DELETE CASCADE; PRAGMA foreign_keys=ON is set in __init__)."""
         with self._conn:
             self._conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
 
     def load_state(self, run_id: int, idle_payoff: float) -> RunState:
-        """Восстановить состояние прогона из БД (чистое чтение) для возобновления.
+        """Reconstruct a run's state from the DB (pure read) for resuming.
 
-        По каждому агенту собирает Memory (дневник из messages/pairings, заметки и их границу
-        noted_upto из a_notes/b_notes) и накопленный счёт (сумма payoff доигранных пар +
-        idle_payoff за пропущенные раунды), плюс номер последнего записанного раунда. Записи
-        строятся в порядке раундов, чтобы поле score («счёт ДО раунда») в дневнике совпадало
-        с живым прогоном.
+        For each agent, gathers Memory (a diary from messages/pairings, notes and their
+        boundary noted_upto from a_notes/b_notes) and the accumulated score (sum of payoffs
+        from finished pairs + idle_payoff for skipped rounds), plus the index of the last
+        recorded round. Entries are built in round order so that the score field ("score
+        BEFORE the round") in the diary matches a live run.
 
-        Сорванные пары (finished=0) в память и счёт не входят — как и в живой игре их агенты
-        в тот раунд не доиграли. idle_payoff передаётся из конфига (в БД его нет)."""
+        Aborted pairs (finished=0) are excluded from memory and score — just as in a live
+        game their agents didn't finish that round. idle_payoff is passed in from the config
+        (it isn't in the DB)."""
         c = self._conn
         agent_ids = [r[0] for r in c.execute(
             "SELECT agent_id FROM agents WHERE run_id=? ORDER BY agent_id", (run_id,))]
@@ -191,7 +195,7 @@ class Storage:
             pair_by_round[row[0]].append(row)
 
         for ri in rounds:
-            for aid in idle_by_round.get(ri, ()):          # idle: только счёт, без записи в дневник
+            for aid in idle_by_round.get(ri, ()):          # idle: score only, no diary entry
                 if aid in running:
                     running[aid] += idle_payoff
             for row in pair_by_round.get(ri, ()):
@@ -199,7 +203,7 @@ class Storage:
                  a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
                  a_reflection, b_reflection, a_notes, b_notes) = row
                 transcript = self._load_transcript(run_id, ri, pair_idx)
-                # сторона A — как есть; сторона B — зеркалим перспективу (партнёр, числа, исход)
+                # side A — as-is; side B — mirror the perspective (partner, numbers, outcome)
                 self._restore_entry(memories[a_id], running, a_id, ri, b_id, transcript,
                                     a_number, a_rationale, b_number, a_outcome,
                                     a_payoff, b_payoff, a_predicted, a_reflection, a_notes)
@@ -224,7 +228,7 @@ class Storage:
                        partner: str, transcript: list[dict], my_number, my_rationale,
                        partner_number, outcome, payoff, partner_payoff, my_predicted,
                        my_reflection, notes) -> None:
-        # score — счёт ДО этого раунда (как в живом _remember: agent.score - payoff)
+        # score — the score BEFORE this round (same as in the live _remember: agent.score - payoff)
         memory.add(MemoryEntry(
             round=round, my_id=aid, partner_id=partner, transcript=transcript,
             my_number=my_number, my_rationale=my_rationale or "",
@@ -233,7 +237,7 @@ class Storage:
             my_predicted=my_predicted, my_reflection=my_reflection,
         ))
         running[aid] += payoff
-        if notes is not None:                              # раунд, на котором агент свернул заметки
+        if notes is not None:                              # the round on which the agent folded notes
             memory.set_notes(notes)
 
     def observe(self, round: int, plan: RoundPlan, recs: list[PairingRecord]) -> None:
@@ -274,7 +278,7 @@ class Storage:
                         for ti, t in enumerate(rec.transcript)
                     ],
                 )
-                # L2: сырые вызовы LLM (по одной строке на HTTP-попытку), call_idx — порядок
+                # L2: raw LLM calls (one row per HTTP attempt), call_idx — the order
                 self._conn.executemany(
                     """INSERT INTO llm_calls(
                            run_id, round_idx, pair_idx, call_idx, agent_id, phase, turn_idx,
@@ -304,10 +308,10 @@ class Storage:
             )
 
     def save_verdict(self, verdict: JudgeVerdict, *, model: str, run_id: int | None = None) -> None:
-        """Шаг J: сохранить вердикт LLM-судьи (одна строка на run).
+        """Step J: save the LLM judge's verdict (one row per run).
 
-        run_id=None — текущий прогон (живой путь); явный run_id — для backfill, где одна
-        Storage оценивает много сохранённых прогонов."""
+        run_id=None means the current run (live path); an explicit run_id is for backfill,
+        where one Storage instance evaluates many stored runs."""
         rid = run_id if run_id is not None else self._run_id
         with self._conn:
             self._conn.execute(
@@ -324,9 +328,9 @@ class Storage:
             )
 
     def save_keyword_count(self, count: KeywordCount, *, run_id: int) -> None:
-        """Сохранить счётчик упоминаний термина для прогона (upsert по (run_id, term)).
+        """Save a term-mention count for the run (upsert on (run_id, term)).
 
-        Повторный запуск того же термина для прогона заменяет прежнюю строку."""
+        Re-running the same term for the run replaces the previous row."""
         with self._conn:
             self._conn.execute(
                 """INSERT OR REPLACE INTO

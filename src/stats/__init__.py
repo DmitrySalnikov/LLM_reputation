@@ -1,1 +1,1 @@
-"""Сбор статистики по оценённым судьёй прогонам (emergence rate + интервалы)."""
+"""Collects statistics over judge-scored runs (emergence rate + intervals)."""

@@ -8,7 +8,7 @@ from src.stats.aggregate import aggregate_by_design, load_judged_runs
 
 def test_load_skips_runs_without_verdict(conn):
     add_run(conn, 1, config_hash="d1", emerged=True)
-    add_run(conn, 2, config_hash="d1", emerged=None)   # нет вердикта
+    add_run(conn, 2, config_hash="d1", emerged=None)   # no verdict
     rows = load_judged_runs(conn, [1, 2])
     assert [r.run_id for r in rows] == [1]
     assert rows[0].emerged is True

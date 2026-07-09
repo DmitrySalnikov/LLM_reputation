@@ -12,7 +12,7 @@ class PairingRecord:
     a_id: str
     b_id: str
     transcript: list[dict]          # public cheap-talk: [{speaker, text, ready}]
-    # Результаты пары. NULL/пустые, если пара сорвалась (finished=False, LLM-сбой):
+    # Pairing results. NULL/empty if the pairing was aborted (finished=False, LLM failure):
     a_number: int | None = None
     b_number: int | None = None
     a_rationale: str | None = None  # private; never shown to the partner, kept for analysis
@@ -21,14 +21,14 @@ class PairingRecord:
     a_payoff: float | None = None
     b_payoff: float | None = None
     usage: dict = field(default_factory=dict)   # {"prompt_tokens", "completion_tokens", "calls"}
-    a_predicted: int | None = None  # стратегия prediction; None для direct
+    a_predicted: int | None = None  # prediction strategy; None for direct
     b_predicted: int | None = None
-    a_reflection: str | None = None  # пост-игровая рефлексия; None, если выключена
+    a_reflection: str | None = None  # post-game reflection; None if disabled
     b_reflection: str | None = None
-    a_notes: str | None = None      # memory notes после раунда; None, если в этом раунде не свёртывали
+    a_notes: str | None = None      # memory notes after the round; None if not consolidated this round
     b_notes: str | None = None
-    finished: bool = True           # False = пара сорвана LLM-сбоем (результатов нет)
-    llm_calls: list = field(default_factory=list)   # сырые LLMCall'ы пары (L2-лог)
+    finished: bool = True           # False = pairing aborted by an LLM failure (no results)
+    llm_calls: list = field(default_factory=list)   # raw LLMCall's of the pairing (L2 log)
 
 
 class Game(Protocol):

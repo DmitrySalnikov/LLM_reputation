@@ -11,7 +11,7 @@ from replay import (
 
 def test_readable_starts_content_body_on_new_line():
     out = _readable('"content": "Your memory\\nof rounds"')
-    assert out == '"content": "\nYour memory\nof rounds"'   # тело начинается с новой строки
+    assert out == '"content": "\nYour memory\nof rounds"'   # body starts on a new line
 
 
 def test_readable_unescapes_quotes():
@@ -32,7 +32,7 @@ def test_preview_empty_for_none_or_blank():
 
 
 def test_expand_newlines_turns_escaped_into_real():
-    assert _expand_newlines("a\\nb") == "a\nb"        # два символа \n -> реальный перевод строки
+    assert _expand_newlines("a\\nb") == "a\nb"        # two \n characters -> a real newline
 
 
 def test_expand_newlines_passes_through_none():
@@ -62,7 +62,7 @@ def test_roster_line_falls_back_to_legacy_persona():
 
 
 def test_roster_names_slices_ids_by_count():
-    # ids — agent_id'ы прогона в порядке сборки; режутся по count каждого спека
+    # ids — the run's agent_ids in build order; sliced by each spec's count
     specs = [{"count": 2}, {"count": 3}]
     ids = ["Player 1", "Player 2", "Player 3", "Player 4", "Player 5"]
     assert _roster_names(specs, ids) == [["Player 1", "Player 2"],
@@ -87,7 +87,7 @@ def test_highlight_passthrough_when_off():
 
 
 def test_load_verdict_none_for_old_db_without_table():
-    conn = sqlite3.connect(":memory:")               # БД без таблицы judge_verdicts
+    conn = sqlite3.connect(":memory:")               # DB without a judge_verdicts table
     try:
         assert load_verdict(conn, "whatever") is None
     finally:

@@ -65,7 +65,7 @@ async def test_input_not_mutated():
 # ---- Slice 3: determinism + seams + integration with the game ----
 
 async def test_deterministic_same_seed():
-    # детерминизм теперь у вызывающего: одинаково засеянный rng -> одинаковая разбивка
+    # determinism is now the caller's responsibility: identically seeded rng -> identical partition
     ids = _ids(6)
     mm_a, mm_b = _mm(ids), _mm(ids)
     for r in range(5):

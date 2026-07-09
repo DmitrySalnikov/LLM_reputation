@@ -30,8 +30,8 @@ class FixedProvider:
 
 
 class FailAfterProvider:
-    """Отдаёт ok-DECIDE первые `ok_calls` раз, затем бросает ProviderUnavailable —
-    чтобы проверить остановку эпизода на сорванной паре после записанных раундов."""
+    """Returns ok-DECIDE the first `ok_calls` times, then raises ProviderUnavailable —
+    to verify the episode stops on the broken pair after the recorded rounds."""
 
     def __init__(self, cfg, ok_calls: int):
         self.cfg = cfg
@@ -99,15 +99,15 @@ async def test_run_episode_drives_rounds(providers):
 
 
 async def test_resume_from_start_round_skips_earlier_and_reproduces_pairings(providers):
-    # per-round rng -> пара раунда r одинакова, гоним мы с 1-го или «возобновляем» с 3-го
+    # per-round rng -> round r's pairing is the same whether we run from round 1 or "resume" from round 3
     full = {}
     await _run(_cfg(n=4, rounds=4), observer=lambda r, p, recs: full.__setitem__(r, p.pairings))
     resumed = {}
     await _run(_cfg(n=4, rounds=4),
                observer=lambda r, p, recs: resumed.__setitem__(r, p.pairings),
                start_round=3)
-    assert set(resumed) == {3, 4}                                   # раунды 1–2 пропущены
-    assert resumed[3] == full[3] and resumed[4] == full[4]          # те же пары, что в полном прогоне
+    assert set(resumed) == {3, 4}                                   # rounds 1-2 skipped
+    assert resumed[3] == full[3] and resumed[4] == full[4]          # the same pairings as in the full run
 
 
 async def test_observer_gets_each_round(providers):
@@ -130,20 +130,20 @@ async def test_sync_observer_supported(providers):
 
 
 async def test_aborts_after_recording_round_on_llm_failure(monkeypatch):
-    # n=2, max_talk_turns=0 -> 1 пара/раунд = 2 decide-вызова; ok_calls=2 -> раунд 1 цел, раунд 2 рвётся
+    # n=2, max_talk_turns=0 -> 1 pair/round = 2 decide calls; ok_calls=2 -> round 1 intact, round 2 breaks
     monkeypatch.setattr(popbase, "make_provider", lambda cfg: FailAfterProvider(cfg, ok_calls=2))
     seen = []
     with pytest.raises(orch.EpisodeAborted) as ei:
         await _run(_cfg(n=2, rounds=3), observer=lambda r, plan, recs: seen.append((r, recs)))
-    assert ei.value.round == 2                         # упал на раунде 2, не на 3
-    assert [r for r, _ in seen] == [1, 2]              # раунд 1 И сорванный раунд 2 записаны
-    assert seen[0][1][0].finished is True              # раунд 1 доигран
-    assert seen[1][1][0].finished is False             # раунд 2 сорван
+    assert ei.value.round == 2                         # failed on round 2, not round 3
+    assert [r for r, _ in seen] == [1, 2]              # round 1 AND the broken round 2 are recorded
+    assert seen[0][1][0].finished is True              # round 1 played to completion
+    assert seen[1][1][0].finished is False             # round 2 broken
 
 
 async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
-    # provider raises -> пара ловит сбой (finished=0) -> run_episode бросает EpisodeAborted
-    # -> caller всё равно закрывает провайдеры
+    # provider raises -> the pair catches the failure (finished=0) -> run_episode raises EpisodeAborted
+    # -> the caller still closes the providers
     class BoomProvider:
         def __init__(self, cfg):
             self.closed = 0
@@ -162,8 +162,8 @@ async def test_llm_failure_aborts_episode_and_closes_providers(monkeypatch):
 
 
 async def test_per_round_game_params_change_via_schedule(providers):
-    # n=2 -> 1 пара/раунд, max_talk_turns=0 -> детерминированный CC (оба берут 4).
-    # patch с раунда 2 меняет payoff R (CC) с 3 на 7. Раунд 1 идёт по базе.
+    # n=2 -> 1 pair/round, max_talk_turns=0 -> deterministic CC (both take 4).
+    # The patch from round 2 changes payoff R (CC) from 3 to 7. Round 1 runs on the base config.
     spec = AgentSpec(count=2)
     cfg = EpisodeCfg(
         seed=0, rounds=3, matchmaker="random",
@@ -173,12 +173,12 @@ async def test_per_round_game_params_change_via_schedule(providers):
         schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"R": 7}}}),),
     )
     pop = await _run(cfg)
-    # CC каждый раунд: R1 → +3, R2 → +7, R3 → +7 (sticky) на каждого из двух агентов
+    # CC every round: R1 → +3, R2 → +7, R3 → +7 (sticky) for each of the two agents
     assert sum(a.score for a in pop) == pytest.approx(2 * (3 + 7 + 7))
 
 
 async def test_schedule_patch_honored_on_resume(providers):
-    # возобновление с раунда 2 должно видеть patch раунда 2 (та же материализация cfg_for_round)
+    # resuming from round 2 must see round 2's patch (same cfg_for_round materialization)
     spec = AgentSpec(count=2)
     cfg = EpisodeCfg(
         seed=0, rounds=2, matchmaker="random",
@@ -187,12 +187,12 @@ async def test_schedule_patch_honored_on_resume(providers):
         game=GameCfg(max_talk_turns=0, payoffs=Payoffs(R=3)),
         schedule=(ChangePoint(from_round=2, patch={"game": {"payoffs": {"R": 7}}}),),
     )
-    pop = await _run(cfg, start_round=2)             # играем только раунд 2 (R=7)
+    pop = await _run(cfg, start_round=2)             # playing only round 2 (R=7)
     assert sum(a.score for a in pop) == pytest.approx(2 * 7)
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):
-    # стратегия теперь per-agent: вся популяция — prediction/one_above
+    # strategy is now per-agent: the whole population is prediction/one_above
     spec = AgentSpec(count=n, play_strategy="prediction", prediction_mapping="one_above")
     return EpisodeCfg(
         seed=seed,

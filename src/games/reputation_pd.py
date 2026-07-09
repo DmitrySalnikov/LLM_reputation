@@ -18,11 +18,12 @@ _FLIP = {"CC": "CC", "DD": "DD", "DC": "CD", "CD": "DC"}
 class ReputationPD:
     def __init__(self, cfg: GameCfg, strategy: PlayStrategy | None = None):
         self.cfg = cfg
-        # Правила больше не собираются здесь: весь system (с правилами) задаётся одной строкой
-        # AgentSpec.system_prompt, а payoff'ы подставляются в Agent.system_prompt из Phase.game_cfg.
-        # Стратегия теперь живёт на агенте (agent.setup.play_strategy). Объект собирается
-        # лениво и кэшируется по (play_strategy, prediction_mapping). Явно переданный
-        # `strategy` — однородный override (для тестов и простого случая) поверх per-agent.
+        # The rules are no longer assembled here: the whole system (with the rules) is given as
+        # a single string in AgentSpec.system_prompt, and the payoffs are substituted into
+        # Agent.system_prompt from Phase.game_cfg. The strategy now lives on the agent
+        # (agent.setup.play_strategy). The object is built lazily and cached by
+        # (play_strategy, prediction_mapping). An explicitly passed `strategy` is a uniform
+        # override (for tests and the simple case) on top of the per-agent one.
         self._override = strategy
         self._strategy_cache: dict[tuple[str, str], PlayStrategy] = {}
 
@@ -32,7 +33,7 @@ class ReputationPD:
         key = (agent.setup.play_strategy, agent.setup.prediction_mapping)
         st = self._strategy_cache.get(key)
         if st is None:
-            from src.strategy.base import make_strategy  # ленивый импорт: цикл games<->strategy
+            from src.strategy.base import make_strategy  # lazy import: games<->strategy cycle
             st = make_strategy(key[0], key[1], self.cfg)
             self._strategy_cache[key] = st
         return st
@@ -49,15 +50,16 @@ class ReputationPD:
 
     async def play_pairing(self, a: Agent, b: Agent, round: int) -> PairingRecord:
         # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
-        # Сырьё каждого LLM-вызова копим инкрементально: при LLM-сбое (ProviderError) пара
-        # не падает, а возвращается как сорванная (finished=False) со всем накопленным L2-логом.
+        # The raw data of every LLM call is accumulated incrementally: on an LLM failure
+        # (ProviderError) the pairing doesn't crash, but is returned as aborted
+        # (finished=False) with the whole accumulated L2 log.
         transcript: list[dict] = []
-        post_calls: list = []        # вызовы decide/predict/reflect (talk-каллы — из transcript)
+        post_calls: list = []        # decide/predict/reflect calls (talk calls come from transcript)
         try:
             await self._cheap_talk(a, b, round, transcript)
-            feed_a = self._feed(transcript, a.id)   # эгоцентрично: свои реплики помечены <you>
+            feed_a = self._feed(transcript, a.id)   # egocentric: its own turns are tagged <you>
             feed_b = self._feed(transcript, b.id)
-            # Та же причина закрытия, что увидят агенты в истории этого раунда (см. memory).
+            # The same closing reason the agents will see in this round's history (see memory).
             reason = (self.cfg.reason_agreed if both_agreed(transcript, a.id, b.id)
                       else self.cfg.reason_limit)
             da = await self._strategy_for(a).decide(a, b.id, round, feed_a, reason)
@@ -72,8 +74,8 @@ class ReputationPD:
             ra = rb = None
             usages = [t["usage"] for t in transcript] + [da.usage, db.usage]
             if self.cfg.reflection:
-                # Рефлексия идёт до записи в память: факты раунда приходят через контекст,
-                # а дневник агента ещё показывает только прошлые раунды.
+                # Reflection happens before the memory write: the round's facts arrive via
+                # the context, while the agent's diary still shows only past rounds.
                 ra, ua, ca = await self._reflect(a, b.id, round, feed_a, x, y, pa)
                 post_calls += list(ca)
                 rb, ub, cb = await self._reflect(b, a.id, round, feed_b, y, x, pb)
@@ -84,12 +86,13 @@ class ReputationPD:
             self._remember(a, b.id, round, public, da, y, outcome, pa, pb, ra)
             self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, pa, rb)
 
-            # Memory notes: каждые N раундов агенты сворачивают память в заметки (после
-            # _remember — чтобы текущий раунд уже был в памяти). Note-вызовы привязаны к паре.
-            # Свёртка — по числу сыгранных АГЕНТОМ партий (len(memory.entries) после
-            # _remember), а не по номеру раунда: idle-раунды не считаются, и оба агента
-            # решают независимо. Каждый note-вызов копим сразу (как reflect): если note(b)
-            # сорвётся, успевший L2-лог note(a) не теряется и доезжает в сорванную пару.
+            # Memory notes: every N rounds the agents consolidate their memory into notes
+            # (after _remember — so the current round is already in memory). Note calls are
+            # attached to the pairing. The consolidation trigger is the number of games
+            # PLAYED BY THE AGENT (len(memory.entries) after _remember), not the round number:
+            # idle rounds don't count, and both agents decide independently. Each note call
+            # is accumulated right away (like reflect): if note(b) fails, note(a)'s already
+            # captured L2 log isn't lost and makes it into the aborted pairing.
             na = nb = None
             if self._notes_due(a):
                 na, una, cna = await self._make_notes(a, round)
@@ -119,19 +122,19 @@ class ReputationPD:
     async def _reflect(self, agent: Agent, partner_id: str, round: int, feed: str,
                        my_number: int, partner_number: int,
                        payoff: float) -> tuple[str, tuple[int, int], tuple]:
-        """Запросить у агента рефлексию по вскрытому исходу раунда.
+        """Ask the agent to reflect on the revealed outcome of the round.
 
         Args:
-            agent: Агент, осмысляющий исход.
-            partner_id: Идентификатор партнёра в текущем раунде.
-            round: Номер раунда.
-            feed: Отрендеренная история переговоров.
-            my_number: Число, выбранное самим агентом.
-            partner_number: Число, выбранное партнёром.
-            payoff: Выигрыш агента в этом раунде.
+            agent: The agent making sense of the outcome.
+            partner_id: Identifier of the partner in the current round.
+            round: Round number.
+            feed: Rendered negotiation history.
+            my_number: The number chosen by the agent itself.
+            partner_number: The number chosen by the partner.
+            payoff: The agent's payoff for this round.
 
         Returns:
-            Тройка (текст рефлексии, usage запроса, сырые LLMCall'ы фазы).
+            A triple (reflection text, request usage, raw phase LLMCall's).
         """
         ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
                               my_number=my_number, partner_number=partner_number, payoff=payoff,
@@ -140,27 +143,27 @@ class ReputationPD:
         return res.data["reflection"], res.usage, res.calls
 
     def _notes_due(self, agent: Agent) -> bool:
-        """Пора ли агенту свернуть память: каждые memory_notes_every СЫГРАННЫХ им партий.
+        """Is it time for the agent to consolidate its memory: every memory_notes_every games PLAYED.
 
-        Счётчик партий = len(agent.memory.entries) (одна запись на сыгранный раунд; idle
-        записей не даёт). Вызывается после _remember, поэтому текущий раунд уже учтён."""
+        The game counter = len(agent.memory.entries) (one entry per round played; idle
+        rounds don't add one). Called after _remember, so the current round is already counted."""
         every = self.cfg.memory_notes_every
         return bool(every) and len(agent.memory.entries) % every == 0
 
     async def _make_notes(self, agent: Agent, round: int) -> tuple[str, tuple[int, int], tuple]:
-        """Свернуть память агента в личные заметки (фаза NOTE) и запомнить их в agent.memory.
+        """Consolidate the agent's memory into personal notes (NOTE phase) and store them in agent.memory.
 
-        Агент видит свою память целиком (старые заметки + буфер новых раундов) как history
-        в Agent.act и переписывает её в новые заметки; с этого момента render() шлёт заметки
-        вместо полной истории. Сбой (ProviderError/ActParseError) пробрасывается и обрывает
-        пару, как и любой LLM-вызов.
+        The agent sees its whole memory (old notes + buffer of new rounds) as history in
+        Agent.act and rewrites it into new notes; from this point on render() sends the
+        notes instead of the full history. A failure (ProviderError/ActParseError) propagates
+        and aborts the pairing, like any LLM call.
 
         Args:
-            agent: Агент, сворачивающий свою память.
-            round: Номер раунда (для {round} в шаблоне).
+            agent: The agent consolidating its memory.
+            round: Round number (for {round} in the template).
 
         Returns:
-            Тройка (текст заметок, usage запроса, сырые LLMCall'ы фазы NOTE).
+            A triple (notes text, request usage, raw NOTE-phase LLMCall's).
         """
         ctx = notes_context(self.cfg, round, score=agent.score)
         res = await agent.act(Phase(PhaseKind.NOTE, ctx, game_cfg=self.cfg))
@@ -168,10 +171,11 @@ class ReputationPD:
         return res.data["notes"], res.usage, res.calls
 
     async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict]) -> None:
-        # Наполняет переданный transcript на месте (чтобы при LLM-сбое частичный
-        # cheap-talk и его L2-лог не терялись — каждая реплика несёт свои "calls").
-        # Стоп-правило — подключаемый модуль (src/games/talk_rules.py): skip_turn решает,
-        # молчит ли уже-готовый говорящий (защёлка), is_over — пора ли завершить переговоры.
+        # Fills the passed-in transcript in place (so that on an LLM failure the partial
+        # cheap-talk and its L2 log aren't lost — each turn carries its own "calls").
+        # The stop rule is a pluggable module (src/games/talk_rules.py): skip_turn decides
+        # whether an already-ready speaker stays silent (latch), is_over decides whether it's
+        # time to end the negotiation.
         rule = make_talk_rule(self.cfg.talk_stop_rule)
         ready = {a.id: False, b.id: False}
         order = [a, b]  # a opens; the matcher sets orientation via pairing order
@@ -192,10 +196,10 @@ class ReputationPD:
                     "text": res.public_text,
                     "ready": res.data["ready"],
                     "usage": res.usage,
-                    "calls": res.calls,      # сырой L2-лог реплики (turn_idx доклеит игра)
+                    "calls": res.calls,      # raw L2 log of the turn (turn_idx is added by the game)
                 }
             )
-            # next_ready решает, перезаписать флаг сигналом (отзываемо) или защёлкнуть (липко).
+            # next_ready decides whether to overwrite the flag with the signal (revocable) or latch it (sticky).
             ready[cur.id] = rule.next_ready(ready[cur.id], res.data["ready"])
             # Each agent necessarily speaks at least once: ending needs BOTH ready,
             # and an agent is marked ready only after it has spoken.
@@ -203,7 +207,7 @@ class ReputationPD:
                 break
 
     def _feed(self, transcript: list[dict], me_id: str) -> str:
-        # Живой фид текущего раунда — теми же тегами <you>/<имя>, что и история (общий код).
+        # Live feed of the current round — the same <you>/<name> tags as the history (shared code).
         return render_turns(transcript, me_id, self.cfg.msg_self, self.cfg.msg_partner)
 
     def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
@@ -220,7 +224,7 @@ class ReputationPD:
                 outcome=outcome,
                 payoff=payoff,
                 partner_payoff=partner_payoff,
-                score=agent.score - payoff,   # счёт ДО этого раунда — как в фазовом хедере
+                score=agent.score - payoff,   # score BEFORE this round — as in the phase header
                 my_predicted=mine.predicted,
                 my_reflection=reflection,
             )
@@ -232,7 +236,7 @@ def _public(transcript: list[dict]) -> list[dict]:
 
 
 def _talk_calls(transcript: list[dict]) -> list:
-    """Собрать LLMCall'ы реплик cheap-talk, проставив каждому turn_idx (индекс в transcript)."""
+    """Collect the LLMCall's of cheap-talk turns, stamping each with turn_idx (index in transcript)."""
     out: list = []
     for ti, t in enumerate(transcript):
         out += [replace(c, turn_idx=ti) for c in t.get("calls", ())]
@@ -240,7 +244,7 @@ def _talk_calls(transcript: list[dict]) -> list:
 
 
 def _usage_from_calls(calls: list) -> dict:
-    """Usage сорванной пары — суммарные токены и число HTTP-вызовов из её L2-лога."""
+    """Usage of an aborted pairing — total tokens and number of HTTP calls from its L2 log."""
     return {
         "prompt_tokens": sum(c.prompt_tokens for c in calls),
         "completion_tokens": sum(c.completion_tokens for c in calls),

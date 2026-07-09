@@ -1,10 +1,10 @@
-"""Реестр чистых отображений предсказания партнёра в итоговый выбор."""
+"""Registry of pure mappings from a partner prediction to the final choice."""
 
 from __future__ import annotations
 
 from typing import Callable
 
-# Чистая функция: предсказанное число партнёра -> собственный выбор (0..9).
+# Pure function: partner's predicted number -> own choice (0..9).
 PredictionMapping = Callable[[int], int]
 
 _REGISTRY: dict[str, PredictionMapping] = {
@@ -14,21 +14,21 @@ _REGISTRY: dict[str, PredictionMapping] = {
 
 
 def get_mapping(name: str) -> PredictionMapping:
-    """Вернуть функцию отображения по имени.
+    """Return the mapping function by name.
 
     Args:
-        name: Имя отображения, зарегистрированное в реестре.
+        name: Name of the mapping registered in the registry.
 
     Returns:
-        Чистая функция отображения предсказания в выбор.
+        Pure function mapping a prediction to a choice.
 
     Raises:
-        ValueError: Если имя отображения не зарегистрировано.
+        ValueError: If the mapping name is not registered.
     """
     try:
         return _REGISTRY[name]
     except KeyError:
         raise ValueError(
-            f"неизвестное отображение предсказания: {name!r}; "
-            f"доступны: {sorted(_REGISTRY)}"
+            f"unknown prediction mapping: {name!r}; "
+            f"available: {sorted(_REGISTRY)}"
         ) from None

@@ -72,9 +72,12 @@ Running an episode needs a reachable provider; the API key is read from `.env`
 
 ## Critical conventions (apply to nearly every task)
 
-- Docstrings (Google-style), `print`s, logging, and error messages are in
-  **Russian**; established English terms (payoff, cheap-talk, matchmaker) stay
-  untranslated. LLM-facing prompt text is **English** (`src/games/prompts.py`).
+- Docstrings (Google-style), `print`s, raised exception messages, logging
+  (`_log.debug/info/warning/error`, `logging.*` calls), and inline `#` comments
+  are all in **English** for this project, in both `src/`/root scripts and
+  `tests/` — this overrides the user's global default of Russian for these
+  categories. LLM-facing prompt text is **English** (`src/games/prompts.py`),
+  as before.
 - TDD: write the failing test first (AAA, behavioural name), then minimal code.
 - Manage dependencies only via `uv` (`uv add` / `uv remove` / `uv sync`) — never
   `pip` / `poetry`.

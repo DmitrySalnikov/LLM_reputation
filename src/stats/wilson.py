@@ -4,25 +4,25 @@ import math
 
 
 def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """Доверительный интервал Вилсона для доли k/n (по умолчанию 95%, z=1.96).
+    """Wilson confidence interval for the proportion k/n (95% by default, z=1.96).
 
-    Корректен у краёв 0/1 и при малом n, в отличие от нормального приближения (Wald).
+    Accurate near the 0/1 edges and for small n, unlike the normal (Wald) approximation.
 
     Args:
-        k: Число «успехов» (прогонов, где институт репутации возник).
-        n: Общее число испытаний (оценённых прогонов). Должно быть > 0.
-        z: z-квантиль (1.96 ≈ 95%).
+        k: Number of "successes" (runs where the reputation institution emerged).
+        n: Total number of trials (scored runs). Must be > 0.
+        z: z-quantile (1.96 ≈ 95%).
 
     Returns:
-        Пара (lo, hi), обрезанная в [0, 1].
+        A pair (lo, hi), clipped to [0, 1].
 
     Raises:
-        ValueError: n <= 0 или k вне диапазона [0, n].
+        ValueError: n <= 0 or k outside the range [0, n].
     """
     if n <= 0:
-        raise ValueError("n должно быть > 0")
+        raise ValueError("n must be > 0")
     if not 0 <= k <= n:
-        raise ValueError("k должно быть в диапазоне [0, n]")
+        raise ValueError("k must be within [0, n]")
     p = k / n
     denom = 1 + z * z / n
     center = (p + z * z / (2 * n)) / denom

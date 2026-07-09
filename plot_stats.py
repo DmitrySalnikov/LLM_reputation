@@ -1,8 +1,8 @@
-"""Визуализация emergence rate по дизайнам со статистическими ошибками (интервал Вилсона).
+"""Visualize emergence rate by design with statistical error bars (Wilson interval).
 
-Читает stats.json (артефакт collect_stats.py) и строит столбчатую диаграмму: высота столбца —
-доля прогонов с возникновением института репутации, асимметричные усы — 95% интервал Вилсона.
-Сохраняет PNG.
+Reads stats.json (an artifact of collect_stats.py) and builds a bar chart: bar height is
+the share of runs where the reputation institution emerged, asymmetric whiskers are the
+95% Wilson interval. Saves a PNG.
 
     uv run python plot_stats.py [--in stats.json] [--out stats.png] [--title TEXT]
 """
@@ -14,25 +14,25 @@ import sys
 
 import matplotlib
 
-matplotlib.use("Agg")            # рендер в файл без дисплея
-import matplotlib.pyplot as plt  # noqa: E402 (после use("Agg"))
+matplotlib.use("Agg")            # render to a file without a display
+import matplotlib.pyplot as plt  # noqa: E402 (after use("Agg"))
 
 
 def load_designs(path: str) -> list[dict]:
-    """Прочитать список дизайнов из stats.json."""
+    """Read the list of designs from stats.json."""
     with open(path, encoding="utf-8") as f:
         return json.load(f).get("designs", [])
 
 
 def render(designs: list[dict], out_path: str,
            title: str = "Emergence of reputation by design") -> None:
-    """Построить bar chart с асимметричными усами интервала Вилсона и сохранить PNG.
+    """Build a bar chart with asymmetric Wilson-interval whiskers and save a PNG.
 
     Raises:
-        ValueError: пустой список дизайнов — рисовать нечего.
+        ValueError: empty list of designs — nothing to draw.
     """
     if not designs:
-        raise ValueError("в stats.json нет дизайнов — нечего рисовать")
+        raise ValueError("stats.json has no designs — nothing to draw")
     labels = [d["name"] or d["config_hash"][:8] for d in designs]
     rates = [d["rate"] for d in designs]
     lo_err = [d["rate"] - d["ci_lo"] for d in designs]
@@ -44,9 +44,9 @@ def render(designs: list[dict], out_path: str,
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylim(0, 1)
-    ax.set_ylabel("Доля прогонов с возникновением института")
+    ax.set_ylabel("Share of runs with an emergent institution")
     ax.set_title(title)
-    for i, d in enumerate(designs):                 # n под каждым столбцом
+    for i, d in enumerate(designs):                 # n under each bar
         ax.text(i, 0.02, f"n={d['n']}", ha="center", va="bottom", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
@@ -63,7 +63,7 @@ def main() -> None:
     out_path = _flag(args, "--out", "stats.png")
     title = _flag(args, "--title", "Emergence of reputation by design")
     render(load_designs(in_path), out_path, title)
-    print(f"Записано: {out_path}")
+    print(f"Written: {out_path}")
 
 
 if __name__ == "__main__":

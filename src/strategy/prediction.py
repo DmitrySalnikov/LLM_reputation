@@ -1,4 +1,4 @@
-"""Стратегия предсказания: предсказать число партнёра, затем отобразить его в выбор."""
+"""Prediction strategy: predict the partner's number, then map it to a choice."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from src.strategy.mappings import PredictionMapping
 
 
 class PredictionStrategy:
-    """Стратегия предсказания: агент предсказывает число партнёра, отображение даёт выбор."""
+    """Prediction strategy: the agent predicts the partner's number, the mapping gives the choice."""
 
     def __init__(self, mapping: PredictionMapping, game_cfg: GameCfg):
-        """Инициализировать стратегию отображением предсказания в выбор.
+        """Initialize the strategy with a prediction-to-choice mapping.
 
         Args:
-            mapping: Чистая функция предсказанное число -> собственный выбор (0..9).
-            game_cfg: Конфигурация игры (шаблон predict_prompt и флаг rationale).
+            mapping: Pure function predicted number -> own choice (0..9).
+            game_cfg: Game configuration (predict_prompt template and rationale flag).
         """
         self._mapping = mapping
         self._game = game_cfg
@@ -25,17 +25,17 @@ class PredictionStrategy:
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, reason: str = "") -> Decision:
-        """Запросить предсказание числа партнёра и отобразить его в финальный выбор.
+        """Ask for a prediction of the partner's number and map it to the final choice.
 
         Args:
-            agent: Агент, принимающий решение.
-            partner_id: Идентификатор партнёра в текущем раунде.
-            round: Номер раунда.
-            feed: Отрендеренная история переговоров.
-            reason: Почему закрылся чат (для строки закрытия в промпте, как в decide).
+            agent: The agent making the decision.
+            partner_id: Partner identifier in the current round.
+            round: Round number.
+            feed: Rendered negotiation history.
+            reason: Why the chat closed (for the closing line in the prompt, same as in decide).
 
         Returns:
-            Решение с итоговым числом (после отображения), предсказанием и обоснованием.
+            Decision with the final number (after mapping), the prediction, and the rationale.
         """
         res = await agent.act(
             Phase(PhaseKind.PREDICT,
