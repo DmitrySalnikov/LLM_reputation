@@ -88,12 +88,12 @@ population:
   provider:
     base_url: https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY
-    model: meta-llama/Meta-Llama-3-8B-Instruct-Lite   # заглушка: research.py переопределяет per model (см. MODELS)
+    model: meta-llama/Meta-Llama-3-8B-Instruct-Lite   # placeholder: research.py overrides per model (see MODELS)
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
-    reasoning: false      # Non-think: reasoning-моделям (DeepSeek-V4-Pro) шлём {"reasoning": {"enabled": false}};
-                          # не-reasoning модели поле игнорируют. reasoning_effort (high/max) — не задан.
+    reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
+                          # non-reasoning models ignore the field. reasoning_effort (high/max) — not set.
   kind: roster
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
 

@@ -39,7 +39,7 @@ JUDGE_CONFIG = "config/experiment.yaml"     # where to take the judge from (this
 JUDGE_DEFAULT = JudgeCfg(provider=ProviderCfg(
     base_url="https://api.together.xyz/v1",
     api_key_env="TOGETHER_API_KEY",
-    model="meta-llama/Meta-Llama-3-8B-Instruct-Lite",
+    model="Qwen/Qwen3-235B-A22B-Instruct-2507-FP8",
 ))
 
 

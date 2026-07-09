@@ -51,25 +51,25 @@ population:
     - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
     - {count: 1, play_strategy: 'direct', system_prompt: *system_defect}
   provider: &provider
-    # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-совместимый)
+    # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-compatible)
     # model: llama3.1:8b
     base_url: https://api.together.xyz/v1
-    api_key_env: TOGETHER_API_KEY             # имя env-переменной с ключом (значение в .env)
+    api_key_env: TOGETHER_API_KEY             # name of the env var with the key (value in .env)
     model: meta-llama/Meta-Llama-3-8B-Instruct-Lite
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
   kind: roster
-  # entries must be UNIQUE, pool size >= число агентов:
-  # оба пула  -> id = "First Last";   один пул -> id = сам элемент (без фамилии);   ни одного -> A1..An.
+  # entries must be UNIQUE, pool size >= number of agents:
+  # both pools -> id = "First Last";   one pool -> id = the entry itself (no surname);   none -> A1..An.
   # first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi, Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
   # last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou, Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon, Takarada, Amasawa]
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
 
 # ── Judge (JudgeCfg, optional) ────────────────────────────
-# Судья ходит ОТДЕЛЬНОЙ моделью на локальном vLLM (OpenAI-совместимый эндпоинт), а НЕ якорем
-# *provider популяции. api_key_env не задан — make_provider подставит dummy-токен sk-noauth,
-# который vLLM по умолчанию игнорирует. Этот блок берёт judge_runs.py для backfill.
+# The judge runs a SEPARATE model on a local vLLM (OpenAI-compatible endpoint), NOT the
+# population's *provider anchor. api_key_env is unset — make_provider supplies a dummy sk-noauth token,
+# which vLLM ignores by default. judge_runs.py uses this block for backfill.
 judge:
   provider:
     base_url: http://localhost:8100/v1
@@ -77,9 +77,9 @@ judge:
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
-    # Qwen3 — reasoning-модель: без этого весь max_tokens уходит в <think>, а content пуст.
-    # vLLM выключает thinking через chat_template_kwargs (флаг {"reasoning":{"enabled":false}}
-    # vLLM игнорирует). После выключения судья отдаёт чистый JSON-вердикт за ~140 токенов.
+    # Qwen3 is a reasoning model: without this all max_tokens go into <think> and content is empty.
+    # vLLM disables thinking via chat_template_kwargs (the {"reasoning":{"enabled":false}} flag
+    # is ignored by vLLM). Once off, the judge returns a clean JSON verdict in ~140 tokens.
     extra_body:
       chat_template_kwargs:
         enable_thinking: false
@@ -87,43 +87,42 @@ judge:
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 6
-  memory_notes_every: 0                # 0 = off (idle не считается)
+  memory_notes_every: 0                # 0 = off (idle rounds don't count)
   payoffs: {R: 3, T: 5, P: 1, S: 0}    # invariants: T > R > P > S and 2R > T + S
-  rationale: false                     # думать ли перед числом: true -> *_prompt, false -> *_prompt_bare
+  rationale: false                     # reason before the number? true -> *_prompt, false -> *_prompt_bare
   reflection: false                    # post-game reflection: an extra LLM call after the outcome
-  talk_stop_rule: both_ready_committed # стоп — когда finish у обоих; различие по двум признакам:
-                                       # both_ready_latch:     выставил finish — замолкаешь, ждёшь второго (finish липкий).
-                                       # both_ready_revocable: говоришь дальше, finish можно отозвать (false снимает согласие).
-                                       # both_ready_committed: говоришь дальше, но finish липкий — отозвать нельзя.
+  talk_stop_rule: both_ready_committed # stop when both set finish; variants differ on two axes:
+                                       # both_ready_latch:     you set finish, go silent, wait for the other (finish is sticky).
+                                       # both_ready_revocable: you keep talking, finish is revocable (false takes it back).
+                                       # both_ready_committed: you keep talking, but finish is sticky — cannot be revoked.
 
   # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
   # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.
-  # NB: правила игры теперь живут в system_prompt агента (см. &system_default выше), а не здесь.
-  #   talk:            {partner} {round} {feed} {opener} (кто открыл раунд)
+  # NB: the game rules now live in the agent's system_prompt (see &system_default above), not here.
+  #   talk:            {partner} {round} {feed}
   #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {reason}; rationale выбирает decide_prompt|decide_prompt_bare
-  #   predict:         {partner} {round} {feed} {reason}; rationale выбирает predict_prompt|predict_prompt_bare
+  #   decide:          {partner} {round} {feed} {reason}; rationale picks decide_prompt|decide_prompt_bare
+  #   predict:         {partner} {round} {feed} {reason}; rationale picks predict_prompt|predict_prompt_bare
   #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
-  #   notes:           {round} {score} (память доезжает как history; нужно при memory_notes_every>0)
-  #   notes_block:      {notes} (обёртка <you> сохранённых заметок; заголовки notes_header/buffer_header — <game>)
-  # Весь вход — один игровой транскрипт: история прошлых раундов (теги <game>/<you>/<имя>, см.
-  # history_*/msg_*/opener_*/reason_* ниже) + текущий раунд. {feed} — реплики текущего раунда
-  # теми же тегами. Свой счёт агент читает из строк результата прошлых раундов, поэтому в
-  # заголовках talk/decide его больше нет; {score} остаётся только в reflect/notes.
-  # (правила игры — в system_prompt агента, см. &system_default выше)
+  #   notes:           {round} {score} (memory arrives as history; used when memory_notes_every>0)
+  #   notes_block:      {notes} (<you> wrapper for saved notes; notes_header/buffer_header are <game>)
+  # The whole input is one game transcript: history of past rounds (tags <game>/<you>/<name>, see
+  # history_*/msg_*/reason_* below) + the current round. {feed} = the current round's messages
+  # with the same tags. The agent reads its own score from past rounds' result lines, so it is
+  # no longer in the talk/decide headers; {score} remains only in reflect/notes.
+  # (game rules — in the agent's system_prompt, see &system_default above)
   talk_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
     <game>Your turn — reply to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
-  # Совпадает с opener_self ниже, плюс хвост с форматом ответа.
   talk_open_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # rationale=false -> активны *_bare шаблоны (только число). rationale: true -> берутся
-  # decide_prompt/predict_prompt (рассуждать перед числом). Оба варианта заданы здесь явно,
-  # чтобы конфиг был самодостаточен (без падения на код-дефолты). {reason} — как закрылся чат.
+  # rationale=false -> the *_bare templates are active (number only). rationale: true -> uses
+  # decide_prompt/predict_prompt (reason before the number). Both variants are given explicitly here,
+  # so the config is self-contained (no falling back to code defaults). {reason} = how the chat closed.
   decide_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
@@ -134,7 +133,7 @@ game:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please, write your number in the following JSON format: {"number": <0-9>}</game>
-  # PREDICT (только при play_strategy=prediction) зеркалит decide — те же строки открытия/закрытия, только директива: предсказать число co-player.
+  # PREDICT (only when play_strategy=prediction) mirrors decide — same open/close lines, only the directive: predict the co-player's number.
   predict_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
@@ -145,11 +144,10 @@ game:
     The chat has been open.</game>
     {feed}
     <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
-  # ── Поправки на ретрае парсинга ─────────────────────────────────────────────
-  # Дописываются к user-сообщению, когда ответ фазы не разобрался (max 2 ретрая). DECIDE/PREDICT
-  # выбирают bare/rationale по тому же флагу rationale, что и сам промпт фазы: при rationale=false
-  # активны *_correction_bare (только {"number"}), при true — *_correction (с rationale). Раньше
-  # текст был зашит в src/core/agent.py и в bare-режиме всё равно требовал rationale — это и был косяк.
+  # ── Parse-retry corrections ─────────────────────────────────────────────
+  # Appended to the user message when a phase reply fails to parse (max 2 retries). DECIDE/PREDICT
+  # pick bare/rationale by the same rationale flag as the phase prompt: with rationale=false the
+  # *_correction_bare ({"number"} only) are active, with true the *_correction (with rationale).
   talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
   decide_correction: 'Respond with ONLY valid JSON, nothing else: {"rationale": "<short reason>", "number": <0-9>}'
   decide_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
@@ -157,15 +155,10 @@ game:
   predict_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
   reflect_correction: 'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
   note_correction: 'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
-  # ── История прошлых раундов: один раунд отрисовывается как игровой транскрипт ──
+  # ── History of past rounds: one round is rendered as a game transcript ──
   history_round_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
-  # {opener} — кто открыл раунд (фраза одинакова в истории и в живом talk). Заданы явно,
-  # чтобы не падать на код-дефолт opener_self с «opponent».
-  opener_self: |-
-    You speak first this round — send a short message to your co-player. Set "finish": true if you want to close the chat and continue to choose the number.
-  opener_partner: "{partner} starts first:"
   msg_self: <you>{text}</you>
   msg_partner: <{partner}>{text}</{partner}>
   history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>
@@ -174,9 +167,9 @@ game:
   history_result_prompt: |-
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
-  # Приватные следы в истории (личный скрэтчпад агента) — каждый под своим флагом; строка
-  # рендерится, только если флаг включён И её поле непусто (предсказание — только у
-  # prediction-агентов, обоснование — при rationale=true, takeaway — при reflection=true).
+  # Private traces in history (the agent's own scratchpad) — each behind its own flag; a line is
+  # rendered only if the flag is on AND its field is non-empty (prediction — prediction agents
+  # only, reasoning — when rationale=true, takeaway — when reflection=true).
   show_predicted: false
   show_rationale: false
   show_reflection: false
