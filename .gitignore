@@ -16,8 +16,5 @@ stats.png
 # Environment secrets (API keys)
 .env
 
-# Local Claude Code instructions (personal, not for the repo)
-CLAUDE.md
-
 # Local git worktrees managed by Claude Code
 .claude/worktrees/

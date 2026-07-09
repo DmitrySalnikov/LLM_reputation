@@ -1,18 +1,13 @@
 # Development
 
 Working conventions for the codebase — language rules, patterns, testing, and how to
-extend the engine. These are binding for any change (including changes made with Claude).
+extend the engine. These are binding for any change.
 
 ## Language
 
 **Everything is in English** — code (docstrings, inline comments), `print`s, logging,
 error messages, LLM-facing prompt text, and docs. Docstrings are Google-style
 (Args / Returns / Raises); see `src/games/prompts.py` for house style.
-
-> Migration note: until 2026-07-09 the codebase kept docstrings, `print`s, logging, and
-> error messages in **Russian**. That rule was dropped — existing Russian strings are being
-> swept to English as a follow-up, so you may still encounter them. **New code must be
-> English.**
 
 ## Code patterns
 

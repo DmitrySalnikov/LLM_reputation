@@ -6,11 +6,14 @@ One **episode** = one YAML config: the orchestrator builds a population, a match
 pairs agents each round, each pair exchanges short messages (cheap-talk) and then
 secretly picks a number 0–9; payoffs reward matching and punish being undercut.
 
+The shared, checked-in documentation lives in `docs/` — keep it in sync after any change
+(see Doc index below).
+
 ## Stack
 
 Python 3.12, asyncio, httpx (OpenAI-compatible LLM calls), PyYAML, python-dotenv.
 Tooling: `uv`, `pytest` + `pytest-asyncio` (auto mode — no `@pytest.mark.asyncio`
-needed). No web framework — everything is driven from `examples/`.
+needed). No web framework — runs are driven from root scripts (`experiment.py`, `research.py`).
 
 ## Project map
 
@@ -18,33 +21,32 @@ needed). No web framework — everything is driven from `examples/`.
 src/
 ├── providers/      OpenAI-compatible HTTP client + retries (Together.ai, Ollama)
 │   ├── base.py         LLMProvider Protocol, Message, Completion, error types
-│   └── openai_compat.py  the real httpx client
+│   └── openai_compat.py  the real httpx client + make_provider
 ├── core/
 │   ├── agent.py        Agent.act: memory + phase context -> LLM -> parsed JSON;
-│   │                   phases TALK/DECIDE/PREDICT/REFLECT; DEBUG trace of LLM input
+│   │                   phases TALK/DECIDE/PREDICT/REFLECT/NOTE; DEBUG trace of LLM input
 │   ├── memory.py       per-agent diary of past rounds, rendered into the prompt
+│   ├── jsonextract.py  lenient JSON extraction (raw / fenced / balanced-brace)
 │   ├── config.py       frozen dataclasses + load_episode + _validate (fail fast)
 │   └── orchestrator.py run_episode: rounds loop, semaphore, observer callback
-├── games/
-│   ├── reputation_pd.py  ReputationPD: cheap-talk loop, resolve, memory writes
-│   ├── prompts.py        English prompt builders (talk/decide/predict/reflect/notes)
-│   ├── talk_rules.py     TalkStopRule Protocol + make_talk_rule (latch | revocable)
-│   └── base.py           PairingRecord, Game Protocol
-├── strategy/       PlayStrategy: direct (pick a number) | prediction (predict
-│                   partner, map via match/one_above) — base.py, mappings.py
-├── judge/          LLM-судья: вердикт о возникновении института репутации
-│                   (один вызов после эпизода, видит только публичный cheap-talk)
+├── games/          reputation_pd.py (ReputationPD), prompts.py (English builders),
+│                   talk_rules.py (TalkStopRule + make_talk_rule), base.py (PairingRecord)
+├── strategy/       PlayStrategy: direct | prediction (map via match/one_above)
+├── judge/          judge.py (LLM judge), keyword.py (deterministic term judge),
+│                   transcript.py (public cheap-talk builder), base.py
 ├── population/     Population (live roster, provider cache) + RosterGenerator
 ├── matchmaking/    Matchmaker Protocol + RandomMatchmaker (disjoint pairs, idle)
-config/             one YAML = one episode (experiment.yaml, example.yaml, example_prediction.yaml)
-examples/           runnable demos; orchestrator_demo.py is the main entry point
+├── storage/        SQLite persistence: schema.py, store.py (Storage), records.py
+├── stats/          verdict aggregation: aggregate.py, wilson.py, selection.py
+└── runner.py       run() / resume_run(): wires the observer to Storage, scores, judges
+config/             one YAML = one episode (experiment.yaml, research.yaml, judge_qwen3_vllm.yaml)
 tests/              mirrors src/; unit tests stub the LLM, smoke tests hit Ollama
-docs/               English overviews + Russian per-layer design docs (see index)
+docs/               checked-in English docs (architecture / configuration / database / development)
 ```
 
 Dependency flow is one-directional bottom→top: providers → core → games/strategy →
-population/matchmaking → orchestrator. `games` and `strategy` reference each other
-via lazy imports (`src/games/reputation_pd.py:20`).
+population/matchmaking → orchestrator → storage/stats/judge/runner. `games` and
+`strategy` reference each other via lazy imports (`src/games/reputation_pd.py`).
 
 ## Commands
 
@@ -53,31 +55,32 @@ uv sync --extra dev                                   # install deps (incl. pyte
 uv run pytest                                          # all tests
 uv run pytest tests/strategy/test_prediction.py       # single test file
 uv run pytest -k resolve                              # by name
-uv run python examples/orchestrator_demo.py                          # run example.yaml episode
-uv run python examples/orchestrator_demo.py config/example_prediction.yaml
-LLM_TRACE=1 uv run python examples/orchestrator_demo.py             # + print exact LLM input per DECIDE/PREDICT call
-uv run python judge_runs.py                            # backfill judge verdicts for stored runs
-uv run python collect_stats.py                         # aggregate verdicts -> stats.json + stats.csv
-uv run python plot_stats.py                            # stats.json -> stats.png (Wilson CI bars)
-uv run python experiment.py [config.yaml] ["run name"]               # one run -> experiment.db
-uv run python research.py                                            # model×game sweep -> research.db (idempotent/resumable)
+uv run python experiment.py [config.yaml] ["run name"]              # one run -> experiment.db
+uv run python experiment.py --resume 87 [--rounds 20]              # finish/extend run #87
+LLM_TRACE=1 uv run python experiment.py                            # + print exact LLM input per DECIDE/PREDICT/REFLECT
+uv run python research.py                             # model×game sweep -> its own DB (idempotent/resumable)
+uv run python replay.py <run_id|config_hash> [-c]    # replay a stored run (no LLM calls)
+uv run python judge_runs.py                           # backfill LLM-judge verdicts
+uv run python keyword_judge.py <term>                 # deterministic term-mention judge
+uv run python find_gossip.py                          # third-player mentions in cheap talk
+uv run python collect_stats.py                        # aggregate verdicts -> stats.json + stats.csv
+uv run python plot_stats.py                           # stats.json -> stats.png (Wilson CI bars)
+uv run python export_runs.py                          # split a DB into per-run .db files
 ```
 
-`research.py` runs a grid (MODELS × `GAMES_PER_MODEL`) into `research.db`; runs are named
-`"<model> <n>"`. It first resumes every unfinished run, then fills missing games by name —
-re-running it just continues where it left off (prints each run's name + `resume`/`calculating`).
+`experiment.py` is the main entry point (there is no `examples/` demo). `research.py`
+runs a grid (MODELS × `GAMES_PER_MODEL`) named `"<model> <n>"`: it first resumes every
+unfinished run, then fills missing games by name, so re-running just continues.
 
 Running an episode needs a reachable provider; the API key is read from `.env`
 (`TOGETHER_API_KEY`). `.env` is gitignored — never commit it.
 
 ## Critical conventions (apply to nearly every task)
 
-- Docstrings (Google-style), `print`s, raised exception messages, logging
-  (`_log.debug/info/warning/error`, `logging.*` calls), and inline `#` comments
-  are all in **English** for this project, in both `src/`/root scripts and
-  `tests/` — this overrides the user's global default of Russian for these
-  categories. LLM-facing prompt text is **English** (`src/games/prompts.py`),
-  as before.
+- **Everything is in English** — docstrings (Google-style), inline `#` comments, `print`s,
+  logging (`_log.*` / `logging.*`), raised exception messages, LLM-facing prompt text
+  (`src/games/prompts.py`), and `docs/` — across `src/`, root scripts, and `tests/`. This
+  overrides the user's global default of Russian for these categories.
 - TDD: write the failing test first (AAA, behavioural name), then minimal code.
 - Manage dependencies only via `uv` (`uv add` / `uv remove` / `uv sync`) — never
   `pip` / `poetry`.
@@ -93,88 +96,69 @@ Running an episode needs a reachable provider; the API key is read from `.env`
   `(system, messages)` calls.
 - Smoke tests (`test_smoke_*_ollama.py`) hit a local Ollama and auto-skip if absent.
 - `pythonpath = ["."]` is set — tests import `src.*` directly.
-- Details and conventions: `docs/testing.md`.
+- Details and conventions: `docs/development.md`.
 </important>
 
 <important if="you are adding a new provider, strategy, matchmaker, population generator, or talk-stop rule">
-Implement the Protocol and register it through its `make_*` factory:
-
-| seam | Protocol | factory |
-|------|----------|---------|
-| provider | `LLMProvider` (`src/providers/base.py`) | `make_provider` (`src/providers/openai_compat.py:115`) |
-| strategy | `PlayStrategy` (`src/strategy/base.py`) | `make_strategy` (`src/strategy/base.py:37`) |
-| matchmaker | `Matchmaker` (`src/matchmaking/base.py`) | `make_matchmaker` (`src/matchmaking/base.py:20`) |
-| population | `PopulationGenerator` (`src/population/base.py`) | `make_population` (`src/population/base.py:67`) |
-| talk-stop rule | `TalkStopRule` (`src/games/talk_rules.py`) | `make_talk_rule` (`src/games/talk_rules.py`) |
-
-If the new kind needs config validation, extend `_validate` in `src/core/config.py`.
+Implement the Protocol and register it through its `make_*` factory (provider →
+`make_provider`, strategy → `make_strategy`, matchmaker → `make_matchmaker`, population
+→ `make_population`, talk-stop rule → `make_talk_rule`). If the new kind needs config
+validation, extend `_validate` in `src/core/config.py`. Table: `docs/development.md`.
 </important>
 
 <important if="you are modifying the orchestrator or the episode run loop">
 - The orchestrator's **only output channel is the `observer` callback**
-  `(round, RoundPlan, list[PairingRecord])`.
+  `(round, RoundPlan, list[PairingRecord])`; persistence lives in the runner, not `src/`.
 - The **caller owns the `Population`**: it builds it and must `await pop.aclose()`
   (in a `finally`).
-- Pairings in a round run concurrently under `asyncio.Semaphore(cfg.max_concurrency)`,
-  fail-fast via `gather`.
-- Deep dive: `docs/architecture.md`.
+- Pairings in a round run concurrently under `asyncio.Semaphore(cfg.max_concurrency)`.
+  LLM failures do NOT fail-fast mid-round: the pairing is returned unfinished
+  (`finished=False`), the round is still emitted, then `EpisodeAborted` is raised at the
+  round boundary (`finished_at` left NULL). Deep dive: `docs/architecture.md`.
 </important>
 
 <important if="you are adding or changing configuration fields or episode YAML">
 - Config objects are frozen dataclasses in `src/core/config.py`; wire new fields
   through the `_*_cfg` builders / `load_episode`.
-- Validate input once at load (`_validate`), fail fast with a Russian message.
+- Validate input once at load (`_validate`), fail fast with a clear message.
 - Provider blocks are shared across agents via YAML anchors; `ProviderCfg` points
   at any OpenAI-compatible `/chat/completions` endpoint.
-- Field reference, anchors, population pools: `docs/configuration.md`.
+- Field reference, anchors, population pools, schedule change-points: `docs/configuration.md`.
 </important>
 
 <important if="you are changing Agent.act, phases, prompts, or memory rendering">
 - The LLM input is assembled in `Agent.act` (`src/core/agent.py`): system =
-  the agent's single `system_prompt` template taken **verbatim** (no more identity+persona+rules
-  assembly), with only `{id}` and the payoff placeholders `{R}/{T}/{P}/{S}/{max_talk_turns}`
-  substituted (the latter from `Phase.game_cfg`). A single user message = memory diary + phase
-  context (+ correction appended on JSON parse retry, max 2 retries, then `ActParseError` — the
-  pairing is aborted, no substitution/fallback). The diary and phase context are glued into one
-  user message (not sent as consecutive same-role messages).
-- JSON extraction is lenient (raw / fenced / balanced-brace); validators per phase.
-- DECIDE/PREDICT inputs are traced at DEBUG via the `src.core.agent` logger
+  the agent's single `system_prompt` template taken **verbatim**, with only `{id}` and
+  the payoff placeholders `{R}/{T}/{P}/{S}/{max_talk_turns}` substituted (the latter from
+  `Phase.game_cfg`). A single user message = memory diary + phase context (+ correction
+  appended on JSON parse retry, then `ActParseError` — the pairing is aborted).
+- All phase prompts are static templates; only named placeholders are substituted.
+  `PREDICT` mirrors `DECIDE`; the `rationale` flag picks the full vs `_bare` template.
+- JSON extraction is lenient (`src/core/jsonextract.py`); validators per phase.
+- DECIDE/PREDICT/REFLECT inputs are traced at DEBUG via the `src.core.agent` logger
   (`_render_trace`); keep the trace in sync if you change prompt assembly.
-- Determinism: `seed` drives population build and a derived matchmaker rng stream;
-  the LLM is the only nondeterministic part.
 </important>
 
 <important if="you are debugging what agents actually see or why they chose a number">
-Run the demo with `LLM_TRACE=1` (env var or `.env`) — it prints the full system
-prompt, memory diary, and decide/predict context per provider attempt. In tests,
-use `caplog.set_level(logging.DEBUG, logger="src.core.agent")` (examples at the
-bottom of `tests/core/test_agent.py`).
+Run `LLM_TRACE=1 uv run python experiment.py` — it prints the full system prompt, memory
+diary, and decide/predict context per provider attempt. In tests, use
+`caplog.set_level(logging.DEBUG, logger="src.core.agent")` (examples at the bottom of
+`tests/core/test_agent.py`).
 </important>
 
-<important if="you need to understand the architecture, game rules, or data flow">
-- `docs/architecture.md` — layers, the game, pairing flow, strategies, seams
-- `docs/conventions.md` — language rules, code patterns, ownership, dependency rules
-
-English overviews link to the authoritative **Russian design docs**, also under `docs/`:
-
-- `docs/agent-games-plan.md` — master plan: research question, fixed contract
-- `docs/agent-games-mvp-arch.md` — MVP code architecture, interfaces, round flow
-- `docs/agent-games-mvp-explained.md` — the five layers in plain words
-- `docs/agent-games-mvp-sequence.md` — one-round sequence diagram (Mermaid)
-- `docs/agent-games-{provider,agent,game,matching,orchestrator}-plan.md` —
-  per-layer design + its test slices
-
-Specs/plans for individual features live in `docs/superpowers/{specs,plans}/`.
+<important if="you need to understand persistence or query stored runs">
+SQLite: `src/storage/schema.py` is the source of truth. Run identity is an incremental
+integer `run_id`; `config_hash` (config minus `judge` and `rounds`) groups a design
+family. Tables, columns, and query patterns: `docs/database.md`.
 </important>
 
 ## Doc index
 
-Read the relevant doc before starting work on a related area:
+Read the relevant doc before starting work on a related area, and update it after:
 
-- `docs/architecture.md` — layered design, ReputationPD rules, pairing flow,
-  strategies, agent phases, LLM input trace, intentional seams (Logger, selection)
-- `docs/configuration.md` — episode YAML reference, provider anchors, population
-  pools, how to add a config knob
-- `docs/testing.md` — unit vs smoke tests, ScriptedProvider, determinism
-- `docs/conventions.md` — Russian/English language rules, code patterns,
-  output ownership, dependency direction
+- `docs/architecture.md` — layered design, ReputationPD rules, pairing flow, strategies,
+  agent phases, memory rendering, persistence, judge, intentional seams
+- `docs/configuration.md` — episode YAML reference, game/population/judge/schedule blocks,
+  provider anchors, resume/extend, how to add a config knob
+- `docs/database.md` — SQLite schema, run_id vs config_hash, how to query runs
+- `docs/development.md` — language rules, code patterns, testing, how to extend the engine

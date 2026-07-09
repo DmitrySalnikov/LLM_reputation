@@ -36,7 +36,7 @@ uv run python experiment.py --resume 87 --rounds 20  # grow #87 to 20 rounds (ex
 `resume_run` reloads the run's stored config, rebuilds the population from the same seed
 (identical agent ids), rehydrates each agent's score and memory from the DB, and plays
 only the missing rounds (`last_round + 1` → target). Past rounds are read from the DB, so
-runs recorded before the per-round-rng change are resumable too. Extending updates
+any stored run is resumable. Extending updates
 `runs.config`'s `rounds` but **not** `config_hash` (which excludes `rounds`), so the run
 stays in its design family. The LLM judge is not re-run on resume/extend.
 
